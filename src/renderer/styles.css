@@ -2119,12 +2119,20 @@ video::cue {
   --lift:       rgba(240, 230, 247, 0.05);
 }
 
-/* The orange in 01, kept to three small places: the ident dot, the mono pair
-   on the row that plays next, and the per-show progress bars (which take the
-   --signal-alt-soft token set above rather than a rule here). All three are
+/* The orange in 01, kept to four small places: the ident dot, the mono pair
+   on the row that plays next, the per-show progress bars (which take the
+   --signal-alt-soft token set above rather than a rule here), and the settings
+   checkboxes. All four are
    already the "attention" slot in every other theme, so nothing had to be
    invented to hang a third colour off — and at this size it reads as a warm
    note in a cold palette rather than as an accent competing with the lime. */
 :root[data-theme="01"] .ident__dot { background: #ff7a1a; }
+/* Both checkbox surfaces in the settings window, not just the plain rows —
+   the play-order table opens out of the same sheet, and a lime tick beside an
+   orange one reads as a bug rather than a distinction. */
+:root[data-theme="01"] .check input,
+:root[data-theme="01"] .lockrow input[type="checkbox"] {
+  accent-color: var(--signal-alt-soft);
+}
 :root[data-theme="01"] .sched:first-child .sched__n,
 :root[data-theme="01"] .sched:first-child .sched__code { color: #ff7a1a; }

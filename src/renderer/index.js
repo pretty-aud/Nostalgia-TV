@@ -2179,11 +2179,11 @@ function applyVolume() {
 }
 
 const THEMES = [
-  'midnight', 'mono', 'marigold', 'cathode',
-  'kawaii', 'neon', 'oceanic', 'nitrate', 'crimson',
-  'forest', 'sunset', 'espresso', 'royal', 'slate',
-  'ember', 'storm', 'arctic', 'mint', 'lilac',
-  'foundry', 'siren', 'signal', 'bone', '01',
+  'midnight', 'signal', 'foundry', 'siren', 'mono',
+  'slate', 'bone', 'ember', 'nitrate', 'espresso',
+  'crimson', 'marigold', 'cathode', 'forest', 'mint',
+  'oceanic', 'storm', 'royal', 'arctic', '01',
+  'neon', 'sunset', 'lilac', 'kawaii',
 ];
 
 /**
