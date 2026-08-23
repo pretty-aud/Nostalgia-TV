@@ -230,6 +230,145 @@
         <div class="modal__body" id="settingsBody">
 
         <section class="setgroup">
+          <h3 class="setgroup__head">Interface</h3>
+
+          <!-- No sub-heading here: the field below is already labelled Theme,
+               and a heading repeating it is just the word twice. The second
+               half of the section gets one, because that is where the subject
+               actually changes. -->
+          <label class="field" id="themeField">
+            <span class="field__label mono">Theme</span>
+            <span class="field__control">
+              <select class="select" id="themeSelect">
+                <option value="midnight">Midnight — dark, amber</option>
+                <option value="mono">Monochrome — black and white</option>
+                <option value="marigold">Marigold — orange, black type</option>
+                <option value="cathode">Cathode — green phosphor</option>
+                <option value="paper">Paper — daylight</option>
+                <option value="kawaii">Kawaii — all pink</option>
+                <option value="neon">Neon — magenta on violet</option>
+                <option value="oceanic">Oceanic — cyan on navy</option>
+                <option value="nitrate">Nitrate — old film stock</option>
+                <option value="crimson">Crimson — late-night horror</option>
+                <option value="forest">Forest — deep green, gold</option>
+                <option value="sunset">Sunset — plum and coral</option>
+                <option value="espresso">Espresso — dark roast, tan</option>
+                <option value="royal">Royal — indigo and gold</option>
+                <option value="slate">Slate — neutral grey, soft blue</option>
+                <option value="ember">Ember — embers on black</option>
+                <option value="storm">Storm — blue-grey, electric yellow</option>
+                <option value="arctic">Arctic — daylight, ice blue</option>
+                <option value="mint">Mint — pale green, magenta</option>
+                <option value="lilac">Lilac — pale lavender, purple</option>
+                <option value="foundry">Foundry — dark grey, burnt orange</option>
+                <option value="siren">Siren — red, black and white</option>
+                <option value="signal">Signal — grey, orange and green</option>
+                <option value="bone">Bone — warm paper, rust</option>
+                <option value="grape">Grape — aubergine and lime</option>
+              </select>
+            </span>
+          </label>
+          <p class="modes__note" id="themeNote"></p>
+
+          <h4 class="setsub">Player text &amp; controls</h4>
+          <label class="field">
+            <span class="field__label mono">Size</span>
+            <span class="field__control">
+              <input type="range" id="uiScaleRange" min="80" max="160" step="5" />
+              <output class="mono" id="uiScaleOut"></output>
+            </span>
+          </label>
+        </section>
+
+        <section class="setgroup">
+          <h3 class="setgroup__head mono">Subtitles</h3>
+
+          <!-- Live sample. Subtitle settings are impossible to judge from
+               numbers, and nobody wants to start an episode to check. -->
+          <div class="cuepreview" id="cuePreview">
+            <span class="cuepreview__text" id="cuePreviewText">The quick brown fox.</span>
+          </div>
+
+          <label class="field">
+            <span class="field__label mono">Colour</span>
+            <span class="field__control">
+              <span class="swatches" id="cueColors" role="group" aria-label="Subtitle colour"></span>
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field__label mono">Font</span>
+            <span class="field__control">
+              <select class="select" id="cueFont">
+                <option value="sans">Sans</option>
+                <option value="serif">Serif</option>
+                <option value="mono">Monospace</option>
+              </select>
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field__label mono">Size</span>
+            <span class="field__control">
+              <input type="range" id="cueSize" min="60" max="220" step="5" />
+              <output class="mono" id="cueSizeOut"></output>
+            </span>
+          </label>
+
+          <label class="check">
+            <input type="checkbox" id="cueBackground" />
+            <span>Box behind the text</span>
+          </label>
+
+          <label class="field" id="cueOpacityField">
+            <span class="field__label mono">Box opacity</span>
+            <span class="field__control">
+              <input type="range" id="cueOpacity" min="0" max="100" step="5" />
+              <output class="mono" id="cueOpacityOut"></output>
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field__label mono">Position</span>
+            <span class="field__control">
+              <span class="modes" id="cuePosition" role="group" aria-label="Subtitle position">
+                <button class="mode" data-pos="top" type="button">Top</button>
+                <button class="mode" data-pos="middle" type="button">Middle</button>
+                <button class="mode" data-pos="bottom" type="button">Bottom</button>
+              </span>
+            </span>
+          </label>
+        </section>
+
+        <!-- One section: all three are about where each show has got to and
+             what is allowed to play next. Split apart, the checkpoint sat two
+             headings away from the reset it exists to undo. Ordered gently to
+             destructively, which is also roughly how often each is wanted. -->
+        <section class="setgroup">
+          <h3 class="setgroup__head">Continuity</h3>
+
+          <h4 class="setsub">Play order</h4>
+          <p class="modes__note" id="lockSummary"></p>
+          <div class="setrow">
+            <button class="btn" id="btnOpenLocks" type="button">Open the play-order table</button>
+            <button class="btn btn--quiet" id="btnResetUnlocks" type="button">Reset unlocks</button>
+          </div>
+
+          <h4 class="setsub">Saved progress</h4>
+          <p class="modes__note" id="manualSaveNote"></p>
+          <div class="setrow">
+            <button class="btn" id="btnManualSave" type="button">Save progress now</button>
+            <button class="btn btn--quiet" id="btnManualLoad" type="button">Load saved progress</button>
+          </div>
+
+          <h4 class="setsub">Start over</h4>
+          <p class="modes__note">Clears every show's place. Nothing on disk is touched.</p>
+          <button class="btn btn--danger" id="btnResetAll" type="button">
+            Reset every show to episode 1
+          </button>
+        </section>
+
+        <section class="setgroup">
           <h3 class="setgroup__head mono">Rotation</h3>
           <div class="modes" id="modeGroup" role="group" aria-label="Rotation mode">
             <button class="mode" data-mode="deck" type="button">One each</button>
@@ -333,140 +472,6 @@
           <label class="check" id="presentationRow" hidden>
             <input type="checkbox" id="presentationToggle" />
             <span>Play a presentation before each movie <span class="mono" id="presentationCount"></span></span>
-          </label>
-        </section>
-
-        <section class="setgroup">
-          <h3 class="setgroup__head">Interface</h3>
-
-          <!-- No sub-heading here: the field below is already labelled Theme,
-               and a heading repeating it is just the word twice. The second
-               half of the section gets one, because that is where the subject
-               actually changes. -->
-          <label class="field" id="themeField">
-            <span class="field__label mono">Theme</span>
-            <span class="field__control">
-              <select class="select" id="themeSelect">
-                <option value="midnight">Midnight — dark, amber</option>
-                <option value="mono">Monochrome — black and white</option>
-                <option value="marigold">Marigold — orange, black type</option>
-                <option value="cathode">Cathode — green phosphor</option>
-                <option value="paper">Paper — daylight</option>
-                <option value="kawaii">Kawaii — all pink</option>
-                <option value="neon">Neon — magenta on violet</option>
-                <option value="oceanic">Oceanic — cyan on navy</option>
-                <option value="nitrate">Nitrate — old film stock</option>
-                <option value="crimson">Crimson — late-night horror</option>
-                <option value="forest">Forest — deep green, gold</option>
-                <option value="sunset">Sunset — plum and coral</option>
-                <option value="espresso">Espresso — dark roast, tan</option>
-                <option value="royal">Royal — indigo and gold</option>
-                <option value="slate">Slate — neutral grey, soft blue</option>
-                <option value="ember">Ember — embers on black</option>
-                <option value="storm">Storm — blue-grey, electric yellow</option>
-                <option value="arctic">Arctic — daylight, ice blue</option>
-                <option value="mint">Mint — pale green, magenta</option>
-                <option value="lilac">Lilac — pale lavender, purple</option>
-              </select>
-            </span>
-          </label>
-          <p class="modes__note" id="themeNote"></p>
-
-          <h4 class="setsub">Player text &amp; controls</h4>
-          <label class="field">
-            <span class="field__label mono">Size</span>
-            <span class="field__control">
-              <input type="range" id="uiScaleRange" min="80" max="160" step="5" />
-              <output class="mono" id="uiScaleOut"></output>
-            </span>
-          </label>
-        </section>
-
-        <!-- One section: all three are about where each show has got to and
-             what is allowed to play next. Split apart, the checkpoint sat two
-             headings away from the reset it exists to undo. Ordered gently to
-             destructively, which is also roughly how often each is wanted. -->
-        <section class="setgroup">
-          <h3 class="setgroup__head">Continuity</h3>
-
-          <h4 class="setsub">Play order</h4>
-          <p class="modes__note" id="lockSummary"></p>
-          <div class="setrow">
-            <button class="btn" id="btnOpenLocks" type="button">Open the play-order table</button>
-            <button class="btn btn--quiet" id="btnResetUnlocks" type="button">Reset unlocks</button>
-          </div>
-
-          <h4 class="setsub">Saved progress</h4>
-          <p class="modes__note" id="manualSaveNote"></p>
-          <div class="setrow">
-            <button class="btn" id="btnManualSave" type="button">Save progress now</button>
-            <button class="btn btn--quiet" id="btnManualLoad" type="button">Load saved progress</button>
-          </div>
-
-          <h4 class="setsub">Start over</h4>
-          <p class="modes__note">Clears every show's place. Nothing on disk is touched.</p>
-          <button class="btn btn--danger" id="btnResetAll" type="button">
-            Reset every show to episode 1
-          </button>
-        </section>
-
-        <section class="setgroup">
-          <h3 class="setgroup__head mono">Subtitles</h3>
-
-          <!-- Live sample. Subtitle settings are impossible to judge from
-               numbers, and nobody wants to start an episode to check. -->
-          <div class="cuepreview" id="cuePreview">
-            <span class="cuepreview__text" id="cuePreviewText">The quick brown fox.</span>
-          </div>
-
-          <label class="field">
-            <span class="field__label mono">Colour</span>
-            <span class="field__control">
-              <span class="swatches" id="cueColors" role="group" aria-label="Subtitle colour"></span>
-            </span>
-          </label>
-
-          <label class="field">
-            <span class="field__label mono">Font</span>
-            <span class="field__control">
-              <select class="select" id="cueFont">
-                <option value="sans">Sans</option>
-                <option value="serif">Serif</option>
-                <option value="mono">Monospace</option>
-              </select>
-            </span>
-          </label>
-
-          <label class="field">
-            <span class="field__label mono">Size</span>
-            <span class="field__control">
-              <input type="range" id="cueSize" min="60" max="220" step="5" />
-              <output class="mono" id="cueSizeOut"></output>
-            </span>
-          </label>
-
-          <label class="check">
-            <input type="checkbox" id="cueBackground" />
-            <span>Box behind the text</span>
-          </label>
-
-          <label class="field" id="cueOpacityField">
-            <span class="field__label mono">Box opacity</span>
-            <span class="field__control">
-              <input type="range" id="cueOpacity" min="0" max="100" step="5" />
-              <output class="mono" id="cueOpacityOut"></output>
-            </span>
-          </label>
-
-          <label class="field">
-            <span class="field__label mono">Position</span>
-            <span class="field__control">
-              <span class="modes" id="cuePosition" role="group" aria-label="Subtitle position">
-                <button class="mode" data-pos="top" type="button">Top</button>
-                <button class="mode" data-pos="middle" type="button">Middle</button>
-                <button class="mode" data-pos="bottom" type="button">Bottom</button>
-              </span>
-            </span>
           </label>
         </section>
 

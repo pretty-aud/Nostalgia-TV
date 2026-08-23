@@ -2183,6 +2183,7 @@ const THEMES = [
   'kawaii', 'neon', 'oceanic', 'nitrate', 'crimson',
   'forest', 'sunset', 'espresso', 'royal', 'slate',
   'ember', 'storm', 'arctic', 'mint', 'lilac',
+  'foundry', 'siren', 'signal', 'bone', 'grape',
 ];
 
 /**
@@ -2193,7 +2194,7 @@ const THEMES = [
  * attribute — inverted type over the picture, outlines on cards that would
  * otherwise be tone on tone.
  */
-const LIGHT_THEMES = ['marigold', 'paper', 'kawaii', 'arctic', 'mint', 'lilac'];
+const LIGHT_THEMES = ['marigold', 'paper', 'kawaii', 'arctic', 'mint', 'lilac', 'bone'];
 
 /**
  * Put the theme on <html>, not on #app.

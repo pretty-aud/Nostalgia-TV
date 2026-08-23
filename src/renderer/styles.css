@@ -56,6 +56,11 @@
   --signal-soft: rgba(255, 194, 71, 0.62);
   --signal-wash: rgba(255, 194, 71, 0.10);
 
+  /* A second accent, for the one or two themes that want "on" and "attention"
+     to be different colours. Defaults to the first, so every other theme is
+     untouched and no component has to know which kind of theme it is in. */
+  --signal-alt: var(--signal);
+
   --hair:       rgba(244, 241, 234, 0.10);
   --hair-soft:  rgba(244, 241, 234, 0.055);
   --lift:       rgba(244, 241, 234, 0.035);   /* hover plane */
@@ -384,8 +389,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
    inverts with the theme: amber-on-dark in Midnight, and on the orange theme
    literally a black box with an orange tick. */
 .show[data-off="false"] .show__toggle {
-  background: var(--signal);
-  border-color: var(--signal);
+  background: var(--signal-alt);
+  border-color: var(--signal-alt);
   color: var(--paper);
 }
 
@@ -407,7 +412,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   background: transparent;
   margin-top: 6px;
 }
-.show__bar i { display: block; height: 100%; background: var(--signal-soft); border-radius: var(--r-pill); }
+.show__bar i { display: block; height: 100%; background: var(--signal-alt-soft, var(--signal-soft)); border-radius: var(--r-pill); }
 
 .show__warn { color: #ff8f6b; }
 
@@ -2044,4 +2049,104 @@ video::cue {
 :root[data-theme="lilac"] .toast {
   --signal:      #b48cff;
   --signal-soft: rgba(180, 140, 255, 0.62);
+}
+
+/* ── themes, fourth set ───────────────────────────────────────────────── */
+
+/* Dark grey, burnt orange, white, light grey. */
+:root[data-theme="foundry"] {
+  --paper:      #1b1b1d;
+  --paper-lift: #242427;
+  --paper-high: #2e2e32;
+  --ink:        #ffffff;
+  --ink-mute:   #b9b9bf;
+  --ink-faint:  #76767d;
+  --signal:      #c1440e;
+  --signal-soft: rgba(193, 68, 14, 0.68);
+  --signal-wash: rgba(193, 68, 14, 0.12);
+  --hair:       rgba(255, 255, 255, 0.14);
+  --hair-soft:  rgba(255, 255, 255, 0.07);
+  --lift:       rgba(255, 255, 255, 0.05);
+}
+
+/* Red, black and white — nothing else in it. */
+:root[data-theme="siren"] {
+  --paper:      #000000;
+  --paper-lift: #0c0c0c;
+  --paper-high: #161616;
+  --ink:        #ffffff;
+  --ink-mute:   #a9a9a9;
+  --ink-faint:  #626262;
+  --signal:      #e10600;
+  --signal-soft: rgba(225, 6, 0, 0.72);
+  --signal-wash: rgba(225, 6, 0, 0.12);
+  --hair:       rgba(255, 255, 255, 0.16);
+  --hair-soft:  rgba(255, 255, 255, 0.08);
+  --lift:       rgba(255, 255, 255, 0.06);
+}
+
+/* Dark grey with TWO accents: orange for attention — what is playing, what is
+   due — and green for "switched on", which is a different question and was
+   only ever sharing a colour because there was only one. */
+:root[data-theme="signal"] {
+  --paper:      #17181a;
+  --paper-lift: #1f2124;
+  --paper-high: #282b2e;
+  --ink:        #eef1f3;
+  --ink-mute:   #a3aab0;
+  --ink-faint:  #6a7278;
+  --signal:      #ff8c2b;
+  --signal-soft: rgba(255, 140, 43, 0.66);
+  --signal-wash: rgba(255, 140, 43, 0.10);
+  --signal-alt:  #3fbf6a;
+  --signal-alt-soft: rgba(63, 191, 106, 0.66);
+  --hair:       rgba(238, 241, 243, 0.14);
+  --hair-soft:  rgba(238, 241, 243, 0.07);
+  --lift:       rgba(238, 241, 243, 0.05);
+}
+
+/* Warm off-white paper, charcoal type, rust accent. */
+:root[data-theme="bone"] {
+  --paper:      #e9e2d5;
+  --paper-lift: #f1ebe0;
+  --paper-high: #f8f4ec;
+  --ink:        #23201b;
+  --ink-mute:   rgba(35, 32, 27, 0.64);
+  --ink-faint:  rgba(35, 32, 27, 0.40);
+  --signal:      #a8432a;
+  --signal-soft: rgba(168, 67, 42, 0.62);
+  --signal-wash: rgba(168, 67, 42, 0.10);
+  --hair:       rgba(35, 32, 27, 0.18);
+  --hair-soft:  rgba(35, 32, 27, 0.09);
+  --lift:       rgba(35, 32, 27, 0.05);
+  --rim:  inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --e-1:  0 1px 2px rgba(35, 32, 27, 0.10);
+  --e-2:  0 2px 6px rgba(35, 32, 27, 0.08), 0 12px 32px rgba(35, 32, 27, 0.10);
+  --e-3:  0 4px 12px rgba(35, 32, 27, 0.12), 0 32px 72px rgba(35, 32, 27, 0.16);
+}
+:root[data-theme="bone"] .chrome,
+:root[data-theme="bone"] .bumper,
+:root[data-theme="bone"] .welcome,
+:root[data-theme="bone"] .scanning,
+:root[data-theme="bone"] .trackmenu,
+:root[data-theme="bone"] .skipask,
+:root[data-theme="bone"] .toast {
+  --signal:      #ff7a4d;
+  --signal-soft: rgba(255, 122, 77, 0.62);
+}
+
+/* Aubergine and lime. */
+:root[data-theme="grape"] {
+  --paper:      #150a1c;
+  --paper-lift: #1f102b;
+  --paper-high: #2a1739;
+  --ink:        #f0e6f7;
+  --ink-mute:   #a893b5;
+  --ink-faint:  #6d5c78;
+  --signal:      #b6f24a;
+  --signal-soft: rgba(182, 242, 74, 0.62);
+  --signal-wash: rgba(182, 242, 74, 0.10);
+  --hair:       rgba(240, 230, 247, 0.13);
+  --hair-soft:  rgba(240, 230, 247, 0.07);
+  --lift:       rgba(240, 230, 247, 0.05);
 }
