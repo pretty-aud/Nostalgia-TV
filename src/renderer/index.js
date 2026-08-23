@@ -390,11 +390,21 @@ function renderSidebar() {
     toggle.className = 'show__toggle';
     toggle.textContent = off ? '' : '✓';
 
+    /**
+     * Both numbers on this row are labelled, because they disagree by one BY
+     * DESIGN and neither used to say which it was.
+     *
+     * The code is the episode coming NEXT; the count is how many are already
+     * DONE. Read as "S01E04 · 3 of 26" it looks like the app is an episode
+     * behind whichever number your eye lands on second, and that misread got
+     * reported as lost progress more than once.
+     */
     const meta = document.createElement('div');
     meta.className = 'show__meta';
+    meta.append(document.createTextNode('Next '));
     const upNext = document.createElement('b');
     upNext.textContent = nextEpisode ? formatEpisodeLabel(nextEpisode) : '—';
-    meta.append(upNext, document.createTextNode(` · ${position} of ${show.episodes.length}`));
+    meta.append(upNext, document.createTextNode(` · ${position} watched of ${show.episodes.length}`));
     if (show.needsReview) {
       const warn = document.createElement('span');
       warn.className = 'show__warn';
