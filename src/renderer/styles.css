@@ -1565,3 +1565,117 @@ video::cue {
 
 /* Same reason for the empty box: unchecked is the state you are hunting for. */
 :root[data-theme="marigold"] .show__toggle { border-color: var(--ink); }
+
+/* ── themes, second set ───────────────────────────────────────────────── */
+
+/* All pink. A light panel, so it needs the same over-video inversion the other
+   light themes do — see the block below it. */
+:root[data-theme="kawaii"] {
+  --paper:      #ffb3d4;
+  --paper-lift: #ffc2dd;
+  --paper-high: #ffd3e7;
+  --ink:        #3d0722;
+  --ink-mute:   rgba(61, 7, 34, 0.68);
+  --ink-faint:  rgba(61, 7, 34, 0.44);
+  --signal:      #c2185b;
+  --signal-soft: rgba(194, 24, 91, 0.62);
+  --signal-wash: rgba(194, 24, 91, 0.12);
+  --hair:       rgba(61, 7, 34, 0.22);
+  --hair-soft:  rgba(61, 7, 34, 0.12);
+  --lift:       rgba(61, 7, 34, 0.06);
+}
+:root[data-theme="kawaii"] .chrome,
+:root[data-theme="kawaii"] .bumper,
+:root[data-theme="kawaii"] .welcome,
+:root[data-theme="kawaii"] .scanning,
+:root[data-theme="kawaii"] .trackmenu,
+:root[data-theme="kawaii"] .skipask,
+:root[data-theme="kawaii"] .toast {
+  color: var(--ink);
+  --paper:      #08070c;
+  --paper-lift: #101016;
+  --paper-high: #16161d;
+  --ink:        #ff8ec4;
+  --ink-mute:   rgba(255, 142, 196, 0.72);
+  --ink-faint:  rgba(255, 142, 196, 0.45);
+  --signal:      #ff5fa8;
+  --signal-soft: rgba(255, 95, 168, 0.62);
+  --signal-wash: rgba(255, 95, 168, 0.10);
+  --hair:       rgba(255, 142, 196, 0.20);
+  --hair-soft:  rgba(255, 142, 196, 0.10);
+  --lift:       rgba(255, 142, 196, 0.06);
+}
+
+/* Pink cards on a pink panel run together exactly as the orange ones did. */
+:root[data-theme="kawaii"] .show {
+  border-color: var(--ink);
+  background: rgba(255, 255, 255, 0.22);
+}
+:root[data-theme="kawaii"] .show:hover { background: rgba(255, 255, 255, 0.34); }
+:root[data-theme="kawaii"] .show[data-off="true"] { opacity: 1; background: transparent; }
+:root[data-theme="kawaii"] .show[data-off="true"] > *:not(.show__toggle) { opacity: 0.45; }
+:root[data-theme="kawaii"] .show__toggle { border-color: var(--ink); }
+
+/* Magenta on deep violet. */
+:root[data-theme="neon"] {
+  --paper:      #0b0616;
+  --paper-lift: #150c26;
+  --paper-high: #1e1233;
+  --ink:        #efe4ff;
+  --ink-mute:   #9d8ec2;
+  --ink-faint:  #63558a;
+  --signal:      #ff3ec8;
+  --signal-soft: rgba(255, 62, 200, 0.62);
+  --signal-wash: rgba(255, 62, 200, 0.10);
+  --hair:       rgba(239, 228, 255, 0.13);
+  --hair-soft:  rgba(239, 228, 255, 0.07);
+  --lift:       rgba(239, 228, 255, 0.05);
+}
+
+/* Cyan on deep navy. */
+:root[data-theme="oceanic"] {
+  --paper:      #04101c;
+  --paper-lift: #071a2c;
+  --paper-high: #0b243c;
+  --ink:        #dcefff;
+  --ink-mute:   #7fa3c0;
+  --ink-faint:  #4a6a85;
+  --signal:      #3ad8ff;
+  --signal-soft: rgba(58, 216, 255, 0.62);
+  --signal-wash: rgba(58, 216, 255, 0.10);
+  --hair:       rgba(220, 239, 255, 0.13);
+  --hair-soft:  rgba(220, 239, 255, 0.07);
+  --lift:       rgba(220, 239, 255, 0.05);
+}
+
+/* Old film stock: warm black, cream type, amber accent. */
+:root[data-theme="nitrate"] {
+  --paper:      #120e09;
+  --paper-lift: #1c1610;
+  --paper-high: #262019;
+  --ink:        #f0e2c8;
+  --ink-mute:   #a89a80;
+  --ink-faint:  #6e6353;
+  --signal:      #e2a63c;
+  --signal-soft: rgba(226, 166, 60, 0.62);
+  --signal-wash: rgba(226, 166, 60, 0.10);
+  --hair:       rgba(240, 226, 200, 0.13);
+  --hair-soft:  rgba(240, 226, 200, 0.07);
+  --lift:       rgba(240, 226, 200, 0.05);
+}
+
+/* Late-night horror double bill. */
+:root[data-theme="crimson"] {
+  --paper:      #0c0505;
+  --paper-lift: #150808;
+  --paper-high: #1f0d0d;
+  --ink:        #f4e6e6;
+  --ink-mute:   #b08a8a;
+  --ink-faint:  #6f5252;
+  --signal:      #ff3b30;
+  --signal-soft: rgba(255, 59, 48, 0.62);
+  --signal-wash: rgba(255, 59, 48, 0.10);
+  --hair:       rgba(244, 230, 230, 0.13);
+  --hair-soft:  rgba(244, 230, 230, 0.07);
+  --lift:       rgba(244, 230, 230, 0.05);
+}

@@ -724,7 +724,7 @@ function renderSettings() {
 
   const theme = THEMES.includes(state.settings.theme) ? state.settings.theme : 'midnight';
   el('themeSelect').value = theme;
-  el('themeNote').textContent = theme === 'marigold' || theme === 'paper'
+  el('themeNote').textContent = LIGHT_THEMES.includes(theme)
     ? 'Panels take the theme; over the picture the type stays legible against the video.'
     : '';
 
@@ -2173,7 +2173,13 @@ function applyVolume() {
   range.style.setProperty('--fill', `${silent ? 0 : level}%`);
 }
 
-const THEMES = ['midnight', 'mono', 'marigold', 'cathode', 'paper'];
+const THEMES = [
+  'midnight', 'mono', 'marigold', 'cathode', 'paper',
+  'kawaii', 'neon', 'oceanic', 'nitrate', 'crimson',
+];
+
+/** Themes whose panels are LIGHT, so the type inverts over the picture. */
+const LIGHT_THEMES = ['marigold', 'paper', 'kawaii'];
 
 /**
  * Put the theme on <html>, not on #app.
