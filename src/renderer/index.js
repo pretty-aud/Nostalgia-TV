@@ -727,7 +727,7 @@ function renderSettings() {
     ? `${presentationClips.length} clip${presentationClips.length === 1 ? '' : 's'}`
     : '';
 
-  const theme = THEMES.includes(state.settings.theme) ? state.settings.theme : 'midnight';
+  const theme = resolveTheme(state.settings.theme);
   el('themeSelect').value = theme;
   el('themeNote').textContent = LIGHT_THEMES.includes(theme)
     ? 'Panels take the theme; over the picture the type stays legible against the video.'
@@ -2179,12 +2179,23 @@ function applyVolume() {
 }
 
 const THEMES = [
-  'midnight', 'mono', 'marigold', 'cathode', 'paper',
+  'midnight', 'mono', 'marigold', 'cathode',
   'kawaii', 'neon', 'oceanic', 'nitrate', 'crimson',
   'forest', 'sunset', 'espresso', 'royal', 'slate',
   'ember', 'storm', 'arctic', 'mint', 'lilac',
-  'foundry', 'siren', 'signal', 'bone', 'grape',
+  'foundry', 'siren', 'signal', 'bone', '01',
 ];
+
+/**
+ * Names that have been retired, and where they land now.
+ *
+ * A saved theme that is no longer in THEMES falls back to midnight, which is
+ * right for one that was deleted and wrong for one that was merely renamed:
+ * picking a palette and finding yourself back on the default is indistinguish-
+ * able from the setting not having saved, which is the exact complaint this
+ * app has already been through once.
+ */
+const THEME_ALIASES = { grape: '01' };
 
 /**
  * Themes whose panels are LIGHT.
@@ -2194,7 +2205,13 @@ const THEMES = [
  * attribute — inverted type over the picture, outlines on cards that would
  * otherwise be tone on tone.
  */
-const LIGHT_THEMES = ['marigold', 'paper', 'kawaii', 'arctic', 'mint', 'lilac', 'bone'];
+const LIGHT_THEMES = ['marigold', 'kawaii', 'arctic', 'mint', 'lilac', 'bone'];
+
+/** The theme actually in force, following any rename, falling back to midnight. */
+function resolveTheme(wanted) {
+  const name = THEME_ALIASES[wanted] || wanted;
+  return THEMES.includes(name) ? name : 'midnight';
+}
 
 /**
  * Put the theme on <html>, not on #app.
@@ -2203,8 +2220,7 @@ const LIGHT_THEMES = ['marigold', 'paper', 'kawaii', 'arctic', 'mint', 'lilac', 
  * anchoring the theme there would leave every dialog wearing the old palette.
  */
 function applyTheme() {
-  const wanted = String((state.settings || {}).theme || 'midnight');
-  const theme = THEMES.includes(wanted) ? wanted : 'midnight';
+  const theme = resolveTheme(String((state.settings || {}).theme || 'midnight'));
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.light = String(LIGHT_THEMES.includes(theme));
 }

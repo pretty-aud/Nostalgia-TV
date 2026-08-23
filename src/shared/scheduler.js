@@ -102,7 +102,7 @@ const DEFAULT_SETTINGS = {
    * Interface theme. Every one is the same token set with different values, so
    * a theme can never restyle a component — see the themes block in styles.css.
    */
-  theme: 'midnight',   // 'midnight' | 'mono' | 'marigold' | 'cathode' | 'paper'
+  theme: 'midnight',   // one of THEMES in the renderer; anything else falls back
 
   autoCrop: true,
   interstitialZoom: 100,    // scale % for bumpers/promos ONLY, to crop baked-in bars
