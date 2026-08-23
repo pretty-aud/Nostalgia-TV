@@ -666,6 +666,12 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .app[data-view="playing"] .player { display: block; }
 
+/* The picture stays on screen behind the library, dimmed rather than replaced
+   by a black rectangle. Browsing while something is paused should feel like
+   stepping in front of the television, not switching it off. */
+.app[data-view="ready"] .player { display: block; }
+.app[data-view="ready"] .welcome { background: rgba(4, 3, 7, 0.4); }
+
 /* ── stage: chrome ────────────────────────────────────────────────────── */
 
 .chrome {
@@ -678,7 +684,13 @@ input[type="range"]::-webkit-slider-thumb {
   pointer-events: none;
 }
 .app[data-view="playing"] .chrome { display: flex; }
-.app[data-view="playing"][data-chrome="on"] .chrome { opacity: 1; pointer-events: auto; }
+/* The CONTAINER never takes clicks — only the two bars do. It covers the whole
+   stage, so making it clickable swallowed every click on the picture and the
+   click-to-pause that every other player has did nothing while the controls
+   were visible. */
+.app[data-view="playing"][data-chrome="on"] .chrome { opacity: 1; }
+.app[data-view="playing"][data-chrome="on"] .chrome__top,
+.app[data-view="playing"][data-chrome="on"] .chrome__bottom { pointer-events: auto; }
 
 .chrome__top {
   display: flex;

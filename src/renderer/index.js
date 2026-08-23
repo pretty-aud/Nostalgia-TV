@@ -84,6 +84,10 @@ let bumperCleanup = null;
 let chromeTimer = null;
 // (the old debounce timer is gone: every change writes immediately now)
 
+/** Which checkpoint a backwards Load has been warned about, and its timeout. */
+let loadArmedFor = null;
+let loadArmTimer = null;
+
 const thumbCache = new Map();
 
 const MODE_NOTES = {
@@ -1336,7 +1340,7 @@ const FADE_MS = 340;
  * it overran the watchdog. A clip is decoration — the one thing it must never
  * do is strand the channel, so there is no path where `onDone` is not called.
  */
-async function playClip(clip, onDone) {
+async function playClip(clip, onDone, kind = 'Bumper') {
   if (!clip) { onDone(); return; }
 
   // Clips get the same codec treatment as episodes — an AC3 .mkv bumper is
@@ -1390,6 +1394,17 @@ async function playClip(clip, onDone) {
     watchdog = setTimeout(finish, bound);
   }
 
+  /**
+   * The clip names itself while it is on screen.
+   *
+   * The top-left kept showing the episode that just FINISHED, so a promo looked
+   * like part of the previous programme — and if you opened the library during
+   * one, the header disagreed with the picture behind it.
+   */
+  el('npShow').textContent = kind;
+  el('npCode').textContent = clip.name || '';
+  el('npTitle').textContent = '';
+
   watchdog = setTimeout(finish, CLIP_START_TIMEOUT_MS);
   player.addEventListener('loadedmetadata', armFullWatchdog, { once: true });
 
@@ -1425,7 +1440,7 @@ function playBumperClip(onDone) {
   if (!state.settings.bumperClipsEnabled || bumperClips.length === 0) { onDone(); return; }
   const picked = nextBumper(bumperClips, state, {});
   state = picked.state;
-  playClip(picked.bumper, onDone);
+  playClip(picked.bumper, onDone, 'Bumper');
 }
 
 /**
@@ -1453,7 +1468,7 @@ function playPromoClip(onDone) {
   }
   const picked = nextPromo(promoClips, state, {});
   state = countEpisodeForPromo(picked.state, true);
-  playClip(picked.promo, onDone);
+  playClip(picked.promo, onDone, 'Promo');
 }
 
 /**
@@ -1518,7 +1533,7 @@ function startMovie() {
 
   const roll = () => loadAndPlay(movieItem(movie));
   const presentation = state.settings.moviePresentationEnabled === false ? null : pickPresentation();
-  if (presentation) playClip(presentation, roll); else roll();
+  if (presentation) playClip(presentation, roll, 'Coming up'); else roll();
 }
 
 function onEpisodeEnded() {
@@ -1550,6 +1565,19 @@ function onEpisodeEnded() {
     state = picked.state;
     if (picked.movie) { renderSidebar(); prepareAhead(); }
   }
+
+  /**
+   * Write everything down the moment the episode is over.
+   *
+   * The cursor already moved when this episode STARTED, so the count was
+   * safe — but the resume position, the movie's lead and any unlock earned by
+   * finishing this episode are all settled right here, and the next few
+   * minutes are interstitials. Closing the app during a promo should not lose
+   * the fact that the episode before it finished.
+   */
+  refreshLocks();
+  renderSidebar();
+  persist();
 
   // Broadcast order: sting, promo, continuity card, then the next programme —
   // or, when the lead has run out, the movie presentation and the movie.
@@ -2894,6 +2922,41 @@ function wireEvents() {
       return;
     }
 
+    /**
+     * Say so when the checkpoint is OLDER than where you actually are.
+     *
+     * A checkpoint is a point to come back to, so loading one is meant to move
+     * progress backwards — but a checkpoint made last week, loaded after a long
+     * evening's viewing, silently un-watches everything since, and the first
+     * sign of it is an episode you have already seen. Counted and named, then
+     * confirmed by pressing again.
+     */
+    const behind = Object.entries(result.state.cursors || {})
+      .filter(([id, saved]) => {
+        const now = (state.cursors || {})[id];
+        return now && Number.isInteger(now.index) && Number.isInteger(saved.index)
+          && saved.index < now.index;
+      });
+
+    if (behind.length && loadArmedFor !== result.savedAt) {
+      loadArmedFor = result.savedAt;
+      clearTimeout(loadArmTimer);
+      loadArmTimer = setTimeout(() => { loadArmedFor = null; }, 12000);
+      const worst = behind
+        .map(([id, saved]) => `${id} ${state.cursors[id].index}→${saved.index}`)
+        .slice(0, 3)
+        .join(', ');
+      toast(
+        `That checkpoint is from ${new Date(result.savedAt).toLocaleString()} and moves `
+        + `${behind.length} show${behind.length === 1 ? '' : 's'} BACK (${worst}`
+        + `${behind.length > 3 ? '…' : ''}). Press Load again to confirm.`,
+        11000,
+      );
+      return;
+    }
+    loadArmedFor = null;
+    clearTimeout(loadArmTimer);
+
     // Merged the same way boot() merges a loaded file, then re-anchored against
     // the library as it stands NOW: the checkpoint may predate files that have
     // since been added or removed, and an index alone would point at the wrong
@@ -3141,10 +3204,17 @@ function togglePlay() {
  * position, which is only written every five seconds and so is always slightly
  * behind where the viewer actually stopped.
  */
+/**
+ * Is there something paused on the player that Resume should pick up?
+ *
+ * A bumper or promo counts. Opening the library pauses whatever is on screen,
+ * and if that happened to be a promo, refusing to resume it meant Resume
+ * silently skipped to the next episode — losing the clip and, worse, doing
+ * something other than what the button said.
+ */
 function canResumeInPlace() {
   return Boolean(
-    current
-    && !playingBumperClip
+    (current || playingBumperClip)
     && player.src
     && !player.ended
     && player.currentTime > 0,
@@ -3153,7 +3223,8 @@ function canResumeInPlace() {
 
 function resumeInPlace() {
   setView('playing');
-  renderNowPlaying(current);
+  // A clip has its own title; `current` is still the episode either side of it.
+  if (!playingBumperClip) renderNowPlaying(current);
   showChrome();
   player.play().catch(() => {});
 }
