@@ -394,6 +394,29 @@
           </label>
         </section>
 
+        <section class="setgroup" id="movieGroup" hidden>
+          <h3 class="setgroup__head">Movies</h3>
+
+          <label class="field" id="movieEveryField">
+            <span class="field__label">Play a movie</span>
+            <span class="field__control">
+              <select class="select" id="movieEvery">
+                <option value="3">Every 3 hours</option>
+                <option value="6">Every 6 hours</option>
+                <option value="12">Every 12 hours</option>
+                <option value="24">Every 24 hours</option>
+                <option value="48">Every 48 hours</option>
+              </select>
+            </span>
+          </label>
+          <p class="modes__note" id="movieNote"></p>
+
+          <label class="check" id="presentationRow" hidden>
+            <input type="checkbox" id="presentationToggle" />
+            <span>Play a presentation before each movie <span class="mono" id="presentationCount"></span></span>
+          </label>
+        </section>
+
         <section class="setgroup">
           <h3 class="setgroup__head mono">Bumpers</h3>
 
@@ -449,29 +472,6 @@
               <input type="range" id="promoEveryRange" min="1" max="10" step="1" />
               <output class="mono" id="promoEveryOut"></output>
             </span>
-          </label>
-        </section>
-
-        <section class="setgroup" id="movieGroup" hidden>
-          <h3 class="setgroup__head">Movies</h3>
-
-          <label class="field" id="movieEveryField">
-            <span class="field__label">Play a movie</span>
-            <span class="field__control">
-              <select class="select" id="movieEvery">
-                <option value="3">Every 3 hours</option>
-                <option value="6">Every 6 hours</option>
-                <option value="12">Every 12 hours</option>
-                <option value="24">Every 24 hours</option>
-                <option value="48">Every 48 hours</option>
-              </select>
-            </span>
-          </label>
-          <p class="modes__note" id="movieNote"></p>
-
-          <label class="check" id="presentationRow" hidden>
-            <input type="checkbox" id="presentationToggle" />
-            <span>Play a presentation before each movie <span class="mono" id="presentationCount"></span></span>
           </label>
         </section>
 
