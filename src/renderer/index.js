@@ -2215,9 +2215,72 @@ async function renderManualSaveInfo() {
     : 'No saved progress yet. This keeps a copy you can come back to after a skip or a reset.';
 }
 
+/**
+ * Build the settings nav from the section headings themselves.
+ *
+ * Reading the headings rather than listing them here means the rail cannot
+ * drift out of step with the sheet — a section added, renamed or hidden is
+ * reflected without anyone remembering to update a second list. Hidden groups
+ * (Movies with no MOVIES folder, Promos with no clips) are skipped, so the rail
+ * never offers a destination that is not there.
+ */
+function renderSettingsNav() {
+  const nav = el('setNav');
+  const body = el('settingsBody');
+  nav.textContent = '';
+
+  const groups = [...body.querySelectorAll('.setgroup')].filter((group) => !group.hidden);
+
+  groups.forEach((group, index) => {
+    const heading = group.querySelector('.setgroup__head');
+    if (!heading) return;
+    if (!group.id) group.id = `setgroup-${index}`;
+
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'setnav__item';
+    item.textContent = heading.textContent;
+    item.dataset.target = group.id;
+    item.addEventListener('click', () => {
+      group.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      markSettingsNav(group.id);
+    });
+    nav.append(item);
+  });
+
+  markSettingsNav(groups.length ? groups[0].id : null);
+}
+
+function markSettingsNav(id) {
+  for (const item of el('setNav').querySelectorAll('.setnav__item')) {
+    item.setAttribute('aria-current', String(item.dataset.target === id));
+  }
+}
+
+/**
+ * Follow the scroll, so the rail says where you ARE rather than only where you
+ * last clicked. The topmost section still in the upper half of the sheet wins.
+ */
+function watchSettingsScroll() {
+  const body = el('settingsBody');
+  body.addEventListener('scroll', () => {
+    // Just below the top edge, not a third of the way down: with a deep
+    // threshold the section BELOW the one you jumped to also qualifies, and
+    // being later in the list it won — clicking "Interface" lit "Play order".
+    const top = body.getBoundingClientRect().top + 24;
+    let active = null;
+    for (const group of body.querySelectorAll('.setgroup')) {
+      if (group.hidden) continue;
+      if (group.getBoundingClientRect().top <= top) active = group.id;
+    }
+    if (active) markSettingsNav(active);
+  }, { passive: true });
+}
+
 function openSettings() {
   el('settingsModal').hidden = false;
   renderSettings();
+  renderSettingsNav();
   renderManualSaveInfo();
   el('btnCloseSettings').focus();
 }
@@ -2819,6 +2882,7 @@ function wireEvents() {
   // -- settings modal -------------------------------------------------------
 
   el('btnSettings').addEventListener('click', openSettings);
+  watchSettingsScroll();
   el('btnCloseSettings').addEventListener('click', closeSettings);
   el('settingsBackdrop').addEventListener('click', closeSettings);
 

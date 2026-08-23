@@ -1679,3 +1679,99 @@ video::cue {
   --hair-soft:  rgba(244, 230, 230, 0.07);
   --lift:       rgba(244, 230, 230, 0.05);
 }
+
+/* Kawaii only: every title in white.
+   The panel ink is a dark plum that reads well for body copy but leaves the
+   names looking like more body copy. White separates the things a person wrote
+   — show names, section heads, dialog titles — from the machine data around
+   them, which keeps the pink for accents rather than spending it on hierarchy.
+
+   Listed explicitly rather than swapping --ink: the token also carries body
+   text, and turning ALL of it white on a light pink panel would be unreadable. */
+:root[data-theme="kawaii"] .ident__word,
+:root[data-theme="kawaii"] .sectionhead,
+:root[data-theme="kawaii"] .show__name,
+:root[data-theme="kawaii"] .sched__name,
+:root[data-theme="kawaii"] .filmnext__name,
+:root[data-theme="kawaii"] .welcome__title,
+:root[data-theme="kawaii"] .modal__title,
+:root[data-theme="kawaii"] .setgroup__head,
+:root[data-theme="kawaii"] .lockrow__name,
+:root[data-theme="kawaii"] .nowplaying__show,
+:root[data-theme="kawaii"] .skipask__title,
+:root[data-theme="kawaii"] .trackmenu__head,
+:root[data-theme="kawaii"] .lead {
+  color: #ffffff;
+}
+
+/* White on the pale panel needs a shadow to stay readable — the sidebar and the
+   settings sheet are light, and white on light pink is otherwise a suggestion
+   rather than a word. Over the picture the panel is dark, so it is dropped. */
+:root[data-theme="kawaii"] .ident__word,
+:root[data-theme="kawaii"] .sectionhead,
+:root[data-theme="kawaii"] .show__name,
+:root[data-theme="kawaii"] .sched__name,
+:root[data-theme="kawaii"] .modal__title,
+:root[data-theme="kawaii"] .setgroup__head,
+:root[data-theme="kawaii"] .lockrow__name {
+  text-shadow: 0 1px 2px rgba(61, 7, 34, 0.5);
+}
+
+/* Kawaii titles run LARGER and heavier.
+   White on pale pink is low contrast by construction, and size is the honest
+   way to buy legibility back — the accessibility thresholds themselves are
+   lower for large text than for body copy. Scoped to this theme, so no other
+   palette inherits the bigger type. */
+:root[data-theme="kawaii"] .ident__word { font-size: 25px; }
+:root[data-theme="kawaii"] .sectionhead { font-size: 14px; font-weight: 700; }
+:root[data-theme="kawaii"] .show__name { font-size: var(--t-lead); font-weight: 700; }
+:root[data-theme="kawaii"] .sched__name { font-size: var(--t-lead); font-weight: 600; }
+:root[data-theme="kawaii"] .filmnext__name { font-size: var(--t-lead); font-weight: 600; }
+:root[data-theme="kawaii"] .modal__title { font-size: 24px; }
+:root[data-theme="kawaii"] .setgroup__head { font-size: 19px; }
+:root[data-theme="kawaii"] .lockrow__name { font-size: var(--t-lead); font-weight: 600; }
+:root[data-theme="kawaii"] .welcome__title { font-size: 46px; }
+:root[data-theme="kawaii"] .skipask__title { font-size: 23px; }
+
+/* ── settings: section rail ───────────────────────────────────────────────
+   The sheet had grown to ten sections and browsing it meant scrolling past
+   nine to reach the tenth. The rail is a jump list, not a filter: the sheet
+   still scrolls as one document, so nothing is hidden behind a tab. */
+.modal__panel--nav { width: min(760px, 100%); }
+
+.modal__split {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  min-height: 0;      /* lets the body scroll instead of the panel growing */
+  flex: 1 1 auto;
+}
+
+.setnav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--u) calc(var(--u) * 3) calc(var(--u) * 2);
+  overflow-y: auto;
+  border-right: 1px solid var(--hair-soft);
+}
+
+.setnav__item {
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--t-body);
+  color: var(--ink-mute);
+  transition: color var(--fast), background var(--fast);
+}
+.setnav__item:hover { color: var(--ink); background: var(--lift); }
+
+/* The current section is marked with the accent and a seated plane rather than
+   a heavy fill: it is a position indicator, not a button you press. */
+.setnav__item[aria-current="true"] {
+  color: var(--signal);
+  background: var(--signal-wash);
+  font-weight: 600;
+}
+
+/* Scroll-margin so a jumped-to heading is not welded to the top edge. */
+.setgroup { scroll-margin-top: var(--u); }
