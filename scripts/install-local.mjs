@@ -16,7 +16,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,3 +61,28 @@ if (got !== wanted) {
 }
 
 console.log(`\ninstalled ${got} — matches the build. Shortcuts now launch this code.`);
+
+/**
+ * Remove the loose, double-clickable copies now that the real one is installed.
+ *
+ * dist/ leaves behind a Setup.exe, a portable .exe and win-unpacked/. All three
+ * are launchable, none of them change when you deploy, and every one of them is
+ * a chance to spend an evening watching a build from days ago and reporting
+ * bugs that were already fixed. The installed copy under Programs is the only
+ * one the shortcuts use, so it is the only one that should outlive a deploy.
+ *
+ * Never fatal: the install already succeeded, and failing here would report a
+ * good deploy as a bad one.
+ */
+for (const stale of [
+  join(root, 'dist', 'Nostalgia TV Setup.exe'),
+  join(root, 'dist', 'Nostalgia TV (portable).exe'),
+  join(root, 'dist', 'win-unpacked'),
+]) {
+  try {
+    if (existsSync(stale)) {
+      rmSync(stale, { recursive: true, force: true });
+      console.log(`cleaned   ${stale.split(/[\\/]/).pop()}`);
+    }
+  } catch { /* tidying is not worth failing a good install over */ }
+}
