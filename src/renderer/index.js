@@ -1705,7 +1705,7 @@ function renderReady() {
 
   const hint = document.createElement('p');
   hint.className = 'welcome__hint mono';
-  hint.textContent = 'Space play/pause · ← → seek · N next · F fullscreen';
+  hint.textContent = 'Space play/pause · ← → seek · N next · L library · F fullscreen';
 
   inner.append(eyebrow, title, body, button, hint);
   // Same condition as the button above: whenever it offers to resume, there has
@@ -3167,25 +3167,7 @@ function wireEvents() {
     toggleTrackMenu(false);
   });
 
-  el('btnLibrary').addEventListener('click', () => {
-    player.pause();
-    // Record the exact stopping point now. onTimeUpdate only saves every five
-    // seconds, so without this a quit from the library screen loses up to five
-    // seconds — and, worse, pausing early in an episode leaves nothing saved at
-    // all and the screen offers to start something else instead.
-    if (current && !playingBumperClip && Number.isFinite(player.currentTime) && player.currentTime > 0) {
-      state.resume = {
-        showId: current.showId,
-        episodeIndex: current.episodeIndex,
-        relPath: current.relPath,
-        position: player.currentTime,
-      };
-      persist({ immediate: true });
-    }
-    setView('ready');
-    renderReady();
-    renderSidebar();
-  });
+  el('btnLibrary').addEventListener('click', openLibrary);
   el('btnFull').addEventListener('click', toggleFullscreen);
 
   el('scrub').addEventListener('click', (event) => {
@@ -3321,6 +3303,32 @@ function canResumeInPlace() {
   );
 }
 
+/**
+ * Show the library over whatever is playing.
+ *
+ * Shared by the ☰ button and the L key: two entry points running two copies of
+ * this would eventually disagree about whether the resume point gets written.
+ */
+function openLibrary() {
+  player.pause();
+  // Record the exact stopping point now. onTimeUpdate only saves every five
+  // seconds, so without this a quit from the library screen loses up to five
+  // seconds — and, worse, pausing early in an episode leaves nothing saved at
+  // all and the screen offers to start something else instead.
+  if (current && !playingBumperClip && Number.isFinite(player.currentTime) && player.currentTime > 0) {
+    state.resume = {
+      showId: current.showId,
+      episodeIndex: current.episodeIndex,
+      relPath: current.relPath,
+      position: player.currentTime,
+    };
+    persist();
+  }
+  setView('ready');
+  renderReady();
+  renderSidebar();
+}
+
 function resumeInPlace() {
   setView('playing');
   // A clip has its own title; `current` is still the episode either side of it.
@@ -3376,6 +3384,16 @@ function onGlobalKey(event) {
     case 'ArrowRight': player.currentTime += 30; showChrome(); break;
     case 'f': case 'F': toggleFullscreen(); break;
     case 'n': case 'N': askSkip(); break;
+    case 'l': case 'L':
+      // A toggle, because that is what a single key on a panel should be —
+      // and stepping back out resumes exactly what was paused rather than
+      // advancing the channel.
+      if (app.dataset.view === 'ready') {
+        if (canResumeInPlace()) resumeInPlace(); else playNext();
+      } else if (app.dataset.view === 'playing') {
+        openLibrary();
+      }
+      break;
     case 'm': case 'M':
       el('btnMute').click();
       toast(state.settings.muted ? 'Muted' : 'Sound on', 1400);
