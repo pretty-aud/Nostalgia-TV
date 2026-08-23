@@ -2136,3 +2136,41 @@ video::cue {
 }
 :root[data-theme="01"] .sched:first-child .sched__n,
 :root[data-theme="01"] .sched:first-child .sched__code { color: #ff7a1a; }
+
+/* ── themes, fifth set ────────────────────────────────────────────────── */
+
+/* Searchlights over a red night sky: black shapes, a smoggy maroon ground,
+   and one hot gold that only ever appears as a beam. The sky in the reference
+   is far brighter than this — carried at full strength it would be a red
+   sidebar rather than a red night, so the reds live in the panel grounds and
+   the gold does all the signalling. */
+:root[data-theme="searchlight"] {
+  --paper:      #1e0605;
+  --paper-lift: #330a09;
+  --paper-high: #47100e;
+  --ink:        #f9e6c8;
+  --ink-mute:   #c99a74;
+  --ink-faint:  #8a6349;
+  --signal:      #ffd21e;
+  --signal-soft: rgba(255, 210, 30, 0.62);
+  --signal-wash: rgba(255, 210, 30, 0.10);
+  --hair:       rgba(249, 230, 200, 0.15);
+  --hair-soft:  rgba(249, 230, 200, 0.08);
+  --lift:       rgba(249, 230, 200, 0.05);
+}
+
+/* Black case, green jewel. */
+:root[data-theme="greenbox"] {
+  --paper:      #080a07;
+  --paper-lift: #111610;
+  --paper-high: #1a2118;
+  --ink:        #e9f1e1;
+  --ink-mute:   #9aa893;
+  --ink-faint:  #62705c;
+  --signal:      #9bc848;
+  --signal-soft: rgba(155, 200, 72, 0.62);
+  --signal-wash: rgba(155, 200, 72, 0.10);
+  --hair:       rgba(233, 241, 225, 0.14);
+  --hair-soft:  rgba(233, 241, 225, 0.07);
+  --lift:       rgba(233, 241, 225, 0.05);
+}
