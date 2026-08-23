@@ -1,0 +1,1371 @@
+/* ===========================================================================
+   Nostalgia TV — broadcast furniture, not streaming furniture.
+
+   Inks: 3      paper #08070c · ink #f4f1ea · signal #ffc247
+   Families: 2  grotesque (UI, titles) · mono (all technical data)
+
+   Rule: mono carries anything the machine knows — episode codes, timecodes,
+   counts, progress. Grotesque carries anything a person wrote — show names and
+   episode titles. Never mix the two jobs.
+   =========================================================================== */
+
+/* Bundled rather than linked: this is an Electron app, so there is no CDN to
+   reach and no web-font licence tier to clear. Both are SIL OFL, which permits
+   embedding in an application; commercial foundry faces almost always price
+   app/embedded separately and much higher.
+
+   Variable weight axes, so 400/500/600 are one file each rather than three. */
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-display: block;      /* block, not swap: a reflow on a dark UI reads as a glitch */
+}
+/* A third family, used in exactly ONE place: the wordmark. That is the
+   justification — an identity mark is not body copy, and Inter set in caps was
+   doing nothing to earn the name. Space Grotesk has real character in the G, R
+   and K without being a costume. SIL OFL, so app embedding is clear. */
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("fonts/space-grotesk.woff2") format("woff2-variations");
+  font-weight: 300 700;
+  font-display: block;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/jetbrains-mono.woff2") format("woff2-variations");
+  font-weight: 100 800;
+  font-display: block;
+}
+
+:root {
+  /* ── ink: 3 colours, plus tints of them. A fourth ink would be a hierarchy
+     problem wearing a palette costume. ─────────────────────────────────── */
+  --paper:      #08070c;
+  --paper-lift: #101016;   /* screened paper, for the sidebar plane */
+  --paper-high: #16161d;   /* one step further, for panels sitting above it */
+  --ink:        #f4f1ea;
+  --ink-mute:   #8f8b99;   /* screened ink — not a fourth colour */
+  --ink-faint:  #55525f;
+  --signal:     #ffc247;
+
+  /* Screened signal. The full colour was doing seven jobs at once, which meant
+     nothing it marked actually stood out (Von Restorff). Full signal is now
+     reserved for the ONE primary action, live state, and focus; everything that
+     is merely amber-flavoured metadata uses this. */
+  --signal-soft: rgba(255, 194, 71, 0.62);
+  --signal-wash: rgba(255, 194, 71, 0.10);
+
+  --hair:       rgba(244, 241, 234, 0.10);
+  --hair-soft:  rgba(244, 241, 234, 0.055);
+  --lift:       rgba(244, 241, 234, 0.035);   /* hover plane */
+
+  --grotesque: "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --display: "Space Grotesk", "Inter", system-ui, sans-serif;   /* wordmark only */
+
+  /* ── type scale: anchor 14px, ratio 1.125 (major second).
+     A dense list UI has many near-peer levels, which is exactly what the small
+     ratio is for. Seven steps; the stylesheet previously carried EIGHTEEN sizes,
+     with eight of them crammed between 10 and 13.5px doing the same job. ── */
+  --t-micro: 11px;   /* mono, uppercase: section heads, eyebrows */
+  --t-meta:  12px;   /* mono: episode codes, counts, timecode */
+  --t-body:  14px;   /* show names, labels, controls */
+  --t-lead:  16px;   /* primary button, emphasis */
+  --t-title: 20px;   /* panel and dialog titles */
+  --t-sub:   28px;   /* secondary display */
+  --t-display: 40px; /* hand-set, off scale: the up-next card */
+
+  /* Leading runs inverse to size. */
+  --lh-display: 1.05;
+  --lh-title:   1.2;
+  --lh-name:    1.25;  /* single-line names: default leading looks accidental */
+  --lh-body:    1.5;
+
+  /* Four tracking values, doing four jobs. There were eleven. */
+  --tr-tight: -0.02em;   /* display */
+  --tr-none:  0;
+  --tr-label: 0.09em;    /* uppercase mono labels; caps without tracking read as a bug */
+  --tr-wide:  0.2em;     /* the wordmark, and only the wordmark */
+
+  /* ── geometry ──────────────────────────────────────────────────────────
+     A deliberate departure from the hard-edged original. That language read
+     as a technical manual, which is not the same as modern; the corners plus
+     real elevation are what move it from "instrument" to "current software"
+     without touching the layout or the identity. */
+  --r-sm:  6px;    /* controls, chips, small buttons */
+  --r-md:  10px;   /* rows, panels, inputs */
+  --r-lg:  14px;   /* dialogs */
+  --r-pill: 999px;
+
+  /* Elevation is layered rather than one big blur: a tight contact shadow to
+     seat the surface, a wide soft one for depth, and a 1px rim of light along
+     the top edge, which is what stops a dark panel reading as a flat hole. */
+  --rim:  inset 0 1px 0 rgba(244, 241, 234, 0.055);
+  --e-1:  0 1px 2px rgba(0, 0, 0, 0.45);
+  --e-2:  0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.42);
+  --e-3:  0 4px 12px rgba(0, 0, 0, 0.5), 0 32px 72px rgba(0, 0, 0, 0.6);
+
+  --u: 8px;                /* base spacing unit; everything is a multiple */
+  --gutter: calc(var(--u) * 2.5);   /* sidebar inset */
+  --sidebar-w: 340px;
+
+  --fade: 340ms;           /* the up-next card's crossfade; see FADE_MS in the renderer */
+  --fast: 140ms cubic-bezier(0.2, 0, 0, 1);
+  --med:  220ms cubic-bezier(0.2, 0, 0, 1);
+  --slow: 420ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* The `hidden` attribute only gets `display: none` from the BROWSER's default
+   stylesheet, and every author rule outranks that — so any element we hide in
+   JS that also carries a class setting `display` stays on screen. It bit the
+   marathon banner and the bumper toggle simultaneously, both reading as
+   permanently on. Author-level and !important is what actually makes `hidden`
+   mean hidden. */
+[hidden] { display: none !important; }
+
+html, body, #app { height: 100%; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--grotesque);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  font-weight: 400;
+  font-optical-sizing: auto;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;   /* stops timecodes jittering as they tick */
+  letter-spacing: var(--tr-none);
+}
+
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* ── scrollbars ───────────────────────────────────────────────────────────
+
+   Chromium's default is a pale grey slab with rounded ends: on a near-black
+   panel it reads as a piece of somebody else's interface sitting on top of
+   this one. These use the same three inks as everything else, and now round
+   with the rest of the interface.
+
+   The thumb is drawn with a transparent border and `background-clip:
+   padding-box`, which insets it inside the gutter — a slim bar with air around
+   it, rather than a full-width block hard against the panel edge. */
+.sidebar__scroll,
+.modal__body,
+.trackmenu {
+  scrollbar-width: thin;                              /* Firefox and the standard */
+  scrollbar-color: var(--ink-faint) transparent;
+}
+
+.sidebar__scroll::-webkit-scrollbar,
+.modal__body::-webkit-scrollbar,
+.trackmenu::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+.sidebar__scroll::-webkit-scrollbar-track,
+.modal__body::-webkit-scrollbar-track,
+.trackmenu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* background-COLOR, not the `background` shorthand: a var() inside a shorthand
+   becomes a pending-substitution value that cannot be read back, so a typo in
+   it would fail silently and be invisible to inspection. The longhand is also
+   all that is wanted here — only the colour is being set. */
+.sidebar__scroll::-webkit-scrollbar-thumb,
+.modal__body::-webkit-scrollbar-thumb,
+.trackmenu::-webkit-scrollbar-thumb {
+  background-color: var(--ink-faint);
+  border: 3px solid transparent;
+  border-radius: var(--r-pill);
+  background-clip: padding-box;
+  transition: background-color var(--fast);
+}
+
+.sidebar__scroll::-webkit-scrollbar-thumb:hover,
+.modal__body::-webkit-scrollbar-thumb:hover,
+.trackmenu::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ink-mute);
+}
+
+/* The little square where two bars meet, which otherwise stays default grey. */
+.sidebar__scroll::-webkit-scrollbar-corner,
+.modal__body::-webkit-scrollbar-corner,
+.trackmenu::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── layout ───────────────────────────────────────────────────────────── */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  height: 100%;
+}
+
+/* Playback owns the whole window. The library is a between-episodes concern,
+   so it leaves entirely rather than shrinking to a strip. */
+.app[data-view="playing"] { grid-template-columns: 0 1fr; }
+.app[data-view="playing"] .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }
+.app[data-view="bumper"]  { grid-template-columns: 0 1fr; }
+.app[data-view="bumper"]  .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--paper-lift);
+  border-right: 1px solid var(--hair);
+  transition: transform var(--slow), opacity var(--med);
+}
+
+.stage {
+  position: relative;
+  min-width: 0;
+  background: #000;
+  overflow: hidden;
+}
+
+/* ── sidebar head ─────────────────────────────────────────────────────── */
+
+.sidebar__head {
+  padding: calc(var(--u) * 3) var(--gutter);
+  border-bottom: 1px solid var(--hair);
+}
+
+.ident { display: flex; align-items: center; gap: 11px; margin-bottom: calc(var(--u) * 2.25); }
+
+.ident__dot {
+  width: 10px; height: 10px;
+  background: var(--signal);
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(255, 194, 71, 0.7);
+}
+
+.ident__word {
+  font-family: var(--display);
+  font-size: var(--t-title);
+  font-weight: 600;
+  letter-spacing: -0.005em;   /* display tracking runs tight, not wide */
+  line-height: 1;
+}
+
+.sidebar__root {
+  font-size: var(--t-meta);
+  color: var(--ink-mute);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.sidebar__stats { font-size: var(--t-meta); color: var(--signal-soft); margin-top: 4px; }
+
+.sidebar__actions { display: flex; gap: var(--u); margin-top: calc(var(--u) * 2); }
+
+.btn {
+  padding: 9px 14px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  font-weight: 500;
+  font-size: var(--t-body);
+  transition: background var(--fast), border-color var(--fast), color var(--fast);
+}
+.btn:hover { border-color: var(--ink-faint); background: var(--lift); }
+
+.btn--quiet { color: var(--ink-mute); }
+.btn--quiet:hover { color: var(--ink); }
+
+.btn--signal {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: #17130a;               /* dark ink on amber: 10.9:1, never white */
+  font-weight: 600;
+  padding: 13px 24px;
+  border-radius: var(--r-sm);
+  font-size: var(--t-lead);
+  box-shadow: var(--e-1);
+}
+.btn--signal:hover { background: #ffce68; border-color: #ffce68; }
+
+/* ── sidebar body ─────────────────────────────────────────────────────── */
+
+.sidebar__scroll { flex: 1; min-height: 0; overflow-y: auto; }
+
+.sectionhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: calc(var(--u) * 3) var(--gutter) var(--u);
+  font-family: var(--grotesque);
+  font-size: var(--t-meta);
+  font-weight: 500;
+  letter-spacing: var(--tr-none);
+  text-transform: none;
+  color: var(--ink-mute);
+}
+.sectionhead__n { color: var(--ink-mute); letter-spacing: var(--tr-label); }
+
+.shows { list-style: none; padding-bottom: var(--u); }
+
+/* Hairline rules, not cards. Common Region is satisfied by the rule plus the
+   shared left margin — a card would add weight for nothing. */
+.show {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px calc(var(--u) * 1.5);
+  margin: 0 var(--gutter) 6px;
+  padding: calc(var(--u) * 1.5) calc(var(--u) * 2);
+  background: rgba(244, 241, 234, 0.022);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background var(--fast), border-color var(--fast), transform var(--fast);
+}
+.show:hover { background: var(--paper-high); border-color: var(--hair); }
+.show:active { transform: scale(0.995); }
+.show[data-off="true"] { opacity: 0.38; }
+
+.show__name {
+  font-size: var(--t-body);
+  font-weight: 500;
+  line-height: var(--lh-name);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.show__toggle {
+  grid-row: span 2;
+  align-self: center;
+  width: 18px; height: 18px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hair);
+  display: grid;
+  place-items: center;
+  font-size: var(--t-micro);
+  color: var(--signal-soft);
+  transition: background var(--fast), border-color var(--fast), color var(--fast);
+}
+.show[data-off="false"] .show__toggle { background: transparent; border-color: var(--hair); }
+
+.show__meta {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--ink-mute);
+}
+.show__meta b { color: var(--signal-soft); font-weight: 500; }
+
+/* Goal-Gradient: a visible run length is what makes you leave it on.
+   The TRACK is transparent so an unwatched show shows nothing rather than a
+   full-width grey line, which read as a divider inside its own row. */
+.show__bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: transparent;
+  margin-top: 6px;
+}
+.show__bar i { display: block; height: 100%; background: var(--signal-soft); border-radius: var(--r-pill); }
+
+.show__warn { color: #ff8f6b; }
+
+/* Per-show controls: step position, reset, marathon.
+
+   These were hidden until hover, to stop four buttons per row out-shouting the
+   show names. That was the wrong trade: a control nobody can find is not a
+   quiet control, it is a missing one — the marathon button in particular was
+   undiscoverable. They now sit at rest in a dimmer state and come up to full
+   on hover or focus, which keeps the row calm without hiding the feature. */
+.show__ctls {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 2px;
+  margin-top: 2px;
+  opacity: 0.62;
+  transition: opacity var(--fast);
+}
+.show:hover .show__ctls,
+.show__ctls:focus-within { opacity: 1; }
+/* An active marathon stays at full: it is channel state, not an affordance. */
+.show__ctls:has(.showctl--on) { opacity: 1; }
+
+.showctl {
+  width: 28px;
+  height: 24px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-mute);
+  font-size: var(--t-micro);
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: color var(--fast), border-color var(--fast), background var(--fast);
+}
+.showctl:hover { color: var(--ink); border-color: var(--hair); background: var(--lift); }
+.showctl:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.showctl--on {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: #17130a;            /* dark ink on amber, never white */
+}
+.showctl--on:hover { background: #ffce68; border-color: #ffce68; color: #17130a; }
+
+/* marathon picker */
+.select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--grotesque);
+  font-size: var(--t-body);
+  transition: border-color var(--fast), color var(--fast);
+}
+.select:hover { border-color: var(--ink-faint); }
+.select:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.select:disabled { color: var(--ink-faint); }
+
+/* Running: the picker itself carries the state, so there is no second banner
+   to fall out of sync with it. */
+.field[data-on="true"] .select {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+.field[data-on="true"] .field__label { color: var(--signal); }
+
+/* Rotation is inert during a marathon; dimming says so without hiding it. */
+.modes[data-muted="true"] { opacity: 0.4; }
+
+/* Same idea for a field whose setting does not currently apply — block length
+   while another rotation is selected, box opacity with the box switched off. */
+.field[data-muted="true"] { opacity: 0.42; }
+
+.btn--danger { color: var(--ink-mute); width: 100%; margin-top: var(--u); }
+.btn--danger:hover { color: #ff8f6b; border-color: #ff8f6b; }
+
+/* schedule preview */
+.schedule { list-style: none; padding-bottom: var(--u); }
+.sched {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: calc(var(--u) * 1.5);
+  padding: 7px var(--gutter);
+  font-size: var(--t-body);
+  align-items: baseline;
+}
+.sched__n { font-family: var(--mono); font-size: var(--t-micro); color: var(--ink-faint); }
+.sched__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sched__code { font-family: var(--mono); font-size: var(--t-micro); color: var(--ink-mute); }
+.sched:first-child .sched__n,
+.sched:first-child .sched__code { color: var(--signal); }
+
+/* The booked movie's row in the list, sitting at the seam it will actually
+   play on. Unnumbered, because it is not a turn in the rotation — the amber
+   rule and wash say it is a different kind of thing, and the episodes keep a
+   continuous 01–04. */
+.sched--movie {
+  border-left: 2px solid var(--signal-soft);
+  padding-left: calc(var(--gutter) - 2px);
+  background: var(--signal-wash);
+  border-radius: var(--r-sm);
+}
+.sched__tag {
+  flex: 0 0 auto;
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--signal);
+}
+.sched__body { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.sched__body .sched__name { flex: 1 1 auto; min-width: 0; }
+
+/* The booked movie, also named under the four rather than only among them.
+   Set apart by a rule and a wash rather than by taking a slot, because it is a
+   different KIND of thing: it interrupts the rotation instead of joining it.
+   Film titles run far longer than episode codes, so the title gives way and
+   the timing does not — how far off it is cannot be guessed from context. */
+.filmnext {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin: var(--u) var(--gutter) 0;
+  padding: 8px 10px;
+  background: var(--signal-wash);
+  border-left: 2px solid var(--signal-soft);
+  border-radius: var(--r-sm);
+  font-size: var(--t-body);
+}
+.filmnext__tag {
+  flex: 0 0 auto;
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--signal);
+}
+.filmnext__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filmnext__when {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: var(--t-micro);
+  color: var(--signal-soft);
+}
+
+/* "Not that one" — only offered on the item that plays next, because that is
+   the only one the scheduler can drop without reshuffling the commitment. */
+.sched__drop {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--ink-faint);
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity var(--fast), color var(--fast);
+}
+.sched:hover .sched__drop { opacity: 1; }
+.sched__drop:hover { color: #ff8f6b; }
+.sched { grid-template-columns: 22px 1fr auto; }
+
+/* ── sidebar foot ─────────────────────────────────────────────────────── */
+
+/* The .modes / .mode rules that stood here were an exact duplicate of the
+   restored set further down, and a lost selector had left a stray comma in
+   front of them. An invalid item invalidates the whole selector list, so the
+   browser was dropping the block regardless. Removed rather than repaired —
+   the copy that actually does the work is the one below. */
+
+.modes__note {
+  padding: var(--u) var(--gutter) 0;
+  font-size: var(--t-meta);
+  color: var(--ink-mute);
+  line-height: 1.45;
+  min-height: 32px;
+}
+
+.field { display: block; padding: calc(var(--u) * 1.5) var(--gutter) 0; }
+.field__label {
+  display: block;
+  font-family: var(--grotesque);
+  font-size: var(--t-body);
+  letter-spacing: var(--tr-none);
+  text-transform: none;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+.field__control { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.field__control output { font-size: var(--t-meta); color: var(--signal-soft); min-width: 52px; }
+
+input[type="range"] {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--hair);
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px; height: 13px;
+  background: var(--signal);
+  border-radius: 50%;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(var(--u) * 2) var(--gutter) 0;
+  font-size: var(--t-body);
+  color: var(--ink-mute);
+  cursor: pointer;
+}
+.check input { accent-color: var(--signal-soft); width: 15px; height: 15px; cursor: pointer; }
+/* The clip count is an aside, not part of the label it follows. */
+.check .mono { margin-left: 8px; color: var(--ink-faint); font-size: var(--t-micro); }
+
+/* ── stage: welcome ───────────────────────────────────────────────────── */
+
+.eyebrow {
+  font-family: var(--grotesque);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.eyebrow--signal { color: var(--signal); }
+
+.welcome, .scanning, .bumper { position: absolute; inset: 0; display: none; }
+.app[data-view="welcome"]  .welcome  { display: grid; place-items: center; }
+.app[data-view="ready"]    .welcome  { display: grid; place-items: center; }
+.app[data-view="scanning"] .scanning { display: grid; place-content: center; justify-items: center; gap: var(--u); }
+.app[data-view="bumper"]   .bumper   { display: block; }
+
+.welcome__inner { max-width: 620px; padding: calc(var(--u) * 6); }
+
+.welcome__title {
+  font-size: var(--t-display);
+  line-height: 1.02;
+  letter-spacing: var(--tr-tight);
+  font-weight: 600;
+  margin: calc(var(--u) * 2) 0 calc(var(--u) * 2.5);
+}
+
+.welcome__body {
+  font-size: var(--t-lead);
+  color: var(--ink-mute);
+  max-width: 46ch;
+  margin-bottom: calc(var(--u) * 4);
+}
+
+.welcome__hint { font-size: var(--t-meta); color: var(--ink-mute); margin-top: calc(var(--u) * 2); }
+
+.scanning__path { font-size: var(--t-meta); color: var(--ink-mute); max-width: 70ch; text-align: center; }
+
+/* ── stage: player ────────────────────────────────────────────────────── */
+
+/* The frame's shape is locked and never cropped.
+
+   `contain` scales the picture to the largest size that fits the window with
+   its aspect intact, and leaves the remainder black — bars at the sides for
+   4:3 in a wide window, top and bottom for a taller frame — recomputed on every
+   resize. This is the whole aspect-ratio policy: no fit/fill switch, no zoom.
+   Both existed here briefly and were the wrong answer, because every variant
+   either hides part of the frame or lets it be set wrong. */
+.player {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: none;
+}
+.app[data-view="playing"] .player { display: block; }
+
+/* ── stage: chrome ────────────────────────────────────────────────────── */
+
+.chrome {
+  position: absolute; inset: 0;
+  display: none;
+  flex-direction: column;
+  justify-content: space-between;
+  opacity: 0;
+  transition: opacity var(--med);
+  pointer-events: none;
+}
+.app[data-view="playing"] .chrome { display: flex; }
+.app[data-view="playing"][data-chrome="on"] .chrome { opacity: 1; pointer-events: auto; }
+
+.chrome__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: calc(var(--u) * 2);
+  padding: calc(var(--u) * 3);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), transparent);
+}
+.chrome__bottom {
+  padding: calc(var(--u) * 2) calc(var(--u) * 3) calc(var(--u) * 2.5);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 40%, transparent);
+}
+
+.nowplaying { display: flex; flex-direction: column; gap: 3px; }
+.nowplaying__show { font-size: var(--t-title); font-weight: 600; letter-spacing: var(--tr-tight); }
+.nowplaying__meta { font-size: var(--t-meta); color: var(--ink-mute); display: flex; gap: 12px; }
+.nowplaying__meta span:first-child { color: var(--signal); }
+
+/* Fitts: the scrub target is 20px tall even though the rule reads as 3px. */
+.scrub { padding: 9px 0; cursor: pointer; }
+.scrub__track { position: relative; height: 3px; background: rgba(244, 241, 234, 0.2); }
+.scrub__buffer, .scrub__fill { position: absolute; inset: 0 auto 0 0; display: block; }
+.scrub__buffer { background: rgba(244, 241, 234, 0.22); }
+.scrub__fill { background: var(--signal); }
+.scrub__fill::after {
+  content: "";
+  position: absolute; right: -5px; top: 50%;
+  width: 11px; height: 11px;
+  background: var(--signal);
+  border-radius: 50%;
+  transform: translateY(-50%) scale(0);
+  transition: transform var(--fast);
+}
+.scrub:hover .scrub__fill::after { transform: translateY(-50%) scale(1); }
+
+.transport { display: flex; align-items: center; gap: var(--u); margin-top: 6px; }
+.spacer { flex: 1; }
+
+.ctl {
+  min-width: 40px; height: 34px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  color: var(--ink-mute);
+  transition: color var(--fast), border-color var(--fast);
+}
+.ctl:hover { color: var(--ink); border-color: var(--hair); }
+.ctl--primary { color: var(--ink); font-size: var(--t-body); min-width: 44px; }
+
+.upnext { font-size: var(--t-meta); color: var(--ink-faint); margin-right: 6px; }
+
+/* ── stage: the bumper ────────────────────────────────────────────────── */
+
+/* The up-next card crossfades rather than cutting.
+   `display` cannot be transitioned, so the view attribute still does the
+   showing/hiding and a SECOND attribute drives opacity one frame later — which
+   is what gives the browser a frame to paint at 0 before animating to 1. */
+.bumper {
+  background: var(--paper);
+  opacity: 0;
+  transition: opacity var(--fade) ease;
+}
+.app[data-bumper-fade="in"] .bumper { opacity: 1; }
+.app[data-bumper-fade="out"] .bumper { opacity: 0; }
+
+/* The finished episode's last frame stays underneath while the card fades in,
+   so it reads as one picture dissolving into the next instead of a cut to
+   black followed by a fade. */
+.app[data-view="bumper"] .player { display: block; }
+
+.bumper__grid {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: calc(var(--u) * 8) calc(var(--u) * 9) calc(var(--u) * 10);
+  max-width: 1180px;
+}
+
+.bumper__head { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-bottom: calc(var(--u) * 4); }
+.rule { width: 56px; height: 1px; background: var(--signal); }
+
+/* Von Restorff: item 1 gets the thumbnail and the display size. Items 2 and 3
+   are hairline rows. Three equal items would answer nothing. */
+.lead { display: grid; grid-template-columns: minmax(0, 400px) 1fr; gap: calc(var(--u) * 4); align-items: center; }
+
+.lead__thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #131119;
+  border: 1px solid var(--hair);
+  overflow: hidden;
+}
+.lead__thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lead__thumb[data-empty="true"]::after {
+  content: attr(data-initials);
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-family: var(--mono);
+  font-size: var(--t-display);
+  letter-spacing: var(--tr-label);
+  color: var(--ink-faint);
+}
+
+.lead__show {
+  font-size: var(--t-display);
+  line-height: 1.03;
+  letter-spacing: var(--tr-tight);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.lead__code {
+  font-family: var(--mono);
+  font-size: var(--t-body);
+  color: var(--signal);
+  letter-spacing: var(--tr-label);
+}
+.lead__title { font-size: var(--t-lead); color: var(--ink-mute); margin-top: 6px; max-width: 40ch; }
+
+.thenafter { list-style: none; margin-top: calc(var(--u) * 5); border-top: 1px solid var(--hair); }
+
+.then {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: calc(var(--u) * 2);
+  align-items: baseline;
+  padding: calc(var(--u) * 1.75) 0;
+  border-bottom: 1px solid var(--hair-soft);
+}
+.then__n { font-family: var(--mono); font-size: var(--t-micro); color: var(--ink-faint); }
+.then__show { font-size: var(--t-lead); font-weight: 500; }
+.then__title { font-size: var(--t-body); color: var(--ink-faint); margin-left: 10px; }
+.then__code { font-family: var(--mono); font-size: var(--t-meta); color: var(--ink-mute); letter-spacing: var(--tr-label); }
+
+.bumper__foot {
+  position: absolute;
+  left: calc(var(--u) * 9);
+  right: calc(var(--u) * 9);
+  bottom: calc(var(--u) * 4);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: var(--t-micro);
+}
+.bumper__skip { color: var(--ink-faint); letter-spacing: var(--tr-label); text-transform: uppercase; }
+.bumper__count { color: var(--signal); font-size: var(--t-body); }
+
+/* Shown only when the countdown has run out and the next episode is still
+   converting. It replaces the "any key" hint rather than joining it, because at
+   that moment the honest thing to say is what we are waiting for. */
+.bumper__prep {
+  color: var(--signal);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+
+/* A depleting rule reads from across a room; a spinner would not. */
+.timer { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(244, 241, 234, 0.1); }
+.timer i { display: block; height: 100%; width: 100%; background: var(--signal); transform-origin: left center; }
+
+/* Held past the countdown: the rule pulses instead of sitting full, so a wait
+   never looks like a frozen screen. */
+.app[data-view="bumper"] .bumper__prep:not([hidden]) ~ * { opacity: 1; }
+.bumper__prep:not([hidden]) { animation: prep-pulse 1.6s ease-in-out infinite; }
+@keyframes prep-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* ── scaling ──────────────────────────────────────────────────────────── */
+
+.app { --ui-scale: 1; }
+
+/* `zoom` rather than a transform: it scales layout as well as paint, so the
+   controls stay laid out correctly instead of overlapping at larger sizes.
+   Only the player's own furniture scales — the sidebar is a reading surface
+   with its own density and is left alone. */
+.chrome, .trackmenu { zoom: var(--ui-scale); }
+
+/* The interstitial zoom crops black edges baked into bumper and promo files.
+   `.stage` already clips, which is what stops a scaled clip spilling out. */
+.player { transform-origin: center center; transition: transform var(--med); }
+
+/* ── settings modal ───────────────────────────────────────────────────── */
+
+/* Icon only, and pushed to the trailing edge.
+
+   It is a utility, not a destination, so it does not need a full-width bar with
+   a label competing with the marathon picker above it. 34px keeps it a
+   comfortable target despite being small (Fitts), and the label survives as the
+   accessible name and the tooltip rather than as visible chrome. */
+/* Grouped in a common region so they read as one family of switches, and so
+   the gear stays exactly where it has always been. */
+.footactions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--u);
+  margin-top: calc(var(--u) * 2);
+  padding-right: var(--gutter);   /* clears the sidebar edge, matching the rows */
+}
+.footactions .settingsbtn { margin: 0; }
+
+/* On is the app's amber; off keeps the icon and drops the accent. A control
+   that vanishes when you switch it off cannot be switched back on. */
+#btnMovies[aria-pressed="true"] { color: var(--signal); border-color: var(--signal-soft); }
+#btnMovies[aria-pressed="true"]:hover { color: var(--signal); border-color: var(--signal); }
+#btnMovies[aria-pressed="false"] { color: var(--ink-faint); }
+#btnMovies svg { display: block; }
+#btnShuffle svg { display: block; }
+#btnShuffle:hover { color: var(--ink); }
+
+/* Two buttons that belong to one decision, sitting on one line. */
+.setrow { display: flex; flex-wrap: wrap; gap: var(--u); margin-top: var(--u); }
+
+.settingsbtn {
+  margin-top: calc(var(--u) * 2);
+  margin-left: auto;
+  margin-right: var(--gutter);   /* clears the sidebar edge, matching the rows */
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--hair);
+  background: transparent;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: color var(--fast), border-color var(--fast), background var(--fast);
+}
+.settingsbtn:hover { color: var(--ink); border-color: var(--ink-faint); background: var(--lift); }
+.settingsbtn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.settingsbtn__gear { display: grid; place-items: center; transition: transform var(--med); }
+.settingsbtn__gear svg { display: block; }
+.settingsbtn:hover .settingsbtn__gear { transform: rotate(60deg); }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--u) * 4);
+}
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 3, 7, 0.72);
+  animation: fade-in var(--med) both;
+}
+.modal__panel {
+  position: relative;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  width: min(520px, 100%);
+  max-height: min(760px, 88vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-high);
+  border: 1px solid var(--hair);
+  box-shadow: var(--e-3), var(--rim);
+  animation: modal-in var(--med) both;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+.modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--u) * 2.5) calc(var(--u) * 3);
+  border-bottom: 1px solid var(--hair);
+}
+.modal__title { font-size: var(--t-lead); font-weight: 500; }
+.modal__close {
+  width: 32px; height: 32px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-mute);
+  font-size: var(--t-meta);
+  cursor: pointer;
+  transition: color var(--fast), border-color var(--fast);
+}
+.modal__close:hover { color: var(--ink); border-color: var(--ink-faint); }
+.modal__close:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+
+.modal__body { overflow-y: auto; padding: 0 calc(var(--u) * 3) calc(var(--u) * 3); }
+
+/* ── play order ───────────────────────────────────────────────────────────
+   A wider sheet than Settings, because a row here carries a title plus three
+   controls and a status. Anything narrower turns every dropdown into an
+   ellipsis. */
+.modal__panel--wide { width: min(1080px, 100%); max-height: min(860px, 92vh); }
+
+.locks__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  padding: 0 calc(var(--u) * 3) var(--u);
+}
+/* The segmented control is reused as tabs, minus the sidebar inset it carries
+   for its usual home in the settings sheet. */
+.modes--inline { flex: 0 0 auto; margin: 0; }
+.modes--inline .mode { padding: 6px 14px; }
+.locks__search {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--t-body);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  padding: 9px 12px;
+}
+.locks__search::placeholder { color: var(--ink-faint); }
+.locks__count { flex: 0 0 auto; font-size: var(--t-meta); color: var(--ink-mute); }
+.locks__empty { padding: calc(var(--u) * 3) 0; color: var(--ink-mute); font-size: var(--t-body); }
+
+.locktable { width: 100%; border-collapse: collapse; }
+.locktable th {
+  position: sticky;      /* the header has to survive scrolling a long library */
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--ink-faint);
+  background: var(--paper-high);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hair);
+}
+.locktable td { padding: 7px 10px; vertical-align: middle; border-bottom: 1px solid var(--hair-soft); }
+.locktable tr:last-child td { border-bottom: 0; }
+
+.lockrow__name { display: block; font-size: var(--t-body); }
+.lockrow__kind { display: block; font-size: var(--t-micro); color: var(--ink-faint); }
+.lockrow--na { color: var(--ink-faint); font-size: var(--t-meta); }
+.lockrow input[type="checkbox"] { accent-color: var(--signal-soft); width: 15px; height: 15px; cursor: pointer; }
+.lockrow input[type="checkbox"]:disabled { cursor: default; opacity: 0.35; }
+
+/* Held back reads as a state, not a fault: amber, the same colour the app uses
+   for anything live, rather than a red that would suggest something broke. */
+.lockrow--locked .lockrow__name { color: var(--ink-mute); }
+.lockrow__status { font-size: var(--t-meta); color: var(--ink-faint); max-width: 260px; }
+.lockrow__status.is-locked { color: var(--signal-soft); }
+.lockrow__status.is-open { color: var(--ink-faint); }
+
+/* Slimmer than the settings selects: five per row at the full size would make
+   the table taller than the screen. */
+.select--slim { padding: 6px 26px 6px 9px; font-size: var(--t-meta); background-position: right 8px center; }
+
+/* The same amber marker the schedule uses for a movie, so "held back" looks
+   like the same family of information in both places. */
+.show[data-locked="true"] .show__name { color: var(--ink-mute); }
+.show__lock { color: var(--signal-soft); }
+
+.setgroup { padding-top: calc(var(--u) * 3); }
+.setgroup + .setgroup { border-top: 1px solid var(--hair-soft); margin-top: calc(var(--u) * 2); }
+.setgroup__head {
+  font-family: var(--grotesque);
+  font-size: var(--t-lead);
+  font-weight: 600;
+  letter-spacing: var(--tr-tight);
+  text-transform: none;
+  color: var(--ink);
+  margin-bottom: calc(var(--u) * 1.5);
+}
+/* Inside the modal these sit on their own rows rather than the sidebar's
+   tighter grid. */
+.modal__body .field { padding: calc(var(--u) * 1.5) 0; }
+.modal__body .check { padding: calc(var(--u) * 1.5) 0 0; }
+
+/* subtitle colour swatches */
+.swatches { display: flex; gap: 6px; }
+.swatch {
+  width: 26px; height: 26px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--ink-faint);
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--fast), border-color var(--fast);
+}
+.swatch:hover { transform: scale(1.12); }
+.swatch:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+.swatch[aria-pressed="true"] { border-color: var(--signal); box-shadow: 0 0 0 2px var(--signal) inset, 0 0 0 1px var(--paper) inset; }
+
+/* Live sample of the current subtitle settings, on a neutral field so the
+   contrast being judged is the one that will actually be on screen. */
+.cuepreview {
+  height: 92px;
+  border-radius: var(--r-md);
+  margin-bottom: var(--u);
+  border: 1px solid var(--hair);
+  background:
+    linear-gradient(135deg, #2a2733 0%, #14121b 55%, #3a3444 100%);
+  display: flex;
+  padding: 10px 12px;
+}
+.cuepreview[data-pos="top"]    { align-items: flex-start; justify-content: center; }
+.cuepreview[data-pos="middle"] { align-items: center;     justify-content: center; }
+.cuepreview[data-pos="bottom"] { align-items: flex-end;   justify-content: center; }
+.cuepreview__text {
+  padding: 2px 8px;
+  line-height: 1.35;
+  text-align: center;
+  max-width: 100%;
+}
+
+/* ── audio / subtitle menu ────────────────────────────────────────────── */
+
+/* Anchored to the transport it opens from, above the chrome so it is never
+   clipped by it, and below the toast so a "switching audio" message still
+   reads. */
+.trackmenu {
+  position: absolute;
+  right: calc(var(--u) * 3);
+  bottom: calc(var(--u) * 11);
+  z-index: 40;
+  min-width: 260px;
+  max-width: 380px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: calc(var(--u) * 2);
+  background: var(--paper-high);
+  border: 1px solid var(--hair);
+  box-shadow: var(--e-2), var(--rim);
+  border-radius: var(--r-md);
+}
+.trackmenu__group + .trackmenu__group { margin-top: calc(var(--u) * 2); }
+.trackmenu__head {
+  font-family: var(--grotesque);
+  font-size: var(--t-meta);
+  font-weight: 500;
+  letter-spacing: var(--tr-none);
+  text-transform: none;
+  color: var(--ink-mute);
+  margin-bottom: var(--u);
+}
+.trackmenu__list { list-style: none; display: flex; flex-direction: column; gap: 1px; }
+
+.trackopt {
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--grotesque);
+  font-size: var(--t-body);
+  cursor: pointer;
+  transition: background var(--fast), color var(--fast);
+}
+.trackopt:hover:not(:disabled) { background: var(--lift); }
+.trackopt:focus-visible { outline: 1px solid var(--signal); outline-offset: -1px; }
+/* The selected row is marked with the signal colour and a leading rule, so it
+   is identifiable without relying on colour alone. */
+.trackopt[data-on="true"] { color: var(--signal); box-shadow: inset 2px 0 0 var(--signal); }
+.trackopt:disabled { color: var(--ink-faint); cursor: default; }
+
+.trackmenu__note {
+  margin-top: calc(var(--u) * 1.5);
+  padding-top: var(--u);
+  border-top: 1px solid var(--hair-soft);
+  font-size: var(--t-micro);
+  line-height: 1.5;
+  color: var(--ink-mute);
+}
+
+/* Subtitles sit above the chrome rather than behind it. */
+video::cue {
+  background: rgba(8, 7, 12, 0.78);
+  color: var(--ink);
+  font-family: var(--grotesque);
+}
+
+/* ── toast ────────────────────────────────────────────────────────────── */
+
+.toast {
+  position: absolute;
+  left: 50%; bottom: calc(var(--u) * 10);
+  transform: translateX(-50%) translateY(10px);
+  padding: 10px 18px;
+  background: rgba(15, 14, 21, 0.96);
+  border: 1px solid var(--hair);
+  font-size: var(--t-body);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--med), transform var(--med);
+  max-width: 70%;
+}
+.toast[data-show="true"] { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── idle: the cursor leaves too, or it sits on the picture ───────────── */
+.app[data-chrome="off"][data-view="playing"] { cursor: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* End state immediately. Parallax and long transforms are the ones that
+     actually cause harm, so they go entirely rather than merely slowing. */
+  *, *::before, *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+  .sidebar { transition: none; }
+}
+
+/* Narrow windows: the sidebar would crush the picture, so it overlays. */
+@media (max-width: 900px) {
+  .app { grid-template-columns: 0 1fr; }
+  .sidebar { position: absolute; z-index: 5; width: var(--sidebar-w); height: 100%; }
+  .bumper__grid { padding: calc(var(--u) * 5) calc(var(--u) * 5) calc(var(--u) * 9); }
+  .lead { grid-template-columns: 1fr; gap: calc(var(--u) * 3); }
+  .lead__thumb { max-width: 320px; }
+  .lead__show { font-size: var(--t-sub); }
+  .bumper__foot { left: calc(var(--u) * 5); right: calc(var(--u) * 5); }
+}
+
+
+/* ── skip dialog ──────────────────────────────────────────────────────────
+
+   Sits over the player rather than in the sidebar: it is asked mid-episode,
+   about the thing on screen, and the answer changes what happens next. */
+.skipask {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 3, 7, 0.72);
+  animation: fade-in var(--fast) both;
+}
+
+.skipask__panel {
+  width: min(460px, calc(100% - var(--u) * 8));
+  border-radius: var(--r-lg);
+  padding: calc(var(--u) * 4);
+  background: var(--paper-high);
+  border: 1px solid var(--hair);
+  box-shadow: var(--e-3), var(--rim);
+  animation: modal-in var(--med) both;
+}
+
+.skipask__title {
+  font-size: var(--t-title);
+  font-weight: 500;
+  margin: var(--u) 0 6px;
+}
+.skipask__body {
+  font-size: var(--t-body);
+  line-height: 1.5;
+  color: var(--ink-mute);
+  margin-bottom: calc(var(--u) * 3);
+}
+
+/* Stacked, not a row: the two answers are close in meaning and easy to mix up,
+   so they get full-width targets and read top to bottom rather than being
+   scanned as a pair of similar buttons. */
+.skipask__actions { display: flex; flex-direction: column; gap: var(--u); }
+.skipask__actions .btn { width: 100%; text-align: center; padding: 11px 14px; }
+
+
+/* ── restored and added: fixed footer, sound, shared section labels ────── */
+
+/* The footer is a fixed strip now: the schedule and the marathon picker live
+   here, so neither scrolls out of reach while browsing a long library. The
+   library above it is the only scrolling region. */
+.sidebar__foot {
+  border-top: 1px solid var(--hair);
+  padding-bottom: calc(var(--u) * 2);
+  background: var(--paper-lift);
+  box-shadow: var(--rim);
+  flex: 0 0 auto;            /* never squeezed by the list above */
+}
+.sectionhead--foot { padding-top: calc(var(--u) * 2.25); }
+
+/* Shows, Up next and Marathon are ONE role and must read as one.
+   Scoped to the sidebar: the labels inside Settings name individual controls,
+   which is a different job and keeps its own treatment. */
+.sidebar .field__label {
+  font-family: var(--grotesque);
+  font-size: var(--t-meta);
+  font-weight: 500;
+  letter-spacing: var(--tr-none);
+  text-transform: none;
+  color: var(--ink-mute);
+  margin-bottom: 8px;
+}
+
+.time { font-size: var(--t-meta); color: var(--ink-mute); margin-left: 6px; }
+
+/* Sound. The slider is deliberately short: it is a trim, not a primary
+   control, and a long track sitting near the scrubber invites mistaking one
+   for the other (Law of Similarity). */
+.volume { display: flex; align-items: center; gap: 7px; margin-left: var(--u); }
+/* Drawn rather than themed. accent-color only reaches the thumb here, which
+   left the bar reading empty at every volume; --fill comes from applyVolume so
+   the amber IS the level — a full bar at full volume, and nothing else to read
+   to see where it sits. */
+.volume input[type="range"] {
+  width: 84px;
+  height: 14px;
+  flex: 0 0 auto;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.volume input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(to right,
+    var(--signal) 0 var(--fill, 100%),
+    var(--hair) var(--fill, 100%) 100%);
+}
+.volume input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -3.5px;      /* centres the thumb on a 4px track */
+  border-radius: 50%;
+  background: var(--signal);
+}
+.volume input[type="range"]:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+
+/* A square target for a glyph with no text: .ctl's padding is sized for a
+   word, and left on an icon it puts the artwork off-centre. */
+.ctl--icon {
+  min-width: 34px;
+  width: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.volume #btnMute { color: var(--signal); }
+.volume #btnMute:hover { color: #ffce68; border-color: var(--signal-soft); }
+.volume #btnMute svg { display: block; }
+
+/* Muted and turned-fully-down sound identical, so they must look identical
+   too — otherwise silence looks like a fault. The icon stays amber in both
+   states; the crossed-out speaker is what says silent, and a greyed control
+   would read as unavailable rather than switched off. */
+.volume[data-silent="true"] input[type="range"]::-webkit-slider-runnable-track {
+  background: var(--hair);
+}
+.volume[data-silent="true"] input[type="range"]::-webkit-slider-thumb { background: var(--ink-faint); }
+
+
+/* ── restored: segmented rotation control ─────────────────────────────── */
+
+/* A seated track with pills inside, rather than three abutting boxes. Used by
+   the rotation modes and by the subtitle position picker, which is why the
+   inner buttons carry no border of their own. */
+.modes {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  margin: 0 var(--gutter);
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+}
+/* Inside the settings dialog the section already provides the inset. */
+.modal__body .modes { margin: 0; }
+
+.mode {
+  flex: 1;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  font-weight: 500;
+  font-size: var(--t-meta);
+  color: var(--ink-mute);
+  transition: color var(--fast), background var(--fast);
+}
+.mode:hover { color: var(--ink); background: var(--lift); }
+.mode[aria-pressed="true"] {
+  background: var(--signal);
+  color: #17130a;              /* dark ink on amber, never white */
+  font-weight: 600;
+  box-shadow: var(--e-1);
+}
+.modes[data-muted="true"] { opacity: 0.4; }

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+src/renderer/bundle.js
+src/renderer/bundle.js.map
+channel-state.json
+
+# dev artefacts
+shots/shoot.log
+*.log
