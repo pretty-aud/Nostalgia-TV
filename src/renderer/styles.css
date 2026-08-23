@@ -523,7 +523,13 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   color: var(--signal);
 }
 .sched__body { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.sched__body .sched__name { flex: 1 1 auto; min-width: 0; }
+.sched__body .sched__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* The booked movie, also named under the four rather than only among them.
    Set apart by a rule and a wash rather than by taking a slot, because it is a
@@ -1775,3 +1781,49 @@ video::cue {
 
 /* Scroll-margin so a jumped-to heading is not welded to the top edge. */
 .setgroup { scroll-margin-top: var(--u); }
+
+/* Kawaii only: a heart either side of every title.
+   Pseudo-elements rather than text, so nothing has to be stripped back out
+   when the theme changes — and the titles keep their real strings for search,
+   truncation and the accessible name. */
+:root[data-theme="kawaii"] .ident__word::before,
+:root[data-theme="kawaii"] .sectionhead > span:first-child::before,
+:root[data-theme="kawaii"] .show__name::before,
+:root[data-theme="kawaii"] .sched__name::before,
+:root[data-theme="kawaii"] .filmnext__name::before,
+:root[data-theme="kawaii"] .welcome__title::before,
+:root[data-theme="kawaii"] .modal__title::before,
+:root[data-theme="kawaii"] .setgroup__head::before,
+:root[data-theme="kawaii"] .lockrow__name::before,
+:root[data-theme="kawaii"] .nowplaying__show::before,
+:root[data-theme="kawaii"] .skipask__title::before {
+  content: "\2665\00a0";
+  color: #ffffff;
+}
+
+:root[data-theme="kawaii"] .ident__word::after,
+:root[data-theme="kawaii"] .sectionhead > span:first-child::after,
+:root[data-theme="kawaii"] .show__name::after,
+:root[data-theme="kawaii"] .sched__name::after,
+:root[data-theme="kawaii"] .filmnext__name::after,
+:root[data-theme="kawaii"] .welcome__title::after,
+:root[data-theme="kawaii"] .modal__title::after,
+:root[data-theme="kawaii"] .setgroup__head::after,
+:root[data-theme="kawaii"] .lockrow__name::after,
+:root[data-theme="kawaii"] .nowplaying__show::after,
+:root[data-theme="kawaii"] .skipask__title::after {
+  content: "\00a0\2665";
+  color: #ffffff;
+}
+
+/* Kawaii's hearts lengthen every title, which pushed the longest schedule row
+   onto two lines. Truncating the whole line keeps the code beside the name —
+   stretching it instead would right-align the codes, which is a different
+   design and not one this theme asked for. */
+:root[data-theme="kawaii"] .sched__line {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -596,7 +596,12 @@ function renderSchedule() {
     n.className = 'sched__n';
     n.textContent = String(i + 1).padStart(2, '0');
 
+    // Its own class, NOT the movie row's: .sched__body stretches the name so
+    // the code right-aligns, which is right for one highlighted row and wrong
+    // for a list of four. This one only ever gets a truncation rule, and only
+    // in the theme that needs it.
     const wrap = document.createElement('span');
+    wrap.className = 'sched__line';
     const name = document.createElement('span');
     name.className = 'sched__name';
     name.textContent = item.showName;
