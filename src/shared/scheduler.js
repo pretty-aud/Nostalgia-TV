@@ -98,6 +98,12 @@ const DEFAULT_SETTINGS = {
   volume: 100,
   muted: false,
 
+  /**
+   * Interface theme. Every one is the same token set with different values, so
+   * a theme can never restyle a component — see the themes block in styles.css.
+   */
+  theme: 'midnight',   // 'midnight' | 'mono' | 'marigold' | 'cathode' | 'paper'
+
   autoCrop: true,
   interstitialZoom: 100,    // scale % for bumpers/promos ONLY, to crop baked-in bars
   uiScale: 100,             // scale % for player text and controls

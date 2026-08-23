@@ -722,6 +722,12 @@ function renderSettings() {
     ? `${presentationClips.length} clip${presentationClips.length === 1 ? '' : 's'}`
     : '';
 
+  const theme = THEMES.includes(state.settings.theme) ? state.settings.theme : 'midnight';
+  el('themeSelect').value = theme;
+  el('themeNote').textContent = theme === 'marigold' || theme === 'paper'
+    ? 'Panels take the theme; over the picture the type stays legible against the video.'
+    : '';
+
   el('autoCropToggle').checked = state.settings.autoCrop !== false;
   el('autoCropNote').textContent = currentCrop && currentCrop.worthCropping
     ? `This episode: ${currentCrop.detected} inside ${currentCrop.frame}.`
@@ -2167,6 +2173,20 @@ function applyVolume() {
   range.style.setProperty('--fill', `${silent ? 0 : level}%`);
 }
 
+const THEMES = ['midnight', 'mono', 'marigold', 'cathode', 'paper'];
+
+/**
+ * Put the theme on <html>, not on #app.
+ *
+ * The settings sheet and the play-order table are rendered outside #app, so
+ * anchoring the theme there would leave every dialog wearing the old palette.
+ */
+function applyTheme() {
+  const wanted = String((state.settings || {}).theme || 'midnight');
+  const theme = THEMES.includes(wanted) ? wanted : 'midnight';
+  document.documentElement.dataset.theme = theme;
+}
+
 /** Player text and controls, for people who want them larger than the default. */
 function applyUiScale() {
   const scale = Math.min(160, Math.max(80, Number(state.settings.uiScale) || 100));
@@ -2889,6 +2909,11 @@ function wireEvents() {
 
   el('promoToggle').addEventListener('change', (event) => setSetting({ promosEnabled: event.target.checked }));
 
+  el('themeSelect').addEventListener('change', (event) => {
+    setSetting({ theme: event.target.value });
+    applyTheme();
+  });
+
   el('promoBetweenToggle').addEventListener('change', (event) => {
     setSetting({ promoBetweenShows: event.target.checked });
     toast(event.target.checked
@@ -3316,6 +3341,7 @@ async function boot() {
     state.settings = { ...state.settings, movieEvery: 24 };
   }
 
+  applyTheme();
   applySubtitleStyle();
   applyUiScale();
   applyPicture(false);

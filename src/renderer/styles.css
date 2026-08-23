@@ -214,30 +214,41 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* ── layout ───────────────────────────────────────────────────────────── */
 
+/* The stage owns the whole window and the library rides OVER it.
+   A grid column for the sidebar meant opening the library resized the video —
+   the picture jumped narrower and letterboxed differently every time you
+   glanced at the schedule. Now nothing behind it moves. */
 .app {
-  display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  position: relative;
   height: 100%;
 }
 
 /* Playback owns the whole window. The library is a between-episodes concern,
-   so it leaves entirely rather than shrinking to a strip. */
-.app[data-view="playing"] { grid-template-columns: 0 1fr; }
-.app[data-view="playing"] .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }
-.app[data-view="bumper"]  { grid-template-columns: 0 1fr; }
-.app[data-view="bumper"]  .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }
+   so it slides off the edge rather than shrinking to a strip — and because it
+   is layered over the stage, the picture underneath never changes size. */
+.app[data-view="playing"] .sidebar,
+.app[data-view="bumper"] .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }
 
 .sidebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 20;
+  width: var(--sidebar-w);
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--paper-lift);
   border-right: 1px solid var(--hair);
+  /* Seated above the picture rather than beside it, so it needs its own edge. */
+  box-shadow: var(--e-2);
   transition: transform var(--slow), opacity var(--med);
 }
 
 .stage {
-  position: relative;
+  position: absolute;
+  inset: 0;
   min-width: 0;
   background: #000;
   overflow: hidden;
@@ -1181,6 +1192,9 @@ video::cue {
   left: 50%; bottom: calc(var(--u) * 10);
   transform: translateX(-50%) translateY(10px);
   padding: 10px 18px;
+  /* Deliberately dark whatever the theme: it appears over the picture, and a
+     light slab there is a flash in a dark room. Themes with dark ink therefore
+     re-declare their tokens on .toast so the text inside stays legible. */
   background: rgba(15, 14, 21, 0.96);
   border: 1px solid var(--hair);
   font-size: var(--t-body);
@@ -1381,3 +1395,116 @@ video::cue {
   box-shadow: var(--e-1);
 }
 .modes[data-muted="true"] { opacity: 0.4; }
+
+/* ── themes ───────────────────────────────────────────────────────────────
+
+   Every theme is the SAME token set with different values — nothing here
+   restyles a component. That is the whole discipline: if a theme needs a new
+   rule, the rule belongs in the component and the theme belongs in a token.
+
+   Set on <html> by applyTheme(), so it covers the modals too. */
+
+/* Black and white. No accent at all: white does the signalling, which is why
+   the pressed-pill rule already puts dark ink on top of it. */
+:root[data-theme="mono"] {
+  --paper:      #000000;
+  --paper-lift: #0d0d0d;
+  --paper-high: #171717;
+  --ink:        #ffffff;
+  --ink-mute:   #9a9a9a;
+  --ink-faint:  #5c5c5c;
+  --signal:      #ffffff;
+  --signal-soft: rgba(255, 255, 255, 0.62);
+  --signal-wash: rgba(255, 255, 255, 0.10);
+  --hair:       rgba(255, 255, 255, 0.12);
+  --hair-soft:  rgba(255, 255, 255, 0.06);
+  --lift:       rgba(255, 255, 255, 0.05);
+}
+
+/* Orange panels, black type. */
+:root[data-theme="marigold"] {
+  --paper:      #f08a1c;
+  --paper-lift: #ff9c2e;
+  --paper-high: #ffab48;
+  --ink:        #140d02;
+  --ink-mute:   rgba(20, 13, 2, 0.66);
+  --ink-faint:  rgba(20, 13, 2, 0.42);
+  --signal:      #140d02;
+  --signal-soft: rgba(20, 13, 2, 0.62);
+  --signal-wash: rgba(20, 13, 2, 0.10);
+  --hair:       rgba(20, 13, 2, 0.22);
+  --hair-soft:  rgba(20, 13, 2, 0.12);
+  --lift:       rgba(20, 13, 2, 0.07);
+}
+
+/* …but the playback furniture sits over VIDEO, not over a panel. Black type on
+   a dark picture would be unreadable, so inside the player the theme inverts:
+   orange type and orange accents on the dark gradients that are already there.
+   Re-declaring the tokens on these containers re-themes everything within. */
+:root[data-theme="marigold"] .chrome,
+:root[data-theme="marigold"] .bumper,
+:root[data-theme="marigold"] .trackmenu,
+:root[data-theme="marigold"] .toast,
+:root[data-theme="marigold"] .skipask {
+  --paper:      #08070c;
+  --paper-lift: #101016;
+  --paper-high: #16161d;
+  --ink:        #ff9c2e;
+  --ink-mute:   rgba(255, 156, 46, 0.72);
+  --ink-faint:  rgba(255, 156, 46, 0.45);
+  --signal:      #ff9c2e;
+  --signal-soft: rgba(255, 156, 46, 0.62);
+  --signal-wash: rgba(255, 156, 46, 0.10);
+  --hair:       rgba(255, 156, 46, 0.20);
+  --hair-soft:  rgba(255, 156, 46, 0.10);
+  --lift:       rgba(255, 156, 46, 0.06);
+}
+
+/* Green phosphor, for the same reason the app is called what it is. */
+:root[data-theme="cathode"] {
+  --paper:      #030a05;
+  --paper-lift: #071408;
+  --paper-high: #0b1d0e;
+  --ink:        #b9ffc4;
+  --ink-mute:   #6fae7b;
+  --ink-faint:  #41684a;
+  --signal:      #49ff7a;
+  --signal-soft: rgba(73, 255, 122, 0.62);
+  --signal-wash: rgba(73, 255, 122, 0.10);
+  --hair:       rgba(185, 255, 196, 0.14);
+  --hair-soft:  rgba(185, 255, 196, 0.07);
+  --lift:       rgba(185, 255, 196, 0.05);
+}
+
+/* Daylight. The stage stays black underneath — letterbox bars are not a
+   surface, they are the absence of picture. */
+:root[data-theme="paper"] {
+  --paper:      #efece4;
+  --paper-lift: #f7f5ef;
+  --paper-high: #ffffff;
+  --ink:        #1b1a17;
+  --ink-mute:   #6b6862;
+  --ink-faint:  #9a968e;
+  --signal:      #c2410c;
+  --signal-soft: rgba(194, 65, 12, 0.62);
+  --signal-wash: rgba(194, 65, 12, 0.10);
+  --hair:       rgba(27, 26, 23, 0.16);
+  --hair-soft:  rgba(27, 26, 23, 0.08);
+  --lift:       rgba(27, 26, 23, 0.05);
+  --rim:  inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --e-1:  0 1px 2px rgba(27, 26, 23, 0.10);
+  --e-2:  0 2px 6px rgba(27, 26, 23, 0.08), 0 12px 32px rgba(27, 26, 23, 0.10);
+  --e-3:  0 4px 12px rgba(27, 26, 23, 0.12), 0 32px 72px rgba(27, 26, 23, 0.16);
+}
+
+/* Over video, a light theme has the same problem marigold does. */
+:root[data-theme="paper"] .chrome,
+:root[data-theme="paper"] .bumper,
+:root[data-theme="paper"] .toast {
+  --paper:      #08070c;
+  --ink:        #f7f5ef;
+  --ink-mute:   rgba(247, 245, 239, 0.72);
+  --ink-faint:  rgba(247, 245, 239, 0.45);
+  --signal:      #ff8a3d;
+  --signal-soft: rgba(255, 138, 61, 0.62);
+}
