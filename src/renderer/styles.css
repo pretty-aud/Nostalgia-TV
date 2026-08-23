@@ -1547,3 +1547,21 @@ video::cue {
   --signal:      #ff8a3d;
   --signal-soft: rgba(255, 138, 61, 0.62);
 }
+
+/* Marigold only: the show cards need a real edge.
+   On the dark themes a card is a lighter plane on a darker one and that is
+   enough. On orange it is orange on orange, and the rows run together. */
+:root[data-theme="marigold"] .show {
+  border-color: var(--ink);
+  background: rgba(255, 255, 255, 0.10);
+}
+:root[data-theme="marigold"] .show:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* A switched-off row fades its CONTENTS, not itself. `opacity` on the row took
+   the outline down with it, which is the one part that has to stay readable —
+   an off show still needs to be findable to switch back on. */
+:root[data-theme="marigold"] .show[data-off="true"] { opacity: 1; background: transparent; }
+:root[data-theme="marigold"] .show[data-off="true"] > *:not(.show__toggle) { opacity: 0.45; }
+
+/* Same reason for the empty box: unchecked is the state you are hunting for. */
+:root[data-theme="marigold"] .show__toggle { border-color: var(--ink); }
