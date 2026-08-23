@@ -2181,10 +2181,19 @@ function applyVolume() {
 const THEMES = [
   'midnight', 'mono', 'marigold', 'cathode', 'paper',
   'kawaii', 'neon', 'oceanic', 'nitrate', 'crimson',
+  'forest', 'sunset', 'espresso', 'royal', 'slate',
+  'ember', 'storm', 'arctic', 'mint', 'lilac',
 ];
 
-/** Themes whose panels are LIGHT, so the type inverts over the picture. */
-const LIGHT_THEMES = ['marigold', 'paper', 'kawaii'];
+/**
+ * Themes whose panels are LIGHT.
+ *
+ * Adding a palette here is all it takes: applyTheme puts data-light on the
+ * root, and the stylesheet hangs everything a light theme needs off that one
+ * attribute — inverted type over the picture, outlines on cards that would
+ * otherwise be tone on tone.
+ */
+const LIGHT_THEMES = ['marigold', 'paper', 'kawaii', 'arctic', 'mint', 'lilac'];
 
 /**
  * Put the theme on <html>, not on #app.
@@ -2196,6 +2205,7 @@ function applyTheme() {
   const wanted = String((state.settings || {}).theme || 'midnight');
   const theme = THEMES.includes(wanted) ? wanted : 'midnight';
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.light = String(LIGHT_THEMES.includes(theme));
 }
 
 /** Player text and controls, for people who want them larger than the default. */

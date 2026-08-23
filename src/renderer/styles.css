@@ -1473,31 +1473,6 @@ video::cue {
    a dark picture would be unreadable, so inside the player the theme inverts:
    orange type and orange accents on the dark gradients that are already there.
    Re-declaring the tokens on these containers re-themes everything within. */
-:root[data-theme="marigold"] .chrome,
-:root[data-theme="marigold"] .bumper,
-:root[data-theme="marigold"] .welcome,
-:root[data-theme="marigold"] .scanning,
-:root[data-theme="marigold"] .trackmenu,
-:root[data-theme="marigold"] .toast,
-:root[data-theme="marigold"] .skipask {
-  /* Set explicitly, not merely re-tokened. `color` is inherited from body,
-     where it was already resolved against the PANEL palette — so redefining
-     --ink alone left everything without a colour rule of its own, the display
-     title among them, still wearing black on top of a picture. */
-  color: var(--ink);
-  --paper:      #08070c;
-  --paper-lift: #101016;
-  --paper-high: #16161d;
-  --ink:        #ff9c2e;
-  --ink-mute:   rgba(255, 156, 46, 0.72);
-  --ink-faint:  rgba(255, 156, 46, 0.45);
-  --signal:      #ff9c2e;
-  --signal-soft: rgba(255, 156, 46, 0.62);
-  --signal-wash: rgba(255, 156, 46, 0.10);
-  --hair:       rgba(255, 156, 46, 0.20);
-  --hair-soft:  rgba(255, 156, 46, 0.10);
-  --lift:       rgba(255, 156, 46, 0.06);
-}
 
 /* Green phosphor, for the same reason the app is called what it is. */
 :root[data-theme="cathode"] {
@@ -1537,40 +1512,7 @@ video::cue {
 }
 
 /* Over video, a light theme has the same problem marigold does. */
-:root[data-theme="paper"] .chrome,
-:root[data-theme="paper"] .bumper,
-:root[data-theme="paper"] .welcome,
-:root[data-theme="paper"] .scanning,
-:root[data-theme="paper"] .trackmenu,
-:root[data-theme="paper"] .skipask,
-:root[data-theme="paper"] .toast {
-  /* Same reason as marigold above: inherited colour was resolved at body. */
-  color: var(--ink);
-  --paper:      #08070c;
-  --ink:        #f7f5ef;
-  --ink-mute:   rgba(247, 245, 239, 0.72);
-  --ink-faint:  rgba(247, 245, 239, 0.45);
-  --signal:      #ff8a3d;
-  --signal-soft: rgba(255, 138, 61, 0.62);
-}
 
-/* Marigold only: the show cards need a real edge.
-   On the dark themes a card is a lighter plane on a darker one and that is
-   enough. On orange it is orange on orange, and the rows run together. */
-:root[data-theme="marigold"] .show {
-  border-color: var(--ink);
-  background: rgba(255, 255, 255, 0.10);
-}
-:root[data-theme="marigold"] .show:hover { background: rgba(255, 255, 255, 0.18); }
-
-/* A switched-off row fades its CONTENTS, not itself. `opacity` on the row took
-   the outline down with it, which is the one part that has to stay readable —
-   an off show still needs to be findable to switch back on. */
-:root[data-theme="marigold"] .show[data-off="true"] { opacity: 1; background: transparent; }
-:root[data-theme="marigold"] .show[data-off="true"] > *:not(.show__toggle) { opacity: 0.45; }
-
-/* Same reason for the empty box: unchecked is the state you are hunting for. */
-:root[data-theme="marigold"] .show__toggle { border-color: var(--ink); }
 
 /* ── themes, second set ───────────────────────────────────────────────── */
 
@@ -1590,37 +1532,7 @@ video::cue {
   --hair-soft:  rgba(61, 7, 34, 0.12);
   --lift:       rgba(61, 7, 34, 0.06);
 }
-:root[data-theme="kawaii"] .chrome,
-:root[data-theme="kawaii"] .bumper,
-:root[data-theme="kawaii"] .welcome,
-:root[data-theme="kawaii"] .scanning,
-:root[data-theme="kawaii"] .trackmenu,
-:root[data-theme="kawaii"] .skipask,
-:root[data-theme="kawaii"] .toast {
-  color: var(--ink);
-  --paper:      #08070c;
-  --paper-lift: #101016;
-  --paper-high: #16161d;
-  --ink:        #ff8ec4;
-  --ink-mute:   rgba(255, 142, 196, 0.72);
-  --ink-faint:  rgba(255, 142, 196, 0.45);
-  --signal:      #ff5fa8;
-  --signal-soft: rgba(255, 95, 168, 0.62);
-  --signal-wash: rgba(255, 95, 168, 0.10);
-  --hair:       rgba(255, 142, 196, 0.20);
-  --hair-soft:  rgba(255, 142, 196, 0.10);
-  --lift:       rgba(255, 142, 196, 0.06);
-}
 
-/* Pink cards on a pink panel run together exactly as the orange ones did. */
-:root[data-theme="kawaii"] .show {
-  border-color: var(--ink);
-  background: rgba(255, 255, 255, 0.22);
-}
-:root[data-theme="kawaii"] .show:hover { background: rgba(255, 255, 255, 0.34); }
-:root[data-theme="kawaii"] .show[data-off="true"] { opacity: 1; background: transparent; }
-:root[data-theme="kawaii"] .show[data-off="true"] > *:not(.show__toggle) { opacity: 0.45; }
-:root[data-theme="kawaii"] .show__toggle { border-color: var(--ink); }
 
 /* Magenta on deep violet. */
 :root[data-theme="neon"] {
@@ -1842,3 +1754,287 @@ video::cue {
   margin-top: calc(var(--u) * 2.5);
 }
 .setsub:first-of-type { margin-top: var(--u); }
+
+/* ── light themes: the shared scaffolding ─────────────────────────────────
+
+   A light theme needs two things a dark one does not, and both used to be
+   copied per theme — which is exactly how a new light theme quietly shipped
+   without them. They key off data-light, set beside the theme name, so adding
+   a palette to LIGHT_THEMES is all it takes.
+
+   1. Over the PICTURE the palette inverts. These surfaces sit on video, and
+      dark type on a paused frame is unreadable however good it looks on a
+      panel. Each theme re-states only its accent, further down. */
+:root[data-light="true"] .chrome,
+:root[data-light="true"] .bumper,
+:root[data-light="true"] .welcome,
+:root[data-light="true"] .scanning,
+:root[data-light="true"] .trackmenu,
+:root[data-light="true"] .skipask,
+:root[data-light="true"] .toast {
+  /* Set explicitly, not merely re-tokened: `color` is inherited from body and
+     was already resolved against the panel palette, so anything without a
+     colour rule of its own — the display title among them — would keep it. */
+  color: var(--ink);
+  --paper:      #08070c;
+  --paper-lift: #101016;
+  --paper-high: #16161d;
+  --ink:        #f4f1ea;
+  --ink-mute:   rgba(244, 241, 234, 0.72);
+  --ink-faint:  rgba(244, 241, 234, 0.45);
+  --hair:       rgba(244, 241, 234, 0.16);
+  --hair-soft:  rgba(244, 241, 234, 0.08);
+  --lift:       rgba(244, 241, 234, 0.05);
+}
+
+/* 2. Cards need an edge. On a dark theme a card is a lighter plane on a darker
+      one and that reads on its own; on a light panel it is tone on tone and the
+      rows run together. A switched-off row fades its CONTENTS rather than
+      itself, so the outline and the empty checkbox — the parts you need in
+      order to switch it back on — stay solid. */
+:root[data-light="true"] .show {
+  border-color: var(--ink);
+  background: rgba(255, 255, 255, 0.18);
+}
+:root[data-light="true"] .show:hover { background: rgba(255, 255, 255, 0.30); }
+:root[data-light="true"] .show[data-off="true"] { opacity: 1; background: transparent; }
+:root[data-light="true"] .show[data-off="true"] > *:not(.show__toggle) { opacity: 0.45; }
+:root[data-light="true"] .show__toggle { border-color: var(--ink); }
+
+/* Each light theme's accent OVER the picture. Listed after the shared block so
+   these win on source order at equal specificity. */
+:root[data-theme="marigold"] .chrome,
+:root[data-theme="marigold"] .bumper,
+:root[data-theme="marigold"] .welcome,
+:root[data-theme="marigold"] .scanning,
+:root[data-theme="marigold"] .trackmenu,
+:root[data-theme="marigold"] .skipask,
+:root[data-theme="marigold"] .toast {
+  --ink:        #ff9c2e;
+  --ink-mute:   rgba(255, 156, 46, 0.72);
+  --ink-faint:  rgba(255, 156, 46, 0.45);
+  --signal:      #ff9c2e;
+  --signal-soft: rgba(255, 156, 46, 0.62);
+  --signal-wash: rgba(255, 156, 46, 0.10);
+}
+:root[data-theme="paper"] .chrome,
+:root[data-theme="paper"] .bumper,
+:root[data-theme="paper"] .welcome,
+:root[data-theme="paper"] .scanning,
+:root[data-theme="paper"] .trackmenu,
+:root[data-theme="paper"] .skipask,
+:root[data-theme="paper"] .toast {
+  --signal:      #ff8a3d;
+  --signal-soft: rgba(255, 138, 61, 0.62);
+}
+:root[data-theme="kawaii"] .chrome,
+:root[data-theme="kawaii"] .bumper,
+:root[data-theme="kawaii"] .welcome,
+:root[data-theme="kawaii"] .scanning,
+:root[data-theme="kawaii"] .trackmenu,
+:root[data-theme="kawaii"] .skipask,
+:root[data-theme="kawaii"] .toast {
+  --ink:        #ff8ec4;
+  --ink-mute:   rgba(255, 142, 196, 0.72);
+  --ink-faint:  rgba(255, 142, 196, 0.45);
+  --signal:      #ff5fa8;
+  --signal-soft: rgba(255, 95, 168, 0.62);
+  --signal-wash: rgba(255, 95, 168, 0.10);
+}
+
+/* ── themes, third set ────────────────────────────────────────────────── */
+
+:root[data-theme="forest"] {
+  --paper:      #07120b;
+  --paper-lift: #0c1c12;
+  --paper-high: #12271a;
+  --ink:        #e6f2e6;
+  --ink-mute:   #8fae95;
+  --ink-faint:  #566b5c;
+  --signal:      #d8b45a;
+  --signal-soft: rgba(216, 180, 90, 0.62);
+  --signal-wash: rgba(216, 180, 90, 0.10);
+  --hair:       rgba(230, 242, 230, 0.13);
+  --hair-soft:  rgba(230, 242, 230, 0.07);
+  --lift:       rgba(230, 242, 230, 0.05);
+}
+
+:root[data-theme="sunset"] {
+  --paper:      #140a1e;
+  --paper-lift: #1e1130;
+  --paper-high: #291841;
+  --ink:        #ffe9e0;
+  --ink-mute:   #b493a8;
+  --ink-faint:  #755c6e;
+  --signal:      #ff7a59;
+  --signal-soft: rgba(255, 122, 89, 0.62);
+  --signal-wash: rgba(255, 122, 89, 0.10);
+  --hair:       rgba(255, 233, 224, 0.13);
+  --hair-soft:  rgba(255, 233, 224, 0.07);
+  --lift:       rgba(255, 233, 224, 0.05);
+}
+
+:root[data-theme="espresso"] {
+  --paper:      #150f0b;
+  --paper-lift: #201811;
+  --paper-high: #2c211a;
+  --ink:        #f2e4d2;
+  --ink-mute:   #ac9880;
+  --ink-faint:  #6f6152;
+  --signal:      #c98b4b;
+  --signal-soft: rgba(201, 139, 75, 0.62);
+  --signal-wash: rgba(201, 139, 75, 0.10);
+  --hair:       rgba(242, 228, 210, 0.13);
+  --hair-soft:  rgba(242, 228, 210, 0.07);
+  --lift:       rgba(242, 228, 210, 0.05);
+}
+
+:root[data-theme="royal"] {
+  --paper:      #070a1c;
+  --paper-lift: #0d122c;
+  --paper-high: #141b3f;
+  --ink:        #e8ebff;
+  --ink-mute:   #9298c4;
+  --ink-faint:  #5c6187;
+  --signal:      #e9c46a;
+  --signal-soft: rgba(233, 196, 106, 0.62);
+  --signal-wash: rgba(233, 196, 106, 0.10);
+  --hair:       rgba(232, 235, 255, 0.13);
+  --hair-soft:  rgba(232, 235, 255, 0.07);
+  --lift:       rgba(232, 235, 255, 0.05);
+}
+
+:root[data-theme="slate"] {
+  --paper:      #0f1214;
+  --paper-lift: #171c1f;
+  --paper-high: #20262b;
+  --ink:        #e7edf2;
+  --ink-mute:   #94a1ab;
+  --ink-faint:  #5d686f;
+  --signal:      #7fb2d9;
+  --signal-soft: rgba(127, 178, 217, 0.62);
+  --signal-wash: rgba(127, 178, 217, 0.10);
+  --hair:       rgba(231, 237, 242, 0.13);
+  --hair-soft:  rgba(231, 237, 242, 0.07);
+  --lift:       rgba(231, 237, 242, 0.05);
+}
+
+:root[data-theme="ember"] {
+  --paper:      #100804;
+  --paper-lift: #1a0d06;
+  --paper-high: #26140a;
+  --ink:        #ffe8d6;
+  --ink-mute:   #b58e73;
+  --ink-faint:  #75594a;
+  --signal:      #ff6b1a;
+  --signal-soft: rgba(255, 107, 26, 0.62);
+  --signal-wash: rgba(255, 107, 26, 0.10);
+  --hair:       rgba(255, 232, 214, 0.13);
+  --hair-soft:  rgba(255, 232, 214, 0.07);
+  --lift:       rgba(255, 232, 214, 0.05);
+}
+
+:root[data-theme="storm"] {
+  --paper:      #0a0f16;
+  --paper-lift: #111925;
+  --paper-high: #182234;
+  --ink:        #e3ecf7;
+  --ink-mute:   #8fa0b6;
+  --ink-faint:  #5a6779;
+  --signal:      #ffe14d;
+  --signal-soft: rgba(255, 225, 77, 0.62);
+  --signal-wash: rgba(255, 225, 77, 0.10);
+  --hair:       rgba(227, 236, 247, 0.13);
+  --hair-soft:  rgba(227, 236, 247, 0.07);
+  --lift:       rgba(227, 236, 247, 0.05);
+}
+
+/* ── the three light ones. Panels only; over the picture they take the shared
+      dark scaffolding above, plus the accent stated after it. ───────────── */
+
+:root[data-theme="arctic"] {
+  --paper:      #e8eef4;
+  --paper-lift: #f2f6fa;
+  --paper-high: #ffffff;
+  --ink:        #16232e;
+  --ink-mute:   rgba(22, 35, 46, 0.66);
+  --ink-faint:  rgba(22, 35, 46, 0.42);
+  --signal:      #1b6ca8;
+  --signal-soft: rgba(27, 108, 168, 0.62);
+  --signal-wash: rgba(27, 108, 168, 0.10);
+  --hair:       rgba(22, 35, 46, 0.18);
+  --hair-soft:  rgba(22, 35, 46, 0.09);
+  --lift:       rgba(22, 35, 46, 0.05);
+  --rim:  inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --e-1:  0 1px 2px rgba(22, 35, 46, 0.10);
+  --e-2:  0 2px 6px rgba(22, 35, 46, 0.08), 0 12px 32px rgba(22, 35, 46, 0.10);
+  --e-3:  0 4px 12px rgba(22, 35, 46, 0.12), 0 32px 72px rgba(22, 35, 46, 0.16);
+}
+:root[data-theme="arctic"] .chrome,
+:root[data-theme="arctic"] .bumper,
+:root[data-theme="arctic"] .welcome,
+:root[data-theme="arctic"] .scanning,
+:root[data-theme="arctic"] .trackmenu,
+:root[data-theme="arctic"] .skipask,
+:root[data-theme="arctic"] .toast {
+  --signal:      #5fc0ff;
+  --signal-soft: rgba(95, 192, 255, 0.62);
+}
+
+:root[data-theme="mint"] {
+  --paper:      #d9f0e1;
+  --paper-lift: #e6f6ec;
+  --paper-high: #f2fbf5;
+  --ink:        #0f2c1d;
+  --ink-mute:   rgba(15, 44, 29, 0.66);
+  --ink-faint:  rgba(15, 44, 29, 0.42);
+  --signal:      #167d51;
+  --signal-soft: rgba(22, 125, 81, 0.62);
+  --signal-wash: rgba(22, 125, 81, 0.10);
+  --hair:       rgba(15, 44, 29, 0.18);
+  --hair-soft:  rgba(15, 44, 29, 0.09);
+  --lift:       rgba(15, 44, 29, 0.05);
+  --rim:  inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --e-1:  0 1px 2px rgba(15, 44, 29, 0.10);
+  --e-2:  0 2px 6px rgba(15, 44, 29, 0.08), 0 12px 32px rgba(15, 44, 29, 0.10);
+  --e-3:  0 4px 12px rgba(15, 44, 29, 0.12), 0 32px 72px rgba(15, 44, 29, 0.16);
+}
+:root[data-theme="mint"] .chrome,
+:root[data-theme="mint"] .bumper,
+:root[data-theme="mint"] .welcome,
+:root[data-theme="mint"] .scanning,
+:root[data-theme="mint"] .trackmenu,
+:root[data-theme="mint"] .skipask,
+:root[data-theme="mint"] .toast {
+  --signal:      #4ade9b;
+  --signal-soft: rgba(74, 222, 155, 0.62);
+}
+
+:root[data-theme="lilac"] {
+  --paper:      #e7e0f5;
+  --paper-lift: #efeaf9;
+  --paper-high: #f7f4fd;
+  --ink:        #241a3a;
+  --ink-mute:   rgba(36, 26, 58, 0.66);
+  --ink-faint:  rgba(36, 26, 58, 0.42);
+  --signal:      #6d3ec9;
+  --signal-soft: rgba(109, 62, 201, 0.62);
+  --signal-wash: rgba(109, 62, 201, 0.10);
+  --hair:       rgba(36, 26, 58, 0.18);
+  --hair-soft:  rgba(36, 26, 58, 0.09);
+  --lift:       rgba(36, 26, 58, 0.05);
+  --rim:  inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --e-1:  0 1px 2px rgba(36, 26, 58, 0.10);
+  --e-2:  0 2px 6px rgba(36, 26, 58, 0.08), 0 12px 32px rgba(36, 26, 58, 0.10);
+  --e-3:  0 4px 12px rgba(36, 26, 58, 0.12), 0 32px 72px rgba(36, 26, 58, 0.16);
+}
+:root[data-theme="lilac"] .chrome,
+:root[data-theme="lilac"] .bumper,
+:root[data-theme="lilac"] .welcome,
+:root[data-theme="lilac"] .scanning,
+:root[data-theme="lilac"] .trackmenu,
+:root[data-theme="lilac"] .skipask,
+:root[data-theme="lilac"] .toast {
+  --signal:      #b48cff;
+  --signal-soft: rgba(180, 140, 255, 0.62);
+}
