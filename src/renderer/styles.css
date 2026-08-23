@@ -638,7 +638,19 @@ input[type="range"]::-webkit-slider-thumb {
 .app[data-view="scanning"] .scanning { display: grid; place-content: center; justify-items: center; gap: var(--u); }
 .app[data-view="bumper"]   .bumper   { display: block; }
 
-.welcome__inner { max-width: 620px; padding: calc(var(--u) * 6); }
+/* A scrim behind the words. The library now sits over a PAUSED PICTURE, and
+   a frame can be bright, busy, or both — text alone on top of one is legible
+   only by luck. Sized to the copy rather than the screen so the picture is
+   still mostly visible. */
+.welcome__inner {
+  max-width: 620px;
+  padding: calc(var(--u) * 6);
+  border-radius: var(--r-lg);
+}
+.app[data-view="ready"] .welcome__inner {
+  background: radial-gradient(120% 120% at 30% 40%, rgba(4, 3, 7, 0.82), rgba(4, 3, 7, 0.62));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
 
 .welcome__title {
   font-size: var(--t-display);
@@ -1443,9 +1455,16 @@ video::cue {
    Re-declaring the tokens on these containers re-themes everything within. */
 :root[data-theme="marigold"] .chrome,
 :root[data-theme="marigold"] .bumper,
+:root[data-theme="marigold"] .welcome,
+:root[data-theme="marigold"] .scanning,
 :root[data-theme="marigold"] .trackmenu,
 :root[data-theme="marigold"] .toast,
 :root[data-theme="marigold"] .skipask {
+  /* Set explicitly, not merely re-tokened. `color` is inherited from body,
+     where it was already resolved against the PANEL palette — so redefining
+     --ink alone left everything without a colour rule of its own, the display
+     title among them, still wearing black on top of a picture. */
+  color: var(--ink);
   --paper:      #08070c;
   --paper-lift: #101016;
   --paper-high: #16161d;
@@ -1500,7 +1519,13 @@ video::cue {
 /* Over video, a light theme has the same problem marigold does. */
 :root[data-theme="paper"] .chrome,
 :root[data-theme="paper"] .bumper,
+:root[data-theme="paper"] .welcome,
+:root[data-theme="paper"] .scanning,
+:root[data-theme="paper"] .trackmenu,
+:root[data-theme="paper"] .skipask,
 :root[data-theme="paper"] .toast {
+  /* Same reason as marigold above: inherited colour was resolved at body. */
+  color: var(--ink);
   --paper:      #08070c;
   --ink:        #f7f5ef;
   --ink-mute:   rgba(247, 245, 239, 0.72);
