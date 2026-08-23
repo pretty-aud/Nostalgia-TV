@@ -2113,17 +2113,18 @@ video::cue {
   --signal:      #b6f24a;
   --signal-soft: rgba(182, 242, 74, 0.62);
   --signal-wash: rgba(182, 242, 74, 0.10);
+  --signal-alt-soft: rgba(255, 122, 26, 0.92);
   --hair:       rgba(240, 230, 247, 0.13);
   --hair-soft:  rgba(240, 230, 247, 0.07);
   --lift:       rgba(240, 230, 247, 0.05);
 }
 
-/* The one orange thing in 01.
-   Deliberately two small places and no more: the ident dot, and the mono
-   pair on the row that plays next. Both are already the "attention" slot in
-   every other theme, so nothing had to be invented to hang a third colour
-   off — and at this size it reads as a warm note in a cold palette rather
-   than as a third accent competing with the lime. */
+/* The orange in 01, kept to three small places: the ident dot, the mono pair
+   on the row that plays next, and the per-show progress bars (which take the
+   --signal-alt-soft token set above rather than a rule here). All three are
+   already the "attention" slot in every other theme, so nothing had to be
+   invented to hang a third colour off — and at this size it reads as a warm
+   note in a cold palette rather than as an accent competing with the lime. */
 :root[data-theme="01"] .ident__dot { background: #ff7a1a; }
 :root[data-theme="01"] .sched:first-child .sched__n,
 :root[data-theme="01"] .sched:first-child .sched__code { color: #ff7a1a; }
