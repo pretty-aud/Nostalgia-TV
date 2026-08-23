@@ -169,7 +169,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .modal__body,
 .trackmenu {
   scrollbar-width: thin;                              /* Firefox and the standard */
-  scrollbar-color: var(--ink-faint) transparent;
+  scrollbar-color: var(--ink-mute) transparent;
 }
 
 .sidebar__scroll::-webkit-scrollbar,
@@ -192,7 +192,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .sidebar__scroll::-webkit-scrollbar-thumb,
 .modal__body::-webkit-scrollbar-thumb,
 .trackmenu::-webkit-scrollbar-thumb {
-  background-color: var(--ink-faint);
+  /* --ink-mute, not --ink-faint: the faint tint vanished on a light panel and
+     was barely there on a dark one, and a scrollbar you cannot find is not a
+     scrollbar. */
+  background-color: var(--ink-mute);
   border: 3px solid transparent;
   border-radius: var(--r-pill);
   background-clip: padding-box;
@@ -202,7 +205,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .sidebar__scroll::-webkit-scrollbar-thumb:hover,
 .modal__body::-webkit-scrollbar-thumb:hover,
 .trackmenu::-webkit-scrollbar-thumb:hover {
-  background-color: var(--ink-mute);
+  background-color: var(--ink);
 }
 
 /* The little square where two bars meet, which otherwise stays default grey. */
@@ -370,10 +373,21 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   display: grid;
   place-items: center;
   font-size: var(--t-micro);
+  font-weight: 700;
   color: var(--signal-soft);
   transition: background var(--fast), border-color var(--fast), color var(--fast);
 }
-.show[data-off="false"] .show__toggle { background: transparent; border-color: var(--hair); }
+
+
+/* Switched ON is the state worth seeing across a list of two dozen rows, so
+   it is filled rather than outlined. Built from --signal on --paper so it
+   inverts with the theme: amber-on-dark in Midnight, and on the orange theme
+   literally a black box with an orange tick. */
+.show[data-off="false"] .show__toggle {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: var(--paper);
+}
 
 .show__meta {
   font-family: var(--mono);
