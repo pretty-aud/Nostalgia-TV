@@ -2183,8 +2183,8 @@ const THEMES = [
   'slate', 'bone', 'ember', 'searchlight', 'nitrate',
   'espresso', 'crimson', 'marigold', 'cathode', 'greenbox',
   'forest', 'mint', 'oceanic', 'storm', 'royal',
-  'arctic', '01', 'neon', 'sunset', 'lilac',
-  'kawaii',
+  'arctic', '78', '01', 'neon', 'sunset',
+  'lilac', 'kawaii',
 ];
 
 /**
@@ -2206,7 +2206,7 @@ const THEME_ALIASES = { grape: '01' };
  * attribute — inverted type over the picture, outlines on cards that would
  * otherwise be tone on tone.
  */
-const LIGHT_THEMES = ['marigold', 'kawaii', 'arctic', 'mint', 'lilac', 'bone'];
+const LIGHT_THEMES = ['marigold', 'kawaii', 'arctic', 'mint', 'lilac', 'bone', '78'];
 
 /** The theme actually in force, following any rename, falling back to midnight. */
 function resolveTheme(wanted) {

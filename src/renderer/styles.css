@@ -2188,3 +2188,62 @@ video::cue {
   --hair-soft:  rgba(233, 241, 225, 0.07);
   --lift:       rgba(233, 241, 225, 0.05);
 }
+
+/* ── themes, sixth set ────────────────────────────────────────────────── */
+
+/* 78 — white armour, dark joints, and the three primaries, from a reference
+   image. All four colours earn a job rather than sitting somewhere decorative:
+   white is the panel, the near-black grey is the type, RED is attention (what
+   plays next, the scrub), BLUE is "switched on" (the toggles and the per-show
+   bars), and the gold belongs to films — see the block below. */
+:root[data-theme="78"] {
+  --paper:      #e9ecf1;
+  --paper-lift: #f3f5f8;
+  --paper-high: #ffffff;
+  --ink:        #1b2130;
+  --ink-mute:   rgba(27, 33, 48, 0.62);
+  --ink-faint:  rgba(27, 33, 48, 0.38);
+  --signal:      #d0202c;
+  --signal-soft: rgba(208, 32, 44, 0.62);
+  --signal-wash: rgba(208, 32, 44, 0.10);
+  --signal-alt:  #1e40a0;
+  --signal-alt-soft: rgba(30, 64, 160, 0.88);
+  --hair:       rgba(27, 33, 48, 0.18);
+  --hair-soft:  rgba(27, 33, 48, 0.09);
+  --lift:       rgba(27, 33, 48, 0.05);
+  --rim:  inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --e-1:  0 1px 2px rgba(27, 33, 48, 0.10);
+  --e-2:  0 2px 6px rgba(27, 33, 48, 0.08), 0 12px 32px rgba(27, 33, 48, 0.10);
+  --e-3:  0 4px 12px rgba(27, 33, 48, 0.12), 0 32px 72px rgba(27, 33, 48, 0.16);
+}
+
+/* The gold. It goes on the booked film, which is the one thing in the list that
+   is already marked out as a different KIND of thing rather than a different
+   state — so the fourth colour lands on a real distinction instead of being
+   sprinkled somewhere to make the count.
+
+   Split into a bright rule and a dark tag on purpose: the yellow in the
+   reference is only legible against white as a SHAPE. As type it disappears,
+   so the words take a gold dark enough to read and the bright one does the
+   marking. */
+:root[data-theme="78"] .sched--movie,
+:root[data-theme="78"] .filmnext {
+  border-left-color: #f0be1e;
+  background: rgba(240, 190, 30, 0.18);
+}
+:root[data-theme="78"] .sched__tag,
+:root[data-theme="78"] .filmnext__tag { color: #97690f; }
+:root[data-theme="78"] .filmnext__when { color: rgba(151, 105, 15, 0.78); }
+
+/* Over the picture, where the panel palette inverts, the armour red is too
+   dark against a paused frame. */
+:root[data-theme="78"] .chrome,
+:root[data-theme="78"] .bumper,
+:root[data-theme="78"] .welcome,
+:root[data-theme="78"] .scanning,
+:root[data-theme="78"] .trackmenu,
+:root[data-theme="78"] .skipask,
+:root[data-theme="78"] .toast {
+  --signal:      #ff4a52;
+  --signal-soft: rgba(255, 74, 82, 0.62);
+}
