@@ -271,11 +271,22 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 .ident { display: flex; align-items: center; gap: 11px; margin-bottom: calc(var(--u) * 2.25); }
 
-.ident__dot {
-  width: 10px; height: 10px;
-  background: var(--signal);
-  border-radius: 50%;
-  box-shadow: 0 0 12px rgba(255, 194, 71, 0.7);
+.ident__set {
+  width: 22px; height: 22px;
+  flex: none;
+  /* The old dot glowed in hard-coded amber, which stayed amber in the pink and
+     purple themes. --signal-soft is the accent at the same weight in all of
+     them, so the glow follows the palette now. */
+  filter: drop-shadow(0 0 5px var(--signal-soft));
+}
+.ident__set-body,
+.ident__set-knob { fill: var(--signal); }
+.ident__set-screen { fill: var(--paper); }
+.ident__set-ears {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 1.9;
+  stroke-linecap: round;
 }
 
 .ident__word {
@@ -2126,7 +2137,10 @@ video::cue {
    already the "attention" slot in every other theme, so nothing had to be
    invented to hang a third colour off — and at this size it reads as a warm
    note in a cold palette rather than as an accent competing with the lime. */
-:root[data-theme="01"] .ident__dot { background: #ff7a1a; }
+:root[data-theme="01"] .ident__set-body,
+:root[data-theme="01"] .ident__set-knob { fill: #ff7a1a; }
+:root[data-theme="01"] .ident__set-ears { stroke: #ff7a1a; }
+:root[data-theme="01"] .ident__set { filter: drop-shadow(0 0 5px var(--signal-alt-soft)); }
 /* Both checkbox surfaces in the settings window, not just the plain rows —
    the play-order table opens out of the same sheet, and a lime tick beside an
    orange one reads as a bug rather than a distinction. */

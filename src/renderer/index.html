@@ -15,7 +15,15 @@
   <aside class="sidebar" id="sidebar">
     <header class="sidebar__head">
       <div class="ident">
-        <span class="ident__dot" aria-hidden="true"></span>
+        <!-- The same mark as the app icon, drawn down to its bones: at 22px
+             the dials, grille and feet are sub-pixel and only muddy it. -->
+        <svg class="ident__set" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path class="ident__set-ears" d="M12 11 L4.4 2.6 M12 11 L19.6 3.6" />
+          <circle class="ident__set-knob" cx="4.4" cy="2.6" r="1.25" />
+          <circle class="ident__set-knob" cx="19.6" cy="3.6" r="1.25" />
+          <rect class="ident__set-body" x="1.7" y="10.3" width="20.6" height="11" rx="1.9" />
+          <rect class="ident__set-screen" x="3.2" y="11.8" width="14.6" height="8" rx="1.2" />
+        </svg>
         <span class="ident__word">NOSTALGIA TV</span>
       </div>
       <p class="sidebar__root mono" id="rootLabel">No folder chosen</p>
