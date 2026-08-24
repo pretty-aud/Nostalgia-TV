@@ -87,13 +87,24 @@ function isRunnable(candidate) {
  * handle and labels the rest honestly, which is a far better failure mode than
  * refusing to start — so this returns null rather than throwing.
  */
-function findFfmpeg() {
-  if (ffmpegPathCache !== undefined) return ffmpegPathCache;
-
+/**
+ * Every place ffmpeg might be, in the order they should be tried.
+ *
+ * Split out from findFfmpeg because the ORDER is the part with consequences and
+ * the part that cannot otherwise be checked. The installer bundles a copy, and
+ * that copy has to beat whatever the machine already has — but on any machine
+ * that already has ffmpeg, which is every developer machine by definition, a
+ * working app looks exactly the same whether the bundled copy won, lost, or
+ * never shipped at all. Testing this list tests that. Running the candidates
+ * cannot.
+ */
+function ffmpegCandidates() {
   const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
   const candidates = [];
 
-  // Shipped as an electron-builder extraResource, when we choose to bundle it.
+  // Shipped as an electron-builder extraResource. FIRST, deliberately: a copy
+  // inside the app is the one this build was tested against, and the only one
+  // that is certain to be there at all.
   if (process.resourcesPath) {
     candidates.push(path.join(process.resourcesPath, 'ffmpeg', exe));
     candidates.push(path.join(process.resourcesPath, exe));
@@ -118,8 +129,18 @@ function findFfmpeg() {
   // Last resort: let the OS resolve it. This is what rescues an install whose
   // real location we do not know but which is genuinely on the PATH.
   candidates.push(exe);
+  return candidates;
+}
 
-  for (const candidate of candidates) {
+/**
+ * ffmpeg is optional even now that it is bundled: an install can lose files,
+ * and a dev run has no resourcesPath at all. Returning null lets the app fall
+ * back to labelling what it cannot play rather than refusing to start.
+ */
+function findFfmpeg() {
+  if (ffmpegPathCache !== undefined) return ffmpegPathCache;
+
+  for (const candidate of ffmpegCandidates()) {
     if (isRunnable(candidate)) {
       ffmpegPathCache = candidate;
       return candidate;
@@ -925,6 +946,7 @@ module.exports = {
   TIER,
   setCacheDir,
   findFfmpeg,
+  ffmpegCandidates,
   rescanFfmpeg,
   hasFfmpeg,
   inspect,

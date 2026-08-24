@@ -1,4 +1,5 @@
 node_modules/
+vendor/
 dist/
 src/renderer/bundle.js
 src/renderer/bundle.js.map

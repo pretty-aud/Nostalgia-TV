@@ -109,7 +109,52 @@ Anything Chromium can decode plays natively — `.mp4` (H.264/AAC) and `.webm` a
 the safe cases. `.mkv` containers often carry AC3/DTS audio that Chromium cannot
 decode, which shows up as video with no sound; older `.avi`/`.wmv` codecs may not
 play at all. A file that fails is reported and skipped rather than stalling the
-channel. Handling those properly needs a bundled ffmpeg, which is not in here.
+channel.
+
+The installer carries ffmpeg, so those cases are handled on any machine without
+anything else being installed first: the app converts ahead of time, from the
+committed queue, while the current episode is still playing. It still prefers a
+copy bundled inside itself over one on the system, so a machine that already has
+ffmpeg gets the version this build was tested against rather than whatever
+happens to be on its PATH.
+
+## Building an installer
+
+```bash
+npm run dist
+```
+
+Leaves `dist/Nostalgia TV Setup.exe` — a one-click, per-user installer needing
+no admin rights, and `dist/Nostalgia TV (portable).exe`, which runs without
+installing at all. Both are self-contained: Electron, the app and ffmpeg. About
+140 MB packed, 508 MB installed.
+
+The first build fetches ffmpeg, because 160 MB of binaries do not belong in a
+git repo — GitHub refuses single files over 100 MB outright. It is cached in
+`vendor/` and only fetched again if that copy is missing or will not run:
+
+```bash
+npm run vendor:ffmpeg
+```
+
+The build fetches it as a hard prerequisite rather than a warning. An installer
+that quietly shipped without ffmpeg would install perfectly and then fail only on
+the files that needed converting — the worst possible place to find out.
+
+It is a GPL build (FFmpeg n9.0, win64-gpl-shared, from BtbN's releases), because
+the full-conversion tier encodes with libx264 and LGPL builds do not carry it.
+Shared rather than static: `ffmpeg.exe` is 0.5 MB and `ffprobe.exe` 0.2 MB
+against one shared set of DLLs, where the static build every winget install lands
+on is 212 MB *each*. The licence travels with the binaries in
+`resources/ffmpeg/LICENSE.txt`.
+
+```bash
+npm run deploy
+```
+
+Same build, then installs it over the local copy and verifies the installed hash
+matches — for testing a change on this machine. It deletes the loose exes
+afterwards on purpose, so use `npm run dist` when you want an installer to keep.
 
 ## Testing
 
