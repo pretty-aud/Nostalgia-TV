@@ -1847,21 +1847,6 @@ video::cue {
   --lift:       rgba(255, 233, 224, 0.05);
 }
 
-:root[data-theme="royal"] {
-  --paper:      #070a1c;
-  --paper-lift: #0d122c;
-  --paper-high: #141b3f;
-  --ink:        #e8ebff;
-  --ink-mute:   #9298c4;
-  --ink-faint:  #5c6187;
-  --signal:      #e9c46a;
-  --signal-soft: rgba(233, 196, 106, 0.62);
-  --signal-wash: rgba(233, 196, 106, 0.10);
-  --hair:       rgba(232, 235, 255, 0.13);
-  --hair-soft:  rgba(232, 235, 255, 0.07);
-  --lift:       rgba(232, 235, 255, 0.05);
-}
-
 :root[data-theme="slate"] {
   --paper:      #0f1214;
   --paper-lift: #171c1f;
@@ -1890,21 +1875,6 @@ video::cue {
   --hair:       rgba(255, 232, 214, 0.13);
   --hair-soft:  rgba(255, 232, 214, 0.07);
   --lift:       rgba(255, 232, 214, 0.05);
-}
-
-:root[data-theme="storm"] {
-  --paper:      #0a0f16;
-  --paper-lift: #111925;
-  --paper-high: #182234;
-  --ink:        #e3ecf7;
-  --ink-mute:   #8fa0b6;
-  --ink-faint:  #5a6779;
-  --signal:      #ffe14d;
-  --signal-soft: rgba(255, 225, 77, 0.62);
-  --signal-wash: rgba(255, 225, 77, 0.10);
-  --hair:       rgba(227, 236, 247, 0.13);
-  --hair-soft:  rgba(227, 236, 247, 0.07);
-  --lift:       rgba(227, 236, 247, 0.05);
 }
 
 /* ── the three light ones. Panels only; over the picture they take the shared
@@ -2423,25 +2393,4 @@ video::cue {
 :root[data-theme="clay"] .toast {
   --signal:      #3fd8c6;
   --signal-soft: rgba(63, 216, 198, 0.62);
-}
-
-/* The legible one. Not a mood: pure black, pure white, one hot yellow, and
-   hairlines two to three times the weight every other palette uses — the
-   0.07-alpha rules that read as a whisper of structure on a good monitor in a
-   lit room disappear entirely on a dim one. Monochrome is the same two
-   colours, but its accent is WHITE, so nothing in it stands out from anything
-   else; here one colour means "this one". */
-:root[data-theme="highvis"] {
-  --paper:      #000000;
-  --paper-lift: #0d0d0d;
-  --paper-high: #1a1a1a;
-  --ink:        #ffffff;
-  --ink-mute:   #d2d2d2;
-  --ink-faint:  #9a9a9a;
-  --signal:      #ffe500;
-  --signal-soft: rgba(255, 229, 0, 0.80);
-  --signal-wash: rgba(255, 229, 0, 0.14);
-  --hair:       rgba(255, 255, 255, 0.32);
-  --hair-soft:  rgba(255, 255, 255, 0.18);
-  --lift:       rgba(255, 255, 255, 0.10);
 }
