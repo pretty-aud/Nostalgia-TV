@@ -2247,3 +2247,109 @@ video::cue {
   --signal:      #ff4a52;
   --signal-soft: rgba(255, 74, 82, 0.62);
 }
+
+/* ── window controls ──────────────────────────────────────────────────────
+   The system title bar is gone (main.js, frame: false), so the two things it
+   used to provide are drawn here instead: somewhere to drag, and the buttons.
+
+   The point of the change is real estate — a player's top strip IS the
+   picture — so these float over the content rather than reserving a row. */
+
+/* Drag. Deliberately thin and deliberately UNDER the sidebar: the library
+   header has its own buttons up there, and an app-region strip swallows every
+   event in its box, so laying one over them would make them dead. It also
+   stops short of the controls on the right, or the same thing happens to
+   close. */
+.windrag {
+  position: fixed;
+  top: 0;
+  /* Starts AFTER the sidebar rather than under it. Relying on z-order was
+     wrong: below 900px the sidebar drops to z-index 5 to overlay the stage,
+     which puts it under this strip — and an app-region box swallows every
+     event inside it, so Change folder and Rescan would have gone dead at
+     exactly the window sizes nobody tests at. */
+  left: var(--sidebar-w);
+  right: 140px;
+  height: 30px;
+  z-index: 15;
+  -webkit-app-region: drag;
+}
+
+.wincontrols {
+  position: fixed;
+  top: calc(var(--u) * 0.75);
+  right: calc(var(--u) * 1.5);
+  /* Above the modals. Being unable to close the app because a dialog is open
+     would be a worse bug than anything a dialog can do. */
+  z-index: 100;
+  display: flex;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+/* Over a picture these need to read on anything, so each carries its own
+   backing rather than trusting the frame underneath to be dark. */
+.winbtn {
+  width: 42px; height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  opacity: 0.55;
+  transition: opacity var(--fast), background var(--fast), color var(--fast);
+}
+.winbtn svg {
+  width: 16px; height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+.winbtn:hover { opacity: 1; background: var(--lift); }
+.winbtn:focus-visible { opacity: 1; outline: 1px solid var(--signal); outline-offset: -2px; }
+
+/* Red on hover, the one place in the app that borrows a system convention:
+   it is the button you must never hit by accident. Fixed rather than themed,
+   because "the destructive one" should not become pink in Kawaii. */
+.winbtn--close:hover { background: #e81123; color: #ffffff; opacity: 1; }
+
+/* Which glyph, maximised or not. Both ship; one is hidden. */
+.winbtn__restore { display: none; }
+.app[data-maximized="true"] .winbtn__max { display: none; }
+.app[data-maximized="true"] .winbtn__restore { display: block; }
+
+/* Fade with the rest of the chrome while something is playing. Left visible
+   over a paused or idle screen, where there is nothing to spoil and no reason
+   to make somebody wiggle the mouse to find the close button. */
+.app[data-view="playing"][data-chrome="off"] .wincontrols {
+  opacity: 0;
+  pointer-events: none;
+}
+.wincontrols { transition: opacity var(--med); }
+
+/* Fullscreen has no window to restore and no border to drag, and a close
+   button sitting over a full-screen picture is only something to hit by
+   mistake. Escape and F still leave. */
+.app[data-fullscreen="true"] .wincontrols,
+.app[data-fullscreen="true"] .windrag { display: none; }
+
+/* Drop the player's top row below the buttons, so ☰ Library sits under them
+   rather than being shoved left to dodge them — and so it clears the drag
+   strip, whose top 30px would otherwise eat the first few pixels of it. */
+.chrome__top { padding-top: calc(var(--u) * 5); }
+
+/* ── a switched-off show collapses ────────────────────────────────────────
+   A row that is off has nothing to act on: its next episode will not play, its
+   progress is not advancing, and its controls all operate on a show that is
+   out of the rotation. Collapsing to the title and the checkbox — the two
+   things needed to identify it and put it back — turns a list of two dozen
+   shows into a list of the ones actually on, without hiding anything. */
+.show[data-off="true"] .show__meta,
+.show[data-off="true"] .show__bar,
+.show[data-off="true"] .show__ctls { display: none; }
+
+/* The checkbox spans two rows so it centres against title-plus-meta. With the
+   meta gone there is only one row, and the span would leave an empty second
+   one under the title — the card would collapse its contents and keep its
+   height, which is the opposite of the point. */
+.show[data-off="true"] .show__toggle { grid-row: auto; }

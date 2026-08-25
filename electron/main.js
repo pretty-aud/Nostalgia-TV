@@ -529,6 +529,17 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     title: 'Nostalgia TV',
+    /**
+     * No system title bar. The window buttons are drawn by the renderer and
+     * float over the picture instead, which buys back the ~32px strip a title
+     * bar costs — on a player, that strip is the picture.
+     *
+     * Two things now have to come from the renderer that the frame used to
+     * provide for free, and both are easy to lose: somewhere to DRAG the window
+     * (a -webkit-app-region: drag strip) and the buttons themselves. Lose them
+     * and the window cannot be moved or closed at all.
+     */
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -541,6 +552,28 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'));
 
   mainWindow.on('closed', () => { mainWindow = null; });
+
+  /**
+   * Tell the renderer what the window is doing.
+   *
+   * The maximise button has to show a different glyph once maximised, and the
+   * window can be maximised without the button — a double-click on the drag
+   * strip, Win+Up, or a snap — so asking once at startup would leave the glyph
+   * lying for the rest of the session. Fullscreen rides along because the
+   * buttons hide in it: there is no window to restore, and drawing a close
+   * button over a fullscreen picture is just something to hit by accident.
+   */
+  const reportWindowState = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('window:state', {
+      maximized: mainWindow.isMaximized(),
+      fullscreen: mainWindow.isFullScreen(),
+    });
+  };
+  for (const event of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) {
+    mainWindow.on(event, reportWindowState);
+  }
+  mainWindow.webContents.on('did-finish-load', reportWindowState);
 
   // Anything trying to open a new window or navigate away is not part of this
   // app; send external links to the real browser instead.
@@ -630,6 +663,29 @@ function registerIpc() {
   ipcMain.handle('window:setFullscreen', (_event, value) => {
     if (mainWindow) mainWindow.setFullScreen(Boolean(value));
     return Boolean(mainWindow && mainWindow.isFullScreen());
+  });
+
+  // The window buttons. With no system frame these are the ONLY way to minimise
+  // or close, so each one checks the window is still there rather than assuming
+  // — a click landing during teardown would otherwise throw on a destroyed
+  // window and leave the app unclosable.
+  ipcMain.handle('window:minimize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+  });
+
+  ipcMain.handle('window:toggleMaximize', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+    return mainWindow.isMaximized();
+  });
+
+  ipcMain.handle('window:close', () => {
+    // close(), not destroy(). Closing runs the same path the old title bar's X
+    // ran — 'window-all-closed' and 'before-quit', which is where saveStateSync
+    // lives. destroy() tears the window down without either, so every episode
+    // watched since the last rolling save would be lost on the way out.
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
   });
 
   ipcMain.handle('shell:revealFile', async (_event, absPath) => {

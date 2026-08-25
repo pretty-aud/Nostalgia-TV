@@ -29,6 +29,20 @@ contextBridge.exposeInMainWorld('tv', {
   putThumb: (absPath, dataUrl) => ipcRenderer.invoke('thumb:put', absPath, dataUrl),
 
   setFullscreen: (value) => ipcRenderer.invoke('window:setFullscreen', value),
+
+  // The window has no system frame, so these are the only minimise and close
+  // there are.
+  minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
+  toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggleMaximize'),
+  closeWindow: () => ipcRenderer.invoke('window:close'),
+
+  /** Maximised and fullscreen, pushed whenever they change — see main.js. */
+  onWindowState: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('window:state', listener);
+    return () => ipcRenderer.removeListener('window:state', listener);
+  },
+
   revealFile: (absPath) => ipcRenderer.invoke('shell:revealFile', absPath),
 
   capabilities: () => ipcRenderer.invoke('prepare:capabilities'),

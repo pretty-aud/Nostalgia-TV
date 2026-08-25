@@ -16,7 +16,11 @@ await wait(400);
 // One row switched OFF, so both states are in the same picture.
 const rows = [...document.querySelectorAll('#showList .show')];
 if (rows.length < 5) throw new Error('the library did not load');
-if (rows[2].dataset.off !== 'true') { rows[2].click(); await wait(400); }
+// The toggle, not the row — a click on the row plays the show instead, so
+// this quietly produced shots with nothing switched off at all.
+if (rows[2].dataset.off !== 'true') rows[2].querySelector('.show__toggle').click();
+await wait(400);
+if (rows[2].dataset.off !== 'true') throw new Error('row 3 would not switch off');
 
 const scroll = document.querySelector('.sidebar__scroll');
 const box = scroll.getBoundingClientRect();

@@ -11,6 +11,32 @@
 
 <div id="app" class="app" data-view="welcome">
 
+  <!-- ── window ──────────────────────────────────────────────────────────
+       There is no system title bar, so both halves of one live here.
+
+       The strip is what makes the window draggable at all. It sits UNDER the
+       sidebar so the library's own buttons stay clickable, and stops short of
+       the controls so a drag never swallows a click on close. -->
+  <div class="windrag" aria-hidden="true"></div>
+
+  <div class="wincontrols" id="winControls">
+    <button class="winbtn" id="btnWinMin" type="button" aria-label="Minimise" title="Minimise">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8h9" /></svg>
+    </button>
+    <button class="winbtn" id="btnWinMax" type="button" aria-label="Maximise" title="Maximise">
+      <svg class="winbtn__max" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <rect x="3.5" y="3.5" width="9" height="9" rx="1" />
+      </svg>
+      <svg class="winbtn__restore" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M5.5 5.5V4a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-.5.5h-1.5" />
+        <rect x="3.5" y="5.5" width="7" height="7" rx="1" />
+      </svg>
+    </button>
+    <button class="winbtn winbtn--close" id="btnWinClose" type="button" aria-label="Close" title="Close">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+    </button>
+  </div>
+
   <!-- ── library ────────────────────────────────────────────────────────── -->
   <aside class="sidebar" id="sidebar">
     <header class="sidebar__head">

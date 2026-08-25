@@ -3198,6 +3198,8 @@ function wireEvents() {
   el('btnLibrary').addEventListener('click', openLibrary);
   el('btnFull').addEventListener('click', toggleFullscreen);
 
+  wireWindowControls();
+
   el('scrub').addEventListener('click', (event) => {
     if (!Number.isFinite(player.duration)) return;
     const rect = event.currentTarget.getBoundingClientRect();
@@ -3329,6 +3331,29 @@ function canResumeInPlace() {
     && !player.ended
     && player.currentTime > 0,
   );
+}
+
+/**
+ * The window buttons, now that there is no system title bar to carry them.
+ *
+ * Guarded on each call rather than on the whole block: these are the only way
+ * to minimise or close the app, and a preview or a dev build running against an
+ * older preload would otherwise throw on the first click and leave the window
+ * with no way out. A button that does nothing is bad; a window that cannot be
+ * closed is worse.
+ */
+function wireWindowControls() {
+  el('btnWinMin').addEventListener('click', () => window.tv.minimizeWindow?.());
+  el('btnWinMax').addEventListener('click', () => window.tv.toggleMaximizeWindow?.());
+  el('btnWinClose').addEventListener('click', () => window.tv.closeWindow?.());
+
+  // Pushed from main whenever it changes, because the window can be maximised
+  // without the button — a double-click on the drag strip, Win+Up, a snap — and
+  // a glyph that only reads the state once starts lying at the first of those.
+  window.tv.onWindowState?.(({ maximized, fullscreen }) => {
+    app.dataset.maximized = String(Boolean(maximized));
+    app.dataset.fullscreen = String(Boolean(fullscreen));
+  });
 }
 
 /**
