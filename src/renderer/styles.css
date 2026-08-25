@@ -1764,7 +1764,13 @@ video::cue {
 :root[data-light="true"] .scanning,
 :root[data-light="true"] .trackmenu,
 :root[data-light="true"] .skipask,
-:root[data-light="true"] .toast {
+:root[data-light="true"] .toast,
+/* The window buttons belong here too. The top-right corner is over the STAGE
+   in every view — the sidebar only ever reaches 340px from the left — so they
+   are an over-video surface like the rest of this list, not a panel one.
+   Taking the panel ink left them dark-on-black, which on Clay meant a close
+   button you could only find by knowing where it was. */
+:root[data-light="true"] .wincontrols {
   /* Set explicitly, not merely re-tokened: `color` is inherited from body and
      was already resolved against the panel palette, so anything without a
      colour rule of its own — the display title among them — would keep it. */
@@ -2353,3 +2359,121 @@ video::cue {
    one under the title — the card would collapse its contents and keep its
    height, which is the opposite of the point. */
 .show[data-off="true"] .show__toggle { grid-row: auto; }
+
+/* ── themes, seventh set ──────────────────────────────────────────────── */
+
+/* Amber phosphor: the monochrome terminal cathode is the green half of. The
+   TYPE is amber here, not just the accent — which is what separates it from
+   Midnight, where amber marks things against ordinary cream text. Pale type
+   against a saturated accent, the same trick cathode uses, or the two ambers
+   sit on top of each other and nothing marks anything. */
+:root[data-theme="phosphor"] {
+  --paper:      #0d0a04;
+  --paper-lift: #171106;
+  --paper-high: #211909;
+  --ink:        #ffd9a8;
+  --ink-mute:   rgba(255, 217, 168, 0.66);
+  --ink-faint:  rgba(255, 217, 168, 0.40);
+  --signal:      #ff9d00;
+  --signal-soft: rgba(255, 157, 0, 0.62);
+  --signal-wash: rgba(255, 157, 0, 0.10);
+  --hair:       rgba(255, 217, 168, 0.14);
+  --hair-soft:  rgba(255, 217, 168, 0.07);
+  --lift:       rgba(255, 217, 168, 0.05);
+}
+
+/* Tracking error. The two colours a worn tape fringes into, used as the two
+   they already are: magenta for attention, cyan for switched-on. */
+:root[data-theme="vhs"] {
+  --paper:      #0a0710;
+  --paper-lift: #130d1c;
+  --paper-high: #1c1428;
+  --ink:        #ecdff5;
+  --ink-mute:   #a795b5;
+  --ink-faint:  #6c5f79;
+  --signal:      #ff2ea6;
+  --signal-soft: rgba(255, 46, 166, 0.62);
+  --signal-wash: rgba(255, 46, 166, 0.10);
+  --signal-alt:  #22d3ee;
+  --signal-alt-soft: rgba(34, 211, 238, 0.82);
+  --hair:       rgba(236, 223, 245, 0.14);
+  --hair-soft:  rgba(236, 223, 245, 0.07);
+  --lift:       rgba(236, 223, 245, 0.05);
+}
+
+/* Late-night action block, ship's-bridge era: a hull-black ground, an electric
+   cyan for the readouts, and a hot orange for anything switched on.
+
+   Kept apart from Oceanic on purpose, because "cyan on dark blue" describes
+   both. Oceanic is a soft cyan on navy with one accent; this is nearly black,
+   the cyan is a lit display rather than water, and the orange gives it a
+   second colour Oceanic has no equivalent of — the checkboxes and progress
+   bars go warm while everything the picture is doing stays cold. */
+:root[data-theme="orbital"] {
+  --paper:      #04060b;
+  --paper-lift: #0a1120;
+  --paper-high: #10192c;
+  --ink:        #e8f3ff;
+  --ink-mute:   #92a9c4;
+  --ink-faint:  #5b6f88;
+  --signal:      #12b8f0;
+  --signal-soft: rgba(18, 184, 240, 0.62);
+  --signal-wash: rgba(18, 184, 240, 0.10);
+  --signal-alt:  #ff7a18;
+  --signal-alt-soft: rgba(255, 122, 24, 0.85);
+  --hair:       rgba(232, 243, 255, 0.14);
+  --hair-soft:  rgba(232, 243, 255, 0.07);
+  --lift:       rgba(232, 243, 255, 0.05);
+}
+
+/* Sand and deep teal — the light theme that is warm without being orange, the
+   way Bone is warm without being yellow. */
+:root[data-theme="clay"] {
+  --paper:      #e8d5c4;
+  --paper-lift: #f0e1d4;
+  --paper-high: #f8efe6;
+  --ink:        #33231a;
+  --ink-mute:   rgba(51, 35, 26, 0.62);
+  --ink-faint:  rgba(51, 35, 26, 0.38);
+  --signal:      #0f7d72;
+  --signal-soft: rgba(15, 125, 114, 0.62);
+  --signal-wash: rgba(15, 125, 114, 0.10);
+  --hair:       rgba(51, 35, 26, 0.18);
+  --hair-soft:  rgba(51, 35, 26, 0.09);
+  --lift:       rgba(51, 35, 26, 0.05);
+  --rim:  inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --e-1:  0 1px 2px rgba(51, 35, 26, 0.10);
+  --e-2:  0 2px 6px rgba(51, 35, 26, 0.08), 0 12px 32px rgba(51, 35, 26, 0.10);
+  --e-3:  0 4px 12px rgba(51, 35, 26, 0.12), 0 32px 72px rgba(51, 35, 26, 0.16);
+}
+:root[data-theme="clay"] .chrome,
+:root[data-theme="clay"] .bumper,
+:root[data-theme="clay"] .welcome,
+:root[data-theme="clay"] .scanning,
+:root[data-theme="clay"] .trackmenu,
+:root[data-theme="clay"] .skipask,
+:root[data-theme="clay"] .toast {
+  --signal:      #3fd8c6;
+  --signal-soft: rgba(63, 216, 198, 0.62);
+}
+
+/* The legible one. Not a mood: pure black, pure white, one hot yellow, and
+   hairlines two to three times the weight every other palette uses — the
+   0.07-alpha rules that read as a whisper of structure on a good monitor in a
+   lit room disappear entirely on a dim one. Monochrome is the same two
+   colours, but its accent is WHITE, so nothing in it stands out from anything
+   else; here one colour means "this one". */
+:root[data-theme="highvis"] {
+  --paper:      #000000;
+  --paper-lift: #0d0d0d;
+  --paper-high: #1a1a1a;
+  --ink:        #ffffff;
+  --ink-mute:   #d2d2d2;
+  --ink-faint:  #9a9a9a;
+  --signal:      #ffe500;
+  --signal-soft: rgba(255, 229, 0, 0.80);
+  --signal-wash: rgba(255, 229, 0, 0.14);
+  --hair:       rgba(255, 255, 255, 0.32);
+  --hair-soft:  rgba(255, 255, 255, 0.18);
+  --lift:       rgba(255, 255, 255, 0.10);
+}

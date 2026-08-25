@@ -2180,10 +2180,11 @@ function applyVolume() {
 
 const THEMES = [
   'midnight', 'signal', 'foundry', 'siren', 'mono',
-  'slate', 'bone', 'ember', 'searchlight', 'nitrate',
-  'espresso', 'crimson', 'marigold', 'cathode', 'greenbox',
-  'forest', 'mint', 'oceanic', 'storm', 'royal',
-  'arctic', '78', '01', 'neon', 'sunset',
+  'highvis', 'slate', 'bone', 'ember', 'searchlight',
+  'nitrate', 'phosphor', 'espresso', 'crimson', 'marigold',
+  'clay', 'cathode', 'greenbox', 'forest', 'mint',
+  'oceanic', 'orbital', 'storm', 'royal', 'arctic',
+  '78', '01', 'neon', 'vhs', 'sunset',
   'lilac', 'kawaii',
 ];
 
@@ -2206,7 +2207,7 @@ const THEME_ALIASES = { grape: '01' };
  * attribute — inverted type over the picture, outlines on cards that would
  * otherwise be tone on tone.
  */
-const LIGHT_THEMES = ['marigold', 'kawaii', 'arctic', 'mint', 'lilac', 'bone', '78'];
+const LIGHT_THEMES = ['marigold', 'kawaii', 'arctic', 'mint', 'lilac', 'bone', '78', 'clay'];
 
 /** The theme actually in force, following any rename, falling back to midnight. */
 function resolveTheme(wanted) {
