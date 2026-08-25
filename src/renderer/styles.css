@@ -1490,22 +1490,6 @@ video::cue {
    orange type and orange accents on the dark gradients that are already there.
    Re-declaring the tokens on these containers re-themes everything within. */
 
-/* Green phosphor, for the same reason the app is called what it is. */
-:root[data-theme="cathode"] {
-  --paper:      #030a05;
-  --paper-lift: #071408;
-  --paper-high: #0b1d0e;
-  --ink:        #b9ffc4;
-  --ink-mute:   #6fae7b;
-  --ink-faint:  #41684a;
-  --signal:      #49ff7a;
-  --signal-soft: rgba(73, 255, 122, 0.62);
-  --signal-wash: rgba(73, 255, 122, 0.10);
-  --hair:       rgba(185, 255, 196, 0.14);
-  --hair-soft:  rgba(185, 255, 196, 0.07);
-  --lift:       rgba(185, 255, 196, 0.05);
-}
-
 
 /* ── themes, second set ───────────────────────────────────────────────── */
 
@@ -1861,21 +1845,6 @@ video::cue {
   --hair:       rgba(255, 233, 224, 0.13);
   --hair-soft:  rgba(255, 233, 224, 0.07);
   --lift:       rgba(255, 233, 224, 0.05);
-}
-
-:root[data-theme="espresso"] {
-  --paper:      #150f0b;
-  --paper-lift: #201811;
-  --paper-high: #2c211a;
-  --ink:        #f2e4d2;
-  --ink-mute:   #ac9880;
-  --ink-faint:  #6f6152;
-  --signal:      #c98b4b;
-  --signal-soft: rgba(201, 139, 75, 0.62);
-  --signal-wash: rgba(201, 139, 75, 0.10);
-  --hair:       rgba(242, 228, 210, 0.13);
-  --hair-soft:  rgba(242, 228, 210, 0.07);
-  --lift:       rgba(242, 228, 210, 0.05);
 }
 
 :root[data-theme="royal"] {
@@ -2362,11 +2331,10 @@ video::cue {
 
 /* ── themes, seventh set ──────────────────────────────────────────────── */
 
-/* Amber phosphor: the monochrome terminal cathode is the green half of. The
-   TYPE is amber here, not just the accent — which is what separates it from
-   Midnight, where amber marks things against ordinary cream text. Pale type
-   against a saturated accent, the same trick cathode uses, or the two ambers
-   sit on top of each other and nothing marks anything. */
+/* Amber phosphor: a monochrome terminal, where the TYPE is amber and not just
+   the accent — which is what separates it from Midnight, where amber marks
+   things against ordinary cream text. Pale type against a saturated accent,
+   or the two ambers sit on top of each other and nothing marks anything. */
 :root[data-theme="phosphor"] {
   --paper:      #0d0a04;
   --paper-lift: #171106;
