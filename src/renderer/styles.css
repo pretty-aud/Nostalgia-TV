@@ -2301,25 +2301,6 @@ video::cue {
 
 /* ── themes, seventh set ──────────────────────────────────────────────── */
 
-/* Amber phosphor: a monochrome terminal, where the TYPE is amber and not just
-   the accent — which is what separates it from Midnight, where amber marks
-   things against ordinary cream text. Pale type against a saturated accent,
-   or the two ambers sit on top of each other and nothing marks anything. */
-:root[data-theme="phosphor"] {
-  --paper:      #0d0a04;
-  --paper-lift: #171106;
-  --paper-high: #211909;
-  --ink:        #ffd9a8;
-  --ink-mute:   rgba(255, 217, 168, 0.66);
-  --ink-faint:  rgba(255, 217, 168, 0.40);
-  --signal:      #ff9d00;
-  --signal-soft: rgba(255, 157, 0, 0.62);
-  --signal-wash: rgba(255, 157, 0, 0.10);
-  --hair:       rgba(255, 217, 168, 0.14);
-  --hair-soft:  rgba(255, 217, 168, 0.07);
-  --lift:       rgba(255, 217, 168, 0.05);
-}
-
 /* Tracking error. The two colours a worn tape fringes into, used as the two
    they already are: magenta for attention, cyan for switched-on. */
 :root[data-theme="vhs"] {

@@ -2180,11 +2180,11 @@ function applyVolume() {
 
 const THEMES = [
   'midnight', 'signal', 'foundry', 'siren', 'mono',
-  'slate', 'bone', 'ember', 'searchlight', 'nitrate',
-  'phosphor', 'crimson', 'marigold', 'clay', 'greenbox',
-  'forest', 'mint', 'oceanic', 'orbital', 'arctic',
-  '78', '01', 'neon', 'vhs', 'sunset',
-  'lilac', 'kawaii',
+  'slate', 'bone', 'clay', 'arctic', '78',
+  'ember', 'searchlight', 'nitrate', 'crimson', 'marigold',
+  'greenbox', 'forest', 'mint', 'oceanic', 'orbital',
+  '01', 'neon', 'vhs', 'sunset', 'lilac',
+  'kawaii',
 ];
 
 /**
