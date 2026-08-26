@@ -306,6 +306,7 @@ async function main() {
   let wouldSave = 0;
   let skipped = 0;
   let slimOnly = 0;
+  const byFolder = new Map();
 
   for (const file of files) {
     if (touched >= LIMIT) break;
@@ -327,11 +328,22 @@ async function main() {
     wouldSave += saving;
     touched += 1;
 
+    // Tallied per folder because "139 files need work" does not tell you
+    // whether that is one series or twenty, and the answer changes what you do.
+    const folder = path.relative(root, path.dirname(file)) || '.';
+    const tally = byFolder.get(folder) || { n: 0, bytes: 0, saving: 0 };
+    tally.n += 1;
+    tally.bytes += size;
+    tally.saving += saving;
+    byFolder.set(folder, tally);
+
     const lead = decided.leads
       ? `${String(decided.leads.properties.language || 'und')}${nameOf(decided.leads) ? ` · ${nameOf(decided.leads).slice(0, 40)}` : ''}`
       : 'none';
 
-    console.log(`  ${path.basename(file).slice(0, 62)}`);
+    // Relative path, not just the filename: across a whole library the episode
+    // names alone give no hint which show they belong to.
+    console.log(`  ${path.relative(root, file).split(path.sep).join('/').slice(0, 74)}`);
     console.log(`      ${gb(size)}  ·  ${decided.needsReorder ? `first audio becomes ${lead}` : 'order already correct — slimming only'}`);
     console.log(`      dropping ${decided.dropped.length} track${decided.dropped.length === 1 ? '' : 's'}`
       + (saving ? `, about ${gb(saving)}` : ''));
@@ -383,6 +395,16 @@ async function main() {
       console.log(`      original moved to _originals/`);
     }
     console.log('');
+  }
+
+  if (byFolder.size > 1) {
+    console.log('\n  by folder');
+    const rows = [...byFolder].sort((a, b) => b[1].bytes - a[1].bytes);
+    for (const [folder, tally] of rows) {
+      console.log(`    ${String(tally.n).padStart(4)} files  ${gb(tally.bytes).padStart(10)} to rebuild`
+        + (tally.saving ? `, ${gb(tally.saving)} droppable` : '')
+        + `   ${folder}`);
+    }
   }
 
   console.log(`\n  ${touched} file${touched === 1 ? '' : 's'} need work, ${skipped} already fine`);
