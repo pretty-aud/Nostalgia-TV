@@ -982,12 +982,83 @@ let playToken = 0;
  * Get a URL that will actually play, converting first if the file needs it.
  * Returns null when the file cannot be made playable at all.
  */
+/**
+ * Can the player decode this file as it stands?
+ *
+ * Measured, not looked up. The codec tables read stream ids and guess; this
+ * plays a few seconds and reads webkitVideoDecodedByteCount and
+ * webkitAudioDecodedByteCount, which count bytes that came out of a DECODER.
+ * Loading metadata proves only that the container parsed.
+ *
+ * The gap between the two is not academic. Measured against a real library of
+ * 4K remuxes, the tables called eleven of fourteen files unplayable; the
+ * player decoded video in all fourteen, and audio in nine. Two of the files
+ * being converted were 58GB and 44GB, and each would have taken about an hour
+ * to copy before it could start.
+ *
+ * Seeks in first, because the opening seconds of a remux are often black and
+ * silent, and "nothing decoded" there is true and meaningless.
+ */
+const nativeVerdicts = new Map();
+
+async function canPlayNatively(item) {
+  const absPath = item.episode.absPath;
+  const url = item.episode.mediaUrl;
+  if (!absPath || !url || !window.tv.playbackVerdict) return null;
+  if (nativeVerdicts.has(absPath)) return nativeVerdicts.get(absPath);
+
+  const saved = await window.tv.playbackVerdict(absPath).catch(() => null);
+  if (saved) { nativeVerdicts.set(absPath, saved); return saved; }
+
+  const probe = document.createElement('video');
+  probe.muted = true;
+  probe.preload = 'auto';
+  probe.crossOrigin = 'anonymous';
+  let verdict = { video: false, audio: false };
+  try {
+    probe.src = url;
+    await waitFor(probe, 'loadedmetadata', 15000);
+    if (Number.isFinite(probe.duration) && probe.duration > 120) {
+      probe.currentTime = 60;
+      await waitFor(probe, 'seeked', 15000).catch(() => {});
+    }
+    await probe.play().catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    verdict = {
+      video: (probe.webkitVideoDecodedByteCount || 0) > 0,
+      audio: (probe.webkitAudioDecodedByteCount || 0) > 0,
+    };
+  } catch {
+    verdict = { video: false, audio: false };
+  } finally {
+    probe.pause();
+    probe.removeAttribute('src');
+    probe.load();
+  }
+
+  nativeVerdicts.set(absPath, verdict);
+  if (window.tv.savePlaybackVerdict) window.tv.savePlaybackVerdict(absPath, verdict);
+  return verdict;
+}
+
 async function resolvePlayable(item, token, forceTier) {
   const episode = item.episode;
   const absPath = episode.absPath;
   if (!absPath || !window.tv.ensurePlayable) return episode.mediaUrl;
 
   if (!forceTier && playableUrls.has(absPath)) return playableUrls.get(absPath);
+
+  // Ask the player before asking ffmpeg. forceTier means somebody already
+  // watched this fail and asked for it to be converted anyway, so the
+  // measurement has been overruled and is not worth repeating.
+  if (!forceTier) {
+    const native = await canPlayNatively(item);
+    if (token !== playToken) return null;
+    if (native && native.video && native.audio) {
+      playableUrls.set(absPath, episode.mediaUrl);
+      return episode.mediaUrl;
+    }
+  }
 
   // Anything needing real work gets a message, because a silent ten-second gap
   // before an episode starts reads as the app having frozen.
@@ -1178,7 +1249,11 @@ async function loadAndPlay(item, seekTo = 0) {
   const token = ++playToken;
   current = item;
   setView('playing');
-  renderNowPlaying(item);
+  // NOT renderNowPlaying yet. Resolving a playable URL can take a while for a
+  // file that genuinely needs converting, and the previous episode is still
+  // on screen throughout — so naming the new one here put a movie title over
+  // a show that was still playing, sometimes for half an hour. The title
+  // changes when the picture does, further down.
 
   // Every episode starts fresh: English audio, subtitles off. An override is a
   // decision about the episode you are watching, not a setting that follows you
@@ -1211,6 +1286,7 @@ async function loadAndPlay(item, seekTo = 0) {
   }
   failedInARow = 0;
 
+  renderNowPlaying(item);
   player.src = url;
   player.load();
 

@@ -172,6 +172,35 @@ function wingetPackageCandidates(localAppData, exe) {
   return found;
 }
 
+/**
+ * Whether the player could actually decode a file, remembered on disk.
+ *
+ * The codec tables are a guess made from stream ids. This is the answer,
+ * measured by the renderer playing a few seconds and reading how many bytes
+ * came out of the decoders. Worth persisting because the measurement costs a
+ * few seconds and the alternative it avoids costs half an hour.
+ *
+ * Keyed like every other cache entry, so it is evicted with the file it
+ * describes and invalidated when that file changes.
+ */
+async function readVerdict(absPath) {
+  try {
+    const key = await cacheKeyFor(absPath, 'play');
+    return JSON.parse(await fsp.readFile(path.join(cacheDir, key + '.play.json'), 'utf8'));
+  } catch { return null; }
+}
+
+async function writeVerdict(absPath, verdict) {
+  try {
+    const key = await cacheKeyFor(absPath, 'play');
+    await fsp.writeFile(
+      path.join(cacheDir, key + '.play.json'),
+      JSON.stringify({ ...verdict, at: Date.now() }),
+    );
+    return { ok: true };
+  } catch (error) { return { ok: false, error: String(error && error.message) }; }
+}
+
 /** Forget the cached result, so a fresh install is picked up without a restart. */
 function rescanFfmpeg() {
   ffmpegPathCache = undefined;
@@ -949,6 +978,8 @@ module.exports = {
   ffmpegCandidates,
   rescanFfmpeg,
   hasFfmpeg,
+  readVerdict,
+  writeVerdict,
   inspect,
   listTracks,
   detectCrop,

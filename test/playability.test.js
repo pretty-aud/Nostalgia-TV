@@ -139,9 +139,20 @@ describe('ffmpegArgsFor', () => {
     expect(a).toContain('libx264');
   });
 
-  it('always writes a seekable MP4', () => {
+  it('keeps the output last and no longer pays for +faststart', () => {
+    // This used to assert +faststart, on the reasoning that a seekable file
+    // needs its index at the front. It does not: the index at the END is still
+    // seekable, it just costs the player one range request for the tail, and
+    // the app's media:// handler answers those. What +faststart actually costs
+    // is a COMPLETE second pass over the output — measured at 29 minutes on a
+    // 58GB remux, on top of the 29 the first pass took, to save one seek on a
+    // local disk. The flag is gone; the container guarantee is what mattered.
     for (const probe of [probeOf('V_MPEG4/ISO/AVC', 'A_AAC'), probeOf('V_MPEG4/ISO/AVC', 'A_AC3')]) {
-      expect(args('ep.mkv', probe)).toContain('+faststart');
+      const a = args('ep.mkv', probe);
+      // The output path stays LAST, which partArgsFor depends on to slot the
+      // format in front of it.
+      expect(a[a.length - 1]).toBe('out');
+      expect(a).not.toContain('+faststart');
     }
   });
 

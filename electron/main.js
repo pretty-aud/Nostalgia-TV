@@ -695,6 +695,15 @@ function registerIpc() {
 
   // -- preparing unplayable files ------------------------------------------
 
+  // What the player could actually decode, measured rather than guessed.
+  ipcMain.handle('prepare:verdict', async (_event, absPath) => (
+    isInsideAllowedRoot(absPath) ? prepare.readVerdict(absPath) : null
+  ));
+
+  ipcMain.handle('prepare:saveVerdict', async (_event, absPath, verdict) => (
+    isInsideAllowedRoot(absPath) ? prepare.writeVerdict(absPath, verdict) : { ok: false }
+  ));
+
   ipcMain.handle('prepare:capabilities', async () => ({
     ffmpeg: prepare.hasFfmpeg(),
     ffmpegPath: prepare.findFfmpeg(),

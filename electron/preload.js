@@ -46,6 +46,11 @@ contextBridge.exposeInMainWorld('tv', {
   revealFile: (absPath) => ipcRenderer.invoke('shell:revealFile', absPath),
 
   capabilities: () => ipcRenderer.invoke('prepare:capabilities'),
+
+  // Measured decode verdicts, so the few seconds spent finding out are spent
+  // once per file rather than once per play.
+  playbackVerdict: (absPath) => ipcRenderer.invoke('prepare:verdict', absPath),
+  savePlaybackVerdict: (absPath, verdict) => ipcRenderer.invoke('prepare:saveVerdict', absPath, verdict),
   inspect: (absPath) => ipcRenderer.invoke('prepare:inspect', absPath),
   ensurePlayable: (absPath, forceTier, audioIndex) => ipcRenderer.invoke('prepare:ensure', absPath, forceTier, audioIndex),
   detectCrop: (absPath) => ipcRenderer.invoke('prepare:crop', absPath),

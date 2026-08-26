@@ -448,9 +448,15 @@ function prettyCodec(codecId) {
  * ffmpeg arguments for a plan.
  *
  * Always targets MP4, because that is the one container Chromium is guaranteed
- * to demux. `-c:v copy` is what keeps remux and audio-only fast; `+faststart`
- * moves the index to the front so the player can seek immediately instead of
- * reading to the end of the file first.
+ * to demux. `-c:v copy` is what keeps remux and audio-only fast.
+ *
+ * No `+faststart`. It moves the index to the front so a player can begin before
+ * it holds the whole file — which matters when the file arrives over a network
+ * and not at all here: these are local, and the app waits for the conversion to
+ * finish before it plays anything. What it costs is a COMPLETE second pass over
+ * the output. Measured on a 58GB remux at 34 MB/s, that is 29 minutes of
+ * rewriting on top of the 29 the first pass took, to save a seek on a file
+ * sitting on the same disk.
  */
 function ffmpegArgsFor(planResult, inputPath, outputPath) {
   if (!planResult || !planResult.needsWork) return null;
@@ -470,7 +476,7 @@ function ffmpegArgsFor(planResult, inputPath, outputPath) {
   ];
 
   if (planResult.tier === TIER.REMUX) {
-    return [...common, '-c', 'copy', '-movflags', '+faststart', outputPath];
+    return [...common, '-c', 'copy', outputPath];
   }
 
   if (planResult.tier === TIER.AUDIO) {
@@ -478,7 +484,6 @@ function ffmpegArgsFor(planResult, inputPath, outputPath) {
       ...common,
       '-c:v', 'copy',
       '-c:a', 'aac', '-b:a', '192k', '-ac', '2',
-      '-movflags', '+faststart',
       outputPath,
     ];
   }
@@ -490,7 +495,6 @@ function ffmpegArgsFor(planResult, inputPath, outputPath) {
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
     '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '192k', '-ac', '2',
-    '-movflags', '+faststart',
     outputPath,
   ];
 }
