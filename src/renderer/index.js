@@ -3479,8 +3479,7 @@ function onGlobalKey(event) {
     if (event.key === 'Escape') {
       event.preventDefault();
       if (detailOpen()) closeDetail();
-      else if (browsing()) { closeBrowse(); }
-      else backToChannel();
+      else backFromBrowse();
     }
     return;
   }
@@ -3658,6 +3657,24 @@ function closeBrowse() {
 
 function browseOpen() {
   return !el('browse').hidden;
+}
+
+/**
+ * Close the gallery and go back to whatever was on screen.
+ *
+ * Distinct from backToChannel, which changes MODE. This one changes nothing:
+ * it is the way out of a gallery you opened over something, and what you came
+ * from might be a library movie, a library episode or the channel. Resuming
+ * in place is the only answer that is true in all three.
+ */
+function backFromBrowse() {
+  closeBrowse();
+  if (canResumeInPlace()) { resumeInPlace(); return; }
+  // Nothing loaded: the gallery was opened from the library screen, so that
+  // is where Back goes.
+  setView(shows.length ? 'ready' : 'welcome');
+  if (shows.length) renderReady();
+  renderSidebar();
 }
 
 /** Leave library mode entirely and hand the picture back to the channel. */
@@ -4059,7 +4076,7 @@ function browseTimeUpdate() {
 
 function wireBrowse() {
   el('btnBrowse').addEventListener('click', openBrowse);
-  el('btnBrowseChannel').addEventListener('click', backToChannel);
+  el('btnBrowseChannel').addEventListener('click', backFromBrowse);
   el('btnBrowseLeave').addEventListener('click', backToChannel);
 
   el('browseSearch').addEventListener('input', (event) => {

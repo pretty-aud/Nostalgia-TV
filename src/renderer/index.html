@@ -153,7 +153,10 @@
       <input class="browse__search" id="browseSearch" type="search"
              placeholder="Search shows and movies" aria-label="Search the library" />
       <span class="browse__count mono" id="browseCount"></span>
-      <button class="btn btn--quiet" id="btnBrowseChannel" type="button">Back to channel</button>
+      <!-- Back to what was on screen, whatever that is. It used to say "Back to
+           channel", which is a false statement half the time: open the gallery
+           during a library movie and the channel is not what you came from. -->
+      <button class="btn btn--quiet" id="btnBrowseChannel" type="button">Back</button>
     </header>
     <div class="browse__body" id="browseBody"></div>
   </section>

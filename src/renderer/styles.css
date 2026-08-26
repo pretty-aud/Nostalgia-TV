@@ -2654,5 +2654,14 @@ video::cue {
    rest of the controls faded — a permanent pair of buttons on the picture. In
    the transport it inherits the fade for free, and there is nothing to keep in
    step. */
+/**
+ * Shown with block, matching what every other .ctl computes to.
+ *
+ * inline-flex was the obvious choice and the wrong one: a button centres
+ * its own label through an anonymous internal box, and giving it an outer
+ * flex display replaces that with flex layout instead. The box stayed the
+ * right size and the words sat 7px above centre — measurably out of line
+ * with every other control in the row.
+ */
 .browsectl { display: none; }
-.app[data-browsing="true"] .browsectl { display: inline-flex; }
+.app[data-browsing="true"] .browsectl { display: block; }
