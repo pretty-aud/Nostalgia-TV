@@ -301,6 +301,52 @@ function verify(out, sourceInfo) {
   return null;
 }
 
+/**
+ * Why an existing output cannot be kept, or null if it can.
+ *
+ * Three ways a file that is sitting there can still be wrong, and only the
+ * first is obvious:
+ *
+ *  - Truncated. Cut off by a crash, a full disk, or a drive dropping out. The
+ *    file opens, plays, and simply stops early — the failure is invisible until
+ *    somebody reaches the end.
+ *  - Unreadable. Written far enough to exist and not far enough to parse.
+ *  - Built to an older plan. Correct when it was made, not what is wanted now.
+ *    Compared on language, codec AND channels, because "English first" is
+ *    satisfied by both the 2.0 and the 5.1 track and they are not the same
+ *    answer.
+ */
+function staleOutput(outPath, sourceInfo, decided) {
+  const info = identify(outPath);
+  if (!info) return 'unreadable';
+
+  const sourceMs = Number(sourceInfo.container?.properties?.duration || 0);
+  const outMs = Number(info.container?.properties?.duration || 0);
+  if (sourceMs && (!outMs || Math.abs(outMs - sourceMs) / sourceMs > 0.02)) {
+    return outMs
+      ? `incomplete (${(outMs / 6e10).toFixed(0)} min of ${(sourceMs / 6e10).toFixed(0)})`
+      : 'incomplete';
+  }
+
+  const want = decided.audioOrder[0];
+  const got = (info.tracks || []).find((t) => t.type === 'audio');
+  if (want && !got) return 'missing its audio';
+  if (want && got) {
+    const same = (a, b) => (
+      String(a.properties.language || '') === String(b.properties.language || '')
+      && String(a.properties.codec_id || '') === String(b.properties.codec_id || '')
+      && Number(a.properties.audio_channels || 0) === Number(b.properties.audio_channels || 0)
+    );
+    if (!same(want, got)) {
+      return `built to an older plan (leads with ${got.properties.audio_channels || '?'}ch`
+        + ` ${String(got.properties.language || 'und')}, should be`
+        + ` ${want.properties.audio_channels || '?'}ch ${String(want.properties.language || 'und')})`;
+    }
+  }
+
+  return null;
+}
+
 /* ── walking the library ────────────────────────────────────────────────── */
 
 function findMkvs(dir) {
@@ -344,6 +390,34 @@ async function main() {
       skipped += 1;
       if (decided.couldSlim) slimOnly += 1;
       continue;
+    }
+
+    /**
+     * Already done? Then leave it alone.
+     *
+     * Written after a three-hour run was cut off by the drive dropping out
+     * mid-file. Without this, resuming means recopying every file that already
+     * finished — hours of work to produce files that already exist — and the
+     * one genuinely broken output, a 35GB torso of a 46GB film, looks exactly
+     * like the good ones from the outside.
+     *
+     * "Done" is judged against what the CURRENT plan wants, not merely against
+     * "an output exists". A file rebuilt under an older ranking is finished by
+     * its own lights and wrong by today's, and skipping it because a file is
+     * present would quietly keep the old answer forever.
+     */
+    const outPath = path.join(OUT_DIR || path.dirname(file), `${path.basename(file, '.mkv')}.fixed.mkv`);
+    if (fs.existsSync(outPath)) {
+      const stale = staleOutput(outPath, info, decided);
+      if (!stale) {
+        skipped += 1;
+        console.log(`  ${path.relative(root, file).split(path.sep).join('/').slice(0, 74)}`);
+        console.log('      already rebuilt and correct — left alone\n');
+        continue;
+      }
+      console.log(`  ${path.relative(root, file).split(path.sep).join('/').slice(0, 74)}`);
+      console.log(`      existing output is ${stale} — rebuilding`);
+      if (APPLY) await fsp.unlink(outPath).catch(() => {});
     }
 
     const saving = droppedBytes(decided.dropped, duration);
