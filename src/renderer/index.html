@@ -224,13 +224,6 @@
       <div class="timer" id="bumperTimer" aria-hidden="true"><i id="bumperTimerFill"></i></div>
     </section>
 
-    <!-- Library mode's way back. Always on screen while browsing, because a
-         mode you cannot see the exit from is a trap. -->
-    <div class="browsebar">
-      <button class="btn btn--quiet" id="btnBrowseBack" type="button">Library</button>
-      <button class="btn btn--quiet" id="btnBrowseLeave" type="button">Back to channel</button>
-    </div>
-
     <!-- player chrome -->
     <div class="chrome" id="chrome">
       <div class="chrome__top">
@@ -260,6 +253,16 @@
             <input type="range" id="volumeRange" min="0" max="100" step="1"
                    aria-label="Volume" />
           </span>
+
+          <!-- Library mode's way back. In the transport rather than floating on
+               its own, so it appears and fades with every other control instead
+               of sitting over the picture the whole time, and hidden entirely
+               in channel mode — there is nothing to go back TO from there.
+
+               Only one button: the way back to the gallery is the grid in the
+               sidebar, which is where it was opened from. A second Library
+               button next to this one was two doors into the same room. -->
+          <button class="ctl browsectl" id="btnBrowseLeave" type="button">Back to channel</button>
 
           <span class="spacer"></span>
           <span class="upnext mono" id="chromeUpNext"></span>

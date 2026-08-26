@@ -299,7 +299,50 @@ function continueWatching(shows, movies, state, limit = 12) {
   return rows.slice(0, limit);
 }
 
+/**
+ * What the library screen should say about what is behind it.
+ *
+ * Pulled out of the renderer because this is where the bug was, and it is not
+ * reachable from a harness: proving it needs a movie actually loaded in a real
+ * player, which the preview cannot do — mediaUrl is blank there.
+ *
+ * The bug: the screen described state.resume and nothing else, and state.resume
+ * only ever holds a CHANNEL EPISODE. Never a movie, never anything watched in
+ * library mode. So opening the library over a playing film announced "Start the
+ * channel · First up: <a different programme>" while the button underneath said
+ * Resume and correctly resumed the film. The screen was describing something
+ * other than what it was covering.
+ *
+ * Precedence is what fixes it: whatever is LOADED wins, because that is what
+ * Resume will actually do.
+ */
+function readyCopy(onScreen, resumable, upcoming) {
+  if (onScreen) {
+    return {
+      eyebrow: 'Pick up where you left off',
+      title: onScreen.title,
+      body: onScreen.detail,
+      button: 'Resume',
+    };
+  }
+  if (resumable) {
+    return {
+      eyebrow: 'Pick up where you left off',
+      title: resumable.title,
+      body: resumable.detail,
+      button: 'Resume',
+    };
+  }
+  return {
+    eyebrow: 'Ready',
+    title: 'Start the channel',
+    body: upcoming ? `First up: ${upcoming}.` : 'No episodes are available. Switch a show back on in the list.',
+    button: 'Start the channel',
+  };
+}
+
 module.exports = {
+  readyCopy,
   DONE_FRACTION,
   RESUME_FLOOR_SECONDS,
   emptyLibrary,

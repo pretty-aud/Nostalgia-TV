@@ -2647,18 +2647,12 @@ video::cue {
 }
 
 /* ── watching from the library ────────────────────────────────────────────
-   The same player; only what happens at the END of an episode differs. This
-   bar is the way back, and it has to be on screen the whole time — a mode with
-   no visible exit is a trap. */
-.browsebar {
-  position: absolute;
-  top: calc(var(--u) * 5 + 34px);
-  left: calc(var(--u) * 3);
-  display: flex;
-  align-items: center;
-  gap: var(--u);
-  z-index: 3;
-}
-.app:not([data-browsing="true"]) .browsebar { display: none; }
-.app[data-view="playing"][data-chrome="off"] .browsebar { opacity: 0; pointer-events: none; }
-.browsebar { transition: opacity var(--med); }
+   The same player; only what happens at the END of an episode differs.
+
+   The way back lives in the transport with everything else. It used to float
+   in its own bar over the top-left, which meant it stayed on screen while the
+   rest of the controls faded — a permanent pair of buttons on the picture. In
+   the transport it inherits the fade for free, and there is nothing to keep in
+   step. */
+.browsectl { display: none; }
+.app[data-browsing="true"] .browsectl { display: inline-flex; }

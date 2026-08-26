@@ -30,6 +30,7 @@ import {
 } from '../shared/scheduler.js';
 import { TIER, needsFallback } from '../shared/playability.js';
 import {
+  readyCopy,
   seedFromCursors,
   markEpisode,
   markMovie,
@@ -1319,6 +1320,12 @@ function askSkip() {
 }
 
 function playNext() {
+  // Anything that comes through advance() is the channel playing. Library mode
+  // has to end here as well as at its own button: the sidebar's Resume also
+  // lands here, and leaving the flag set would send the end of a CHANNEL
+  // episode into the library's next-episode handler.
+  if (browsing()) { app.dataset.browsing = 'false'; browseItem = null; }
+
   const result = advance(shows, state, {});
   state = result.state;
   // An episode starting is the main way progress moves, so it is the main way
@@ -1681,28 +1688,50 @@ function renderReady() {
   const resumable = state.resume ? findEpisode(state.resume) : null;
   const upcoming = peek(shows, state, 1)[0];
 
+  /**
+   * What is actually loaded, whatever kind of thing it is.
+   *
+   * The screen used to describe state.resume and nothing else, and state.resume
+   * only ever holds a CHANNEL EPISODE — never a movie, never anything watched
+   * in library mode. So opening the library over a playing movie showed "Start
+   * the channel / First up: <something else>" while the button underneath said
+   * Resume and did the right thing. The screen was describing a different
+   * programme from the one it was covering.
+   */
+  const onScreen = canResumeInPlace() && current
+    ? {
+      title: current.showName,
+      detail: current.isMovie
+        ? formatTime(player.currentTime) + ' in.'
+        : `${current.label}${current.title ? ' · ' + current.title : ''} — ${formatTime(player.currentTime)} in.`,
+    }
+    : null;
+
+  const copy = readyCopy(
+    onScreen,
+    resumable ? {
+      title: resumable.show.name,
+      detail: `${formatEpisodeLabel(resumable.episode)}${resumable.episode.title ? ` · ${resumable.episode.title}` : ''} — ${formatTime(state.resume.position)} in.`,
+    } : null,
+    upcoming ? `${upcoming.showName} ${upcoming.label}${upcoming.title ? ` · ${upcoming.title}` : ''}` : null,
+  );
+
   const eyebrow = document.createElement('p');
   eyebrow.className = 'eyebrow mono';
-  eyebrow.textContent = resumable ? 'Pick up where you left off' : 'Ready';
+  eyebrow.textContent = copy.eyebrow;
 
   const title = document.createElement('h1');
   title.className = 'welcome__title';
-  title.textContent = resumable ? resumable.show.name : 'Start the channel';
+  title.textContent = copy.title;
 
   const body = document.createElement('p');
   body.className = 'welcome__body';
-  if (resumable) {
-    body.textContent = `${formatEpisodeLabel(resumable.episode)}${resumable.episode.title ? ` · ${resumable.episode.title}` : ''} — ${formatTime(state.resume.position)} in.`;
-  } else if (upcoming) {
-    body.textContent = `First up: ${upcoming.showName} ${upcoming.label}${upcoming.title ? ` · ${upcoming.title}` : ''}.`;
-  } else {
-    body.textContent = 'No episodes are available. Switch a show back on in the list.';
-  }
+  body.textContent = copy.body;
 
   const button = document.createElement('button');
   button.className = 'btn btn--signal';
   button.type = 'button';
-  button.textContent = (canResumeInPlace() || resumable) ? 'Resume' : 'Start the channel';
+  button.textContent = copy.button;
   button.addEventListener('click', () => {
     // Prefer the episode still sitting loaded in the player: it resumes at the
     // exact frame with no reload, where the saved position reloads the file and
@@ -3395,13 +3424,24 @@ function openLibrary() {
   // seconds — and, worse, pausing early in an episode leaves nothing saved at
   // all and the screen offers to start something else instead.
   if (current && !playingBumperClip && Number.isFinite(player.currentTime) && player.currentTime > 0) {
-    state.resume = {
-      showId: current.showId,
-      episodeIndex: current.episodeIndex,
-      relPath: current.relPath,
-      position: player.currentTime,
-    };
-    persist();
+    if (browsing()) {
+      // Library mode keeps its own record. Writing state.resume here would make
+      // the CHANNEL offer to pick up something watched in the library, which is
+      // the exact confusion two separate records exist to prevent.
+      browseTimeUpdate();
+    } else if (!current.isMovie) {
+      state.resume = {
+        showId: current.showId,
+        episodeIndex: current.episodeIndex,
+        relPath: current.relPath,
+        position: player.currentTime,
+      };
+      persist();
+    }
+    // A channel MOVIE writes nothing: state.resume is an episode reference and
+    // findEpisode can never resolve a movie, so it would be a record that only
+    // ever reads back as null. Resuming in place still works — the file is
+    // loaded, and that is what the button uses.
   }
   setView('ready');
   renderReady();
@@ -4020,7 +4060,6 @@ function browseTimeUpdate() {
 function wireBrowse() {
   el('btnBrowse').addEventListener('click', openBrowse);
   el('btnBrowseChannel').addEventListener('click', backToChannel);
-  el('btnBrowseBack').addEventListener('click', () => { app.dataset.browsing = 'true'; openBrowse(); });
   el('btnBrowseLeave').addEventListener('click', backToChannel);
 
   el('browseSearch').addEventListener('input', (event) => {

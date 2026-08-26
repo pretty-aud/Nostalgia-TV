@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  seedFromCursors, markEpisode, markMovie, forgetAll, libraryOf,
+  readyCopy, seedFromCursors, markEpisode, markMovie, forgetAll, libraryOf,
   resumePoint, movieResumePoint, episodeStatus, watchedCount, continueWatching,
 } from '../src/shared/browse.js';
 
@@ -204,5 +204,52 @@ describe('the episode that was still on screen', () => {
     }), [SHOW]);
 
     expect(resumePoint(SHOW, state)).toEqual({ episodeIndex: 4, seekTo: 0 });
+  });
+});
+
+describe('what the library screen says about what is behind it', () => {
+  const PLAYING_MOVIE = { title: 'The Thing', detail: '15:00 in.' };
+  const RESUMABLE = { title: 'Big O', detail: 'S01E09 - 4:20 in.' };
+
+  it('describes a playing MOVIE rather than the channel schedule', () => {
+    // The reported bug. state.resume is never written for a movie, so the
+    // screen fell through to "Start the channel / First up: something else"
+    // while the button underneath said Resume and resumed the film.
+    const copy = readyCopy(PLAYING_MOVIE, null, 'Courage The Cowardly Dog S01E08');
+
+    expect(copy.title).toBe('The Thing');
+    expect(copy.body).toBe('15:00 in.');
+    expect(copy.button).toBe('Resume');
+    expect(copy.body).not.toMatch(/First up/);
+  });
+
+  it('describes what is LOADED even when the channel has its own resume', () => {
+    // Both records can be set at once: watch a library episode over a channel
+    // one, and state.resume still holds the channel's. Resume plays what is
+    // loaded, so that is what the screen has to name.
+    const copy = readyCopy(PLAYING_MOVIE, RESUMABLE, 'Something Else S01E01');
+
+    expect(copy.title).toBe('The Thing');
+  });
+
+  it('falls back to the channel resume when nothing is loaded', () => {
+    const copy = readyCopy(null, RESUMABLE, 'Something Else S01E01');
+
+    expect(copy.title).toBe('Big O');
+    expect(copy.button).toBe('Resume');
+  });
+
+  it('offers the schedule only when there is genuinely nothing to return to', () => {
+    const copy = readyCopy(null, null, 'Courage The Cowardly Dog S01E08');
+
+    expect(copy.eyebrow).toBe('Ready');
+    expect(copy.title).toBe('Start the channel');
+    expect(copy.body).toBe('First up: Courage The Cowardly Dog S01E08.');
+  });
+
+  it('says so when there is nothing at all', () => {
+    const copy = readyCopy(null, null, null);
+
+    expect(copy.body).toMatch(/Switch a show back on/);
   });
 });
