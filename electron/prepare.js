@@ -920,6 +920,29 @@ async function extractSubtitle(absPath, index) {
   await fsp.mkdir(cacheDir, { recursive: true });
   const partPath = `${outputPath}.part`;
 
+  /**
+   * Long enough for the size of the file, not a flat two minutes.
+   *
+   * Subtitle packets are interleaved through the whole container, so pulling a
+   * track means READING THE WHOLE FILE — there is no index to seek by and no
+   * shortcut. A 24GB movie takes about twelve minutes of that. The old flat
+   * 120s budget killed it every single time, deleted the part file, and left
+   * "could not load those subtitles" as the only trace: a timeout reported as
+   * a broken file.
+   *
+   * Budgeted at a deliberately pessimistic 8 MB/s so a slow or contended disk
+   * still finishes, floored so small files are not given a silly window, and
+   * capped so a genuinely stuck ffmpeg is still eventually reaped.
+   */
+  const MIN_SUBTITLE_MS = 120000;
+  const MAX_SUBTITLE_MS = 45 * 60 * 1000;
+  const ASSUMED_BYTES_PER_MS = 8 * 1024;   // 8 MB/s
+  let budget = MIN_SUBTITLE_MS;
+  try {
+    const { size } = await fsp.stat(absPath);
+    budget = Math.min(MAX_SUBTITLE_MS, Math.max(MIN_SUBTITLE_MS, size / ASSUMED_BYTES_PER_MS));
+  } catch { /* unreadable size: the floor is a fine guess */ }
+
   // `-f webvtt` for the same reason the video path needs `-f mp4`: output goes
   // to a .part file, and ffmpeg would otherwise have no extension to infer the
   // format from and would fail having written nothing.
@@ -929,7 +952,7 @@ async function extractSubtitle(absPath, index) {
     '-map', `0:s:${index}`,
     '-f', 'webvtt',
     partPath,
-  ], 120000);
+  ], budget);
 
   if (!result.ok) {
     await fsp.unlink(partPath).catch(() => {});
