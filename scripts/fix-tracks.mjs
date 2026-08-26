@@ -42,6 +42,11 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
+// The app's own audio support table, not a second copy of it: a script that
+// disagreed with the player about what is decodable would put an unplayable
+// track first and look correct doing it.
+import { codecSupport } from '../src/shared/playability.js';
+
 /* ── arguments ──────────────────────────────────────────────────────────── */
 
 const argv = process.argv.slice(2);
@@ -134,23 +139,40 @@ function plan(info) {
   const keepSubs = subs.filter((t) => KEEP.includes(langOf(t)));
 
   /**
-   * Ordering, best first.
+   * Ordering, best first. The track that ends up leading is the one that plays.
    *
-   * Preferred language wins, then a real track over a commentary, then — for
-   * subtitles — text over bitmaps, because a bitmap subtitle cannot be shown
-   * without burning it into the picture and putting one first would mean the
-   * app offering a track it can never display.
+   * Language first, then PLAYABILITY, then surround over stereo.
+   *
+   * The middle term is not a nicety. Ghost in the Shell carries English as FLAC
+   * 2.0, TrueHD 7.1 and AC3 5.1, and Chromium decodes none of the last two — so
+   * "prefer the most channels" on its own promotes a track with no sound at
+   * all, which is a worse outcome than stereo by some distance. Judged with the
+   * app's own support table rather than a second copy of it, so the two cannot
+   * come to different conclusions about the same file.
    */
-  const rank = (t, textMatters) => (
-    (langOf(t) === PREFER ? 0 : 100)
-    + (isCommentary(t) ? 10 : 0)
-    + (textMatters && !isText(t) ? 5 : 0)
-  );
-  const ordered = (list, textMatters) => [...list]
-    .sort((a, b) => rank(a, textMatters) - rank(b, textMatters) || a.id - b.id);
+  const playable = (t) => codecSupport(t.properties.codec_id || '', 'audio') !== 'no';
 
-  const audioOrder = ordered(keepAudio, false);
-  const subOrder = ordered(keepSubs, true);
+  const rankAudio = (t) => (
+    (langOf(t) === PREFER ? 0 : 1000)
+    + (playable(t) ? 0 : 100)
+    + (isCommentary(t) ? 20 : 0)
+    // Surround beats stereo, but only ever as a tie-break between tracks that
+    // are equal on everything above.
+    - Math.min(8, Number(t.properties.audio_channels) || 0)
+  );
+
+  /**
+   * Subtitles: language, then text over bitmaps. A bitmap subtitle cannot be
+   * turned into WebVTT — it is a picture — so leading with one means offering a
+   * track that can never be displayed.
+   */
+  const rankSub = (t) => (
+    (langOf(t) === PREFER ? 0 : 1000)
+    + (isText(t) ? 0 : 100)
+  );
+
+  const audioOrder = [...keepAudio].sort((a, b) => rankAudio(a) - rankAudio(b) || a.id - b.id);
+  const subOrder = [...keepSubs].sort((a, b) => rankSub(a) - rankSub(b) || a.id - b.id);
 
   const dropped = tracks.filter((t) => (
     (t.type === 'audio' && !keepAudio.includes(t))
