@@ -83,7 +83,22 @@
     manualInfo: async () => (window.__manualSlot
       ? { exists: true, savedAt: window.__manualSlot.savedAt, shows: Object.keys(window.__manualSlot.state.cursors || {}).length }
       : { exists: false, savedAt: null, shows: 0 }),
-    getThumb: async () => null,
+    // Served from the app's real cache by preview-server, so a gallery can be
+    // reviewed with the artwork it will actually have. Returns null for
+    // anything not cached, which is what the renderer expects anyway.
+    getThumb: async (absPath) => {
+      try {
+        const res = await fetch(`/preview-thumb?p=${encodeURIComponent(absPath)}`);
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        return await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch { return null; }
+    },
     putThumb: async () => ({ ok: true }),
     setFullscreen: async () => false,
     revealFile: async () => ({ ok: true }),

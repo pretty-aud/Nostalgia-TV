@@ -159,6 +159,13 @@ function createState(rootPath) {
     unlocked: {},
     moviesPlayed: {},
     episodesSincePromo: 0,    // drives promoEvery
+    /**
+     * Library mode's own watch record, kept apart from the cursors above on
+     * purpose — see src/shared/browse.js. Declared here so a state loaded from
+     * an older save gets the shape rather than undefined, since the renderer
+     * hydrates with { ...createState(), ...saved }.
+     */
+    library: { shows: {}, movies: {}, seeded: false },
     settings: { ...DEFAULT_SETTINGS },
   };
 }

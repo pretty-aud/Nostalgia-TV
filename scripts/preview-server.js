@@ -15,6 +15,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { buildLibrary, isVideoFile } = require('../src/shared/parseEpisode.js');
 
 const PORT = Number(process.env.PORT) || 4173;
@@ -115,6 +116,27 @@ const server = http.createServer((req, res) => {
   if (name === '/index.html') {
     res.writeHead(200, { 'Content-Type': MIME['.html'] });
     res.end(previewHtml());
+    return;
+  }
+
+  /**
+   * The real thumbnail cache, read only.
+   *
+   * mediaUrl is blank in this harness on purpose, so the renderer can never
+   * decode a frame here and every tile falls back to initials — which makes
+   * the harness useless for reviewing the one thing a gallery is mostly made
+   * of. The app has already cached those frames to disk; this hands them back
+   * under the same key the renderer asks by. Nothing is written.
+   */
+  if (name === '/preview-thumb') {
+    const absPath = url.searchParams.get('p') || '';
+    const hash = crypto.createHash('sha1').update(absPath).digest('hex');
+    const file = path.join(
+      process.env.APPDATA || '', 'shuffle-tv', 'thumbnails', hash + '.jpg',
+    );
+    if (!absPath || !fs.existsSync(file)) { res.writeHead(404).end(); return; }
+    res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+    res.end(fs.readFileSync(file));
     return;
   }
 

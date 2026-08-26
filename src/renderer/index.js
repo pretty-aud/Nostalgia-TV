@@ -30,6 +30,16 @@ import {
 } from '../shared/scheduler.js';
 import { TIER, needsFallback } from '../shared/playability.js';
 import {
+  seedFromCursors,
+  markEpisode,
+  markMovie,
+  resumePoint,
+  movieResumePoint,
+  episodeStatus,
+  watchedCount,
+  continueWatching,
+} from '../shared/browse.js';
+import {
   SHOW,
   MOVIE,
   lockableItems,
@@ -1550,6 +1560,11 @@ function startMovie() {
 function onEpisodeEnded() {
   // The clip's own handler owns this event; see playingBumperClip.
   if (playingBumperClip) return;
+
+  // Library mode ends an episode its own way: the next one in the show, with
+  // no bumper, no promo and no movie lead. Returning here rather than adding a
+  // branch further down keeps the channel's transition in one piece.
+  if (browsing() && browseItem) { browseEpisodeEnded(); return; }
 
   state.resume = null;
 
@@ -3199,6 +3214,7 @@ function wireEvents() {
   el('btnFull').addEventListener('click', toggleFullscreen);
 
   wireWindowControls();
+  wireBrowse();
 
   el('scrub').addEventListener('click', (event) => {
     if (!Number.isFinite(player.duration)) return;
@@ -3236,6 +3252,16 @@ function onTimeUpdate() {
   el('timeLabel').textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
   if (Number.isFinite(duration) && duration > 0) {
     el('scrubFill').style.width = `${(currentTime / duration) * 100}%`;
+  }
+
+  // Library mode keeps its position in its own record, not in state.resume —
+  // state.resume is what the channel offers to pick up, and offering to resume
+  // something watched out of band is exactly the confusion the two records
+  // exist to avoid.
+  if (browsing() && browseItem && !playingBumperClip && performance.now() - lastSavedAt > 5000) {
+    lastSavedAt = performance.now();
+    browseTimeUpdate();
+    return;
   }
 
   // `current` still points at the finished episode while a clip plays, so
@@ -3405,6 +3431,20 @@ function onGlobalKey(event) {
   if (target && typeof target.matches === 'function'
       && target.matches('input, textarea, select')) return;
 
+  // Library mode is checked first because it covers the whole window. Escape
+  // peels one layer at a time — the show card, then the grid — and nothing else
+  // gets through: space must not pause an episode nobody can see, and N must
+  // not advance a channel that is not the thing on screen.
+  if (browseOpen()) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (detailOpen()) closeDetail();
+      else if (browsing()) { closeBrowse(); }
+      else backToChannel();
+    }
+    return;
+  }
+
   // Checked before Settings, because it opens FROM Settings and sits on top:
   // Escape should peel off the sheet in front, not the one behind it.
   if (locksOpen()) {
@@ -3506,3 +3546,493 @@ async function boot() {
 }
 
 boot();
+
+// ---------------------------------------------------------------------------
+// library mode
+// ---------------------------------------------------------------------------
+
+/**
+ * A second way to watch: pick a thing, play it, roll into the next episode.
+ *
+ * The channel is untouched by all of this. Its queue stays committed, its
+ * cursors stay where they were, and "Back to channel" simply stops intercepting
+ * the end of an episode — nothing has to be restored because nothing was moved.
+ *
+ * What library mode DOES own is its own record of what has been watched, which
+ * lives in src/shared/browse.js and is deliberately separate from the cursors.
+ */
+
+let browseItem = null;      // { kind: 'show'|'movie', show, episodeIndex, movie }
+let browseDetailShow = null;
+let browseQuery = '';
+let browseSavedScroll = 0;
+
+function browsing() {
+  return app.dataset.browsing === 'true';
+}
+
+/**
+ * Build the shape loadAndPlay understands, WITHOUT going through advance().
+ *
+ * advance() is the only thing allowed to move a cursor, and it moves one every
+ * time it is called — so borrowing it here would quietly walk the channel
+ * forward every time an episode was picked out of the library, which is the one
+ * behaviour this whole feature was asked not to have.
+ */
+function browseEpisodeItem(show, episodeIndex) {
+  const episode = show.episodes[episodeIndex];
+  if (!episode) return null;
+  return {
+    showId: show.id,
+    showName: show.name,
+    episodeIndex,
+    relPath: episode.relPath,
+    show,
+    episode,
+    title: episode.title || '',
+    label: formatEpisodeLabel(episode),
+    absPath: episode.absPath,
+  };
+}
+
+function openBrowse() {
+  // Seeding is idempotent and cheap, but it needs the scanned shows, so it
+  // cannot happen at load. Here is the first moment both exist.
+  const seeded = seedFromCursors(state, shows);
+  if (seeded !== state) { state = seeded; persist(); }
+
+  browseQuery = '';
+  el('browseSearch').value = '';
+  el('browse').hidden = false;
+  renderBrowse();
+  el('browseBody').scrollTop = browseSavedScroll;
+  el('browseSearch').focus();
+}
+
+function closeBrowse() {
+  browseSavedScroll = el('browseBody').scrollTop;
+  el('browse').hidden = true;
+  dropPendingDecodes();
+  closeDetail();
+}
+
+function browseOpen() {
+  return !el('browse').hidden;
+}
+
+/** Leave library mode entirely and hand the picture back to the channel. */
+function backToChannel() {
+  closeBrowse();
+  app.dataset.browsing = 'false';
+  browseItem = null;
+  // The channel's queue was never disturbed, so this is a plain resume: the
+  // episode it plays is the one it was always going to play next.
+  if (app.dataset.view === 'playing') playNext();
+  else { setView('ready'); renderReady(); renderSidebar(); }
+}
+
+// -- the grid ---------------------------------------------------------------
+
+function matchesQuery(name) {
+  if (!browseQuery) return true;
+  return String(name).toLowerCase().includes(browseQuery);
+}
+
+function renderBrowse() {
+  const body = el('browseBody');
+  body.textContent = '';
+
+  const rows = continueWatching(shows, movieFiles, state, 12).filter((r) => matchesQuery(r.name));
+  const showList = shows.filter((s) => matchesQuery(s.name));
+  const movieList = movieFiles.filter((m) => matchesQuery(m.name));
+
+  el('browseCount').textContent = browseQuery
+    ? `${showList.length + movieList.length} match${showList.length + movieList.length === 1 ? '' : 'es'}`
+    : `${shows.length} shows · ${movieFiles.length} movies`;
+
+  if (rows.length) {
+    body.append(section('Continue watching', rows.length, rows.map(continueTile)));
+  }
+  if (showList.length) {
+    body.append(section('TV Shows', showList.length, showList.map(showTile)));
+  }
+  if (movieList.length) {
+    body.append(section('Movies', movieList.length, movieList.map(movieTile)));
+  }
+  if (!showList.length && !movieList.length) {
+    const empty = document.createElement('p');
+    empty.className = 'browse__empty';
+    empty.textContent = browseQuery ? `Nothing matching "${browseQuery}".` : 'Nothing in the library yet.';
+    body.append(empty);
+  }
+}
+
+function section(title, count, tiles) {
+  const wrap = document.createElement('section');
+  wrap.className = 'browsesec';
+
+  const head = document.createElement('div');
+  head.className = 'browsesec__head';
+  const h = document.createElement('h3');
+  h.className = 'browsesec__title';
+  h.textContent = title;
+  const n = document.createElement('span');
+  n.className = 'browsesec__n';
+  n.textContent = String(count);
+  head.append(h, n);
+
+  const list = document.createElement('ul');
+  list.className = 'tiles';
+  list.append(...tiles);
+
+  wrap.append(head, list);
+  return wrap;
+}
+
+/**
+ * One tile. The artwork is filled in asynchronously and may never arrive — a
+ * frame grab means decoding a multi-GB file — so the initials go down first and
+ * the image replaces them if and when it lands.
+ */
+function tile({ name, sub, subStrong, initials, thumbFrom, fraction, onOpen }) {
+  const li = document.createElement('li');
+  li.className = 'tile';
+  li.tabIndex = 0;
+
+  const art = document.createElement('div');
+  art.className = 'tile__art';
+  art.dataset.empty = 'true';
+  art.dataset.initials = initials;
+
+  if (fraction > 0) {
+    const bar = document.createElement('div');
+    bar.className = 'tile__bar';
+    const fill = document.createElement('i');
+    fill.style.width = `${Math.min(100, fraction * 100)}%`;
+    bar.append(fill);
+    art.append(bar);
+  }
+
+  const label = document.createElement('div');
+  label.className = 'tile__name';
+  label.textContent = name;
+
+  const meta = document.createElement('div');
+  meta.className = 'tile__sub';
+  if (subStrong) {
+    const b = document.createElement('b');
+    b.textContent = subStrong;
+    meta.append(b, document.createTextNode(` ${sub}`));
+  } else {
+    meta.textContent = sub;
+  }
+
+  li.append(art, label, meta);
+  li.addEventListener('click', onOpen);
+  li.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(); }
+  });
+
+  if (thumbFrom) paintArt(art, thumbFrom);
+
+  return li;
+}
+
+/**
+ * Fill a tile's artwork, cheaply first and expensively only if it has to.
+ *
+ * Two measurements drove this. Of 27 shows, 3 had a cached frame for their
+ * FIRST episode — which is what a tile naively asks for — while 18 had one
+ * cached for SOME episode, because the cache fills with whatever the bumper
+ * happened to show. Asking for a frame that already exists is six times more
+ * artwork for no work at all.
+ *
+ * And the fallback is not cheap: a miss means seeking a multi-gigabyte file and
+ * decoding a frame out of it. Opening a gallery of 27 shows and 14 movies fired
+ * 41 of those at once, all against the same disk. getThumb is a file read and
+ * never decodes, so every candidate can be probed before anything is decoded.
+ */
+async function paintArt(art, candidates) {
+  const list = (Array.isArray(candidates) ? candidates : [candidates]).filter(Boolean);
+  if (!list.length) return;
+
+  const show = (dataUrl) => {
+    if (!dataUrl || !art.isConnected) return false;
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.alt = '';
+    art.dataset.empty = 'false';
+    art.prepend(img);
+    return true;
+  };
+
+  for (const candidate of list) {
+    if (!candidate.absPath) continue;
+    const cached = await window.tv.getThumb(candidate.absPath).catch(() => null);
+    if (cached && show(cached)) return;
+  }
+
+  queueDecode(list[0], show);
+}
+
+/**
+ * Decoding, three at a time.
+ *
+ * Unbounded, this is 41 concurrent seeks into 41 large files, which is a stalled
+ * window and a thrashing disk rather than a gallery. Three keeps something
+ * arriving without the app going away.
+ */
+const THUMB_CONCURRENCY = 3;
+const decodeQueue = [];
+let decodesRunning = 0;
+
+function queueDecode(episode, onReady) {
+  decodeQueue.push({ episode, onReady });
+  pumpDecodes();
+}
+
+function pumpDecodes() {
+  while (decodesRunning < THUMB_CONCURRENCY && decodeQueue.length) {
+    const job = decodeQueue.shift();
+    decodesRunning += 1;
+    ensureThumb(job.episode)
+      .then(job.onReady)
+      .catch(() => {})
+      .finally(() => { decodesRunning -= 1; pumpDecodes(); });
+  }
+}
+
+/** Leaving the gallery abandons work nobody is waiting for. */
+function dropPendingDecodes() {
+  decodeQueue.length = 0;
+}
+
+function showTile(show) {
+  const watched = watchedCount(show, state);
+  return tile({
+    name: show.name,
+    initials: initialsOf(show.name),
+    sub: `episodes · ${watched} watched`,
+    subStrong: String(show.episodeCount),
+    // The episode the library is up to is the one most likely already
+    // decoded, because it is the one that was most recently played.
+    thumbFrom: [show.episodes[resumePoint(show, state).episodeIndex], ...show.episodes.slice(0, 6)],
+    fraction: show.episodeCount ? watched / show.episodeCount : 0,
+    onOpen: () => openDetail(show),
+  });
+}
+
+function movieTile(movie) {
+  return tile({
+    name: movie.name,
+    initials: initialsOf(movie.name),
+    sub: movie.year ? String(movie.year) : 'Movie',
+    thumbFrom: [{ absPath: movie.absPath, mediaUrl: movie.mediaUrl }],
+    fraction: 0,
+    onOpen: () => playMovieFromLibrary(movie),
+  });
+}
+
+/**
+ * A Continue Watching tile names the EPISODE, not the show — "what was I in the
+ * middle of" is answered by "Big O, episode nine", and a tile that only says
+ * Big O makes you open the card to find out.
+ */
+function continueTile(row) {
+  if (row.kind === 'movie') {
+    return tile({
+      name: row.name,
+      initials: initialsOf(row.name),
+      sub: 'Movie · part way through',
+      thumbFrom: [{ absPath: row.movie.absPath, mediaUrl: row.movie.mediaUrl }],
+      fraction: 0,
+      onOpen: () => playMovieFromLibrary(row.movie),
+    });
+  }
+  return tile({
+    name: row.name,
+    initials: initialsOf(row.name),
+    subStrong: formatEpisodeLabel(row.episode),
+    sub: row.episode.title || '',
+    thumbFrom: [row.episode],
+    fraction: 0,
+    onOpen: () => playFromLibrary(row.show, row.episodeIndex),
+  });
+}
+
+// -- the show card ----------------------------------------------------------
+
+function openDetail(show) {
+  browseDetailShow = show;
+  const watched = watchedCount(show, state);
+  const point = resumePoint(show, state);
+  const next = show.episodes[point.episodeIndex];
+
+  el('detailTitle').textContent = show.name;
+  el('detailMeta').textContent =
+    `${show.episodeCount} episode${show.episodeCount === 1 ? '' : 's'} · ${watched} watched`;
+
+  const art = el('detailArt');
+  art.textContent = '';
+  art.dataset.empty = 'true';
+  art.dataset.initials = initialsOf(show.name);
+  if (next) {
+    paintArt(art, [next, ...show.episodes.slice(0, 6)]);
+  }
+
+  const play = el('btnDetailPlay');
+  play.textContent = point.seekTo > 0
+    ? `Resume ${formatEpisodeLabel(next)}`
+    : (watched > 0 ? `Play ${formatEpisodeLabel(next)}` : 'Play');
+
+  renderEpisodes(show);
+  el('browseDetail').hidden = false;
+  play.focus();
+}
+
+function closeDetail() {
+  el('browseDetail').hidden = true;
+  browseDetailShow = null;
+}
+
+function detailOpen() {
+  return !el('browseDetail').hidden;
+}
+
+function renderEpisodes(show) {
+  const list = el('detailEpisodes');
+  list.textContent = '';
+
+  show.episodes.forEach((episode, index) => {
+    const li = document.createElement('li');
+    li.className = 'ep';
+    li.dataset.status = episodeStatus(show, index, state);
+
+    const art = document.createElement('div');
+    art.className = 'ep__art';
+
+    // Plenty of these files carry no episode title. Falling back to the
+    // filename printed "S01E01.mkv" directly under "S01E01" — the same string
+    // twice, one of them with an extension on it. When there is no title the
+    // code IS the name, and the row says it once.
+    const body = document.createElement('div');
+    body.className = 'ep__body';
+    if (episode.title) {
+      const code = document.createElement('div');
+      code.className = 'ep__code';
+      code.textContent = formatEpisodeLabel(episode);
+      const name = document.createElement('div');
+      name.className = 'ep__name';
+      name.textContent = episode.title;
+      body.append(code, name);
+    } else {
+      const name = document.createElement('div');
+      name.className = 'ep__name';
+      name.textContent = formatEpisodeLabel(episode);
+      body.append(name);
+    }
+
+    const tick = document.createElement('span');
+    tick.className = 'ep__tick';
+    tick.textContent = li.dataset.status === 'watched' ? '✓' : '';
+
+    li.append(art, body, tick);
+    li.addEventListener('click', () => playFromLibrary(show, index));
+    list.append(li);
+
+    // Only the first dozen are asked for up front. Twenty-six shows at a
+    // hundred-and-nine episodes each is a lot of multi-gigabyte files to start
+    // seeking through the moment a card opens.
+    if (index < 12) {
+      paintArt(art, [episode]);
+    }
+  });
+}
+
+// -- playing from the library ----------------------------------------------
+
+function playFromLibrary(show, episodeIndex, seekTo) {
+  const item = browseEpisodeItem(show, episodeIndex);
+  if (!item) return;
+
+  const point = seekTo === undefined && episodeIndex === resumePoint(show, state).episodeIndex
+    ? resumePoint(show, state).seekTo
+    : (seekTo || 0);
+
+  browseItem = { kind: 'show', show, episodeIndex };
+  app.dataset.browsing = 'true';
+  closeBrowse();
+  loadAndPlay(item, point);
+}
+
+function playMovieFromLibrary(movie) {
+  browseItem = { kind: 'movie', movie };
+  app.dataset.browsing = 'true';
+  closeBrowse();
+  loadAndPlay(movieItem(movie), movieResumePoint(movie, state).seekTo);
+}
+
+/**
+ * The end of an episode in library mode.
+ *
+ * Straight into the next one, which is what "watch a whole show" means. The
+ * last episode drops back to the show card rather than looping to the start or
+ * silently handing over to the channel — both of those are surprises.
+ */
+function browseEpisodeEnded() {
+  const { kind, show, episodeIndex, movie } = browseItem || {};
+
+  if (kind === 'movie') {
+    state = markMovie(state, movie, player.duration || 0, player.duration, Date.now());
+    persist();
+    browseItem = null;
+    openBrowse();
+    return;
+  }
+
+  state = markEpisode(state, show, episodeIndex, player.duration || 0, player.duration, Date.now());
+  persist();
+
+  const nextIndex = episodeIndex + 1;
+  if (show.episodes[nextIndex]) {
+    playFromLibrary(show, nextIndex, 0);
+    return;
+  }
+
+  browseItem = null;
+  openBrowse();
+  openDetail(show);
+}
+
+/** Where library mode writes its position, in place of state.resume. */
+function browseTimeUpdate() {
+  const { kind, show, episodeIndex, movie } = browseItem || {};
+  if (kind === 'movie') {
+    state = markMovie(state, movie, player.currentTime, player.duration, Date.now());
+  } else if (show) {
+    state = markEpisode(state, show, episodeIndex, player.currentTime, player.duration, Date.now());
+  } else {
+    return;
+  }
+  persist();
+}
+
+function wireBrowse() {
+  el('btnBrowse').addEventListener('click', openBrowse);
+  el('btnBrowseChannel').addEventListener('click', backToChannel);
+  el('btnBrowseBack').addEventListener('click', () => { app.dataset.browsing = 'true'; openBrowse(); });
+  el('btnBrowseLeave').addEventListener('click', backToChannel);
+
+  el('browseSearch').addEventListener('input', (event) => {
+    browseQuery = String(event.target.value || '').trim().toLowerCase();
+    renderBrowse();
+  });
+
+  el('btnDetailClose').addEventListener('click', closeDetail);
+  el('detailBackdrop').addEventListener('click', closeDetail);
+  el('btnDetailPlay').addEventListener('click', () => {
+    if (!browseDetailShow) return;
+    const point = resumePoint(browseDetailShow, state);
+    playFromLibrary(browseDetailShow, point.episodeIndex, point.seekTo);
+  });
+}

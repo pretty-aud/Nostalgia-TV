@@ -2375,3 +2375,290 @@ video::cue {
   --signal:      #3fd8c6;
   --signal-soft: rgba(63, 216, 198, 0.62);
 }
+
+/* ── library mode ─────────────────────────────────────────────────────────
+   Built entirely from the existing tokens, so all 26 themes come free and no
+   theme can restyle a component — the same rule as everywhere else.
+
+   Landscape tiles rather than portrait box art. That is not a preference:
+   there is no box art in this library, so a tile is a frame grab, and a frame
+   is 16:9. Forcing one into portrait crops away most of the picture and leaves
+   the one thing that identifies the show unreadable. */
+
+.browse {
+  position: fixed;
+  inset: 0;
+  /* Over the sidebar and the stage, under the window buttons — being able to
+     close the app must always win over whatever is on screen. */
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  animation: fade-in var(--fast) both;
+}
+
+.browse__bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 2);
+  padding: calc(var(--u) * 4) calc(var(--u) * 5) calc(var(--u) * 2);
+  /* Clears the window buttons, which float above this. */
+  padding-right: calc(var(--u) * 5 + 140px);
+  border-bottom: 1px solid var(--hair-soft);
+}
+.browse__title {
+  font-family: var(--display);
+  font-size: var(--t-title);
+  font-weight: 600;
+  letter-spacing: var(--tr-tight);
+}
+.browse__search {
+  flex: 1 1 auto;
+  max-width: 380px;
+  padding: 9px 12px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: var(--paper-lift);
+  color: var(--ink);
+  font-size: var(--t-body);
+}
+.browse__search::placeholder { color: var(--ink-faint); }
+.browse__search:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.browse__count { margin-left: auto; color: var(--ink-faint); font-size: var(--t-micro); }
+
+.browse__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: calc(var(--u) * 3) calc(var(--u) * 5) calc(var(--u) * 8);
+}
+
+.browsesec { margin-bottom: calc(var(--u) * 5); }
+.browsesec__head {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--u) * 1.5);
+  margin-bottom: calc(var(--u) * 2);
+}
+.browsesec__title {
+  font-size: var(--t-title);
+  font-weight: 600;
+  letter-spacing: var(--tr-tight);
+}
+.browsesec__n { color: var(--ink-faint); font-size: var(--t-micro); font-family: var(--mono); }
+
+/* auto-fill, not auto-fit. auto-fit collapses the empty tracks, so a section
+   holding three titles stretches them across the whole window like a banner. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: calc(var(--u) * 2.5) calc(var(--u) * 2);
+  list-style: none;
+}
+
+.tile { cursor: pointer; }
+.tile__art {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--paper-high);
+  border: 1px solid var(--hair-soft);
+  transition: transform var(--fast), border-color var(--fast);
+}
+.tile:hover .tile__art,
+.tile:focus-visible .tile__art {
+  transform: translateY(-2px) scale(1.015);
+  border-color: var(--signal-soft);
+}
+.tile:focus-visible { outline: none; }
+.tile__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Initials, for a tile whose frame grab has not been made yet or whose file
+   will not decode. An empty grey rectangle is indistinguishable from a bug. */
+.tile__art[data-empty="true"]::after {
+  content: attr(data-initials);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-size: var(--t-sub);
+  font-weight: 600;
+  letter-spacing: var(--tr-wide);
+  color: var(--ink-faint);
+}
+
+/* How far in, drawn ON the tile — the one number Continue Watching exists for. */
+.tile__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.tile__bar i { display: block; height: 100%; background: var(--signal); }
+
+.tile__name {
+  margin-top: 9px;
+  font-size: var(--t-body);
+  font-weight: 500;
+  line-height: var(--lh-name);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile__sub {
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--ink-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile__sub b { color: var(--signal-soft); font-weight: 500; }
+
+.browse__empty {
+  padding: calc(var(--u) * 6) 0;
+  text-align: center;
+  color: var(--ink-faint);
+}
+
+/* ── the show card ───────────────────────────────────────────────────────
+   A second layer over the grid rather than a replacement for it, so closing it
+   puts you back exactly where you had scrolled to. */
+
+.detail {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--u) * 4);
+}
+.detail__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 3, 7, 0.72);
+  animation: fade-in var(--fast) both;
+}
+.detail__panel {
+  position: relative;
+  width: min(880px, 100%);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-lift);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e-3);
+  overflow: hidden;
+  animation: rise var(--med) both;
+}
+
+.detail__hero {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: calc(var(--u) * 3);
+  padding: calc(var(--u) * 3);
+  border-bottom: 1px solid var(--hair-soft);
+}
+.detail__art {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--paper-high);
+}
+.detail__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.detail__art[data-empty="true"]::after {
+  content: attr(data-initials);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-size: var(--t-lead);
+  font-weight: 600;
+  letter-spacing: var(--tr-wide);
+  color: var(--ink-faint);
+}
+.detail__head { display: flex; flex-direction: column; gap: var(--u); min-width: 0; }
+.detail__title {
+  font-family: var(--display);
+  font-size: var(--t-title);
+  font-weight: 600;
+  letter-spacing: var(--tr-tight);
+  line-height: var(--lh-name);
+}
+.detail__meta { font-size: var(--t-meta); color: var(--ink-mute); }
+.detail__actions { display: flex; gap: var(--u); margin-top: auto; flex-wrap: wrap; }
+
+.eplist {
+  list-style: none;
+  overflow-y: auto;
+  padding: var(--u) 0 calc(var(--u) * 2);
+}
+.ep {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  align-items: center;
+  gap: calc(var(--u) * 2);
+  padding: var(--u) calc(var(--u) * 3);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background var(--fast), border-color var(--fast);
+}
+.ep:hover { background: var(--lift); }
+.ep[data-status="resume"] { border-left-color: var(--signal); }
+.ep__art {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--paper-high);
+}
+.ep__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ep__art i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--signal);
+}
+.ep__body { min-width: 0; }
+.ep__code { font-family: var(--mono); font-size: var(--t-micro); color: var(--signal-soft); }
+.ep__name {
+  font-size: var(--t-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A tick rather than a dimmed row: a watched episode is still one you rewatch,
+   and fading it out makes the list harder to read for no gain. */
+.ep__tick { color: var(--signal); font-size: var(--t-body); }
+.ep[data-status="watched"] .ep__name { color: var(--ink-mute); }
+
+@media (max-width: 720px) {
+  .detail__hero { grid-template-columns: 1fr; }
+  .ep { grid-template-columns: 84px 1fr auto; }
+}
+
+/* ── watching from the library ────────────────────────────────────────────
+   The same player; only what happens at the END of an episode differs. This
+   bar is the way back, and it has to be on screen the whole time — a mode with
+   no visible exit is a trap. */
+.browsebar {
+  position: absolute;
+  top: calc(var(--u) * 5 + 34px);
+  left: calc(var(--u) * 3);
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  z-index: 3;
+}
+.app:not([data-browsing="true"]) .browsebar { display: none; }
+.app[data-view="playing"][data-chrome="off"] .browsebar { opacity: 0; pointer-events: none; }
+.browsebar { transition: opacity var(--med); }
