@@ -1041,6 +1041,29 @@ async function canPlayNatively(item) {
   return verdict;
 }
 
+/**
+ * Which audio track this file should be played with, per the plan.
+ *
+ * 0 means the first one, which is the only track the player can reach without
+ * a conversion. Anything else means the file has to be rebuilt around the
+ * right track, however large it is — a wrong-language episode is not a
+ * cheaper version of the right one.
+ *
+ * Cached because it costs an ffprobe and is asked before every play.
+ */
+const wantedAudio = new Map();
+
+async function wantedAudioIndex(absPath) {
+  if (wantedAudio.has(absPath)) return wantedAudio.get(absPath);
+  if (!window.tv.inspect) return 0;
+  const plan = await window.tv.inspect(absPath).catch(() => null);
+  // No plan means no evidence either way. Converting is the safe direction to
+  // be wrong in: it is slow, where guessing is silently in the wrong language.
+  const index = plan && Number.isInteger(plan.audioIndex) ? plan.audioIndex : 0;
+  wantedAudio.set(absPath, index);
+  return index;
+}
+
 async function resolvePlayable(item, token, forceTier) {
   const episode = item.episode;
   const absPath = episode.absPath;
@@ -1048,15 +1071,33 @@ async function resolvePlayable(item, token, forceTier) {
 
   if (!forceTier && playableUrls.has(absPath)) return playableUrls.get(absPath);
 
-  // Ask the player before asking ffmpeg. forceTier means somebody already
-  // watched this fail and asked for it to be converted anyway, so the
-  // measurement has been overruled and is not worth repeating.
+  /**
+   * Ask the player before asking ffmpeg — but only when the track we want is
+   * the FIRST one.
+   *
+   * Playing the original file means playing audio track 1, because Chromium
+   * has no way to switch. On a release with Japanese first and English fourth
+   * that is the wrong language, and the app went on labelling it English,
+   * which is worse than being slow: it was confidently wrong about what you
+   * were listening to.
+   *
+   * So the measurement decides whether the file CAN be played, and the plan
+   * decides whether it MAY be. Both have to agree.
+   *
+   * forceTier means somebody already overruled this from the audio menu, so
+   * the measurement is not worth repeating.
+   */
   if (!forceTier) {
-    const native = await canPlayNatively(item);
+    const wanted = audioOverride === null ? await wantedAudioIndex(absPath) : audioOverride;
     if (token !== playToken) return null;
-    if (native && native.video && native.audio) {
-      playableUrls.set(absPath, episode.mediaUrl);
-      return episode.mediaUrl;
+
+    if (wanted === 0) {
+      const native = await canPlayNatively(item);
+      if (token !== playToken) return null;
+      if (native && native.video && native.audio) {
+        playableUrls.set(absPath, episode.mediaUrl);
+        return episode.mediaUrl;
+      }
     }
   }
 
