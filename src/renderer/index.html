@@ -227,6 +227,23 @@
       <div class="timer" id="bumperTimer" aria-hidden="true"><i id="bumperTimerFill"></i></div>
     </section>
 
+    <!-- Waiting on a conversion.
+
+         A panel rather than a toast because the wait is not always short: a
+         49GB film whose audio Chromium cannot decode takes about forty
+         minutes to rebuild. The toast that used to announce this expired
+         after sixty seconds and left thirty-nine minutes of silence, which
+         reads as the app having given up. -->
+    <section class="prepping" id="prepping" hidden aria-live="polite">
+      <div class="prepping__inner">
+        <p class="eyebrow mono">Preparing</p>
+        <h2 class="prepping__title" id="preppingTitle"></h2>
+        <div class="prepping__bar"><i id="preppingFill"></i></div>
+        <p class="prepping__count mono" id="preppingCount"></p>
+        <p class="prepping__note" id="preppingNote"></p>
+      </div>
+    </section>
+
     <!-- player chrome -->
     <div class="chrome" id="chrome">
       <div class="chrome__top">

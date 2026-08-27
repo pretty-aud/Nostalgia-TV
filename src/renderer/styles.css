@@ -2665,3 +2665,55 @@ video::cue {
  */
 .browsectl { display: none; }
 .app[data-browsing="true"] .browsectl { display: block; }
+
+/* ── waiting on a conversion ──────────────────────────────────────────────
+   Sits over the stage while a file is being rebuilt. Not a toast: the wait
+   can be forty minutes, and a message that expires after sixty seconds turns
+   a working app into one that appears to have given up. */
+.prepping {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 3, 7, 0.82);
+  animation: fade-in var(--fast) both;
+}
+.prepping__inner {
+  width: min(520px, 82%);
+  text-align: left;
+}
+.prepping__title {
+  margin-top: 6px;
+  font-family: var(--display);
+  font-size: var(--t-sub);
+  font-weight: 600;
+  letter-spacing: var(--tr-tight);
+  line-height: var(--lh-name);
+}
+.prepping__bar {
+  margin-top: calc(var(--u) * 2.5);
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: rgba(244, 241, 234, 0.16);
+  overflow: hidden;
+}
+.prepping__bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--signal);
+  border-radius: var(--r-pill);
+  transition: width var(--med) linear;
+}
+.prepping__count {
+  margin-top: var(--u);
+  font-size: var(--t-meta);
+  color: var(--signal-soft);
+}
+.prepping__note {
+  margin-top: calc(var(--u) * 2);
+  font-size: var(--t-meta);
+  color: var(--ink-mute);
+  line-height: 1.5;
+}

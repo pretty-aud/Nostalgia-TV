@@ -757,9 +757,9 @@ function registerIpc() {
       const result = await prepare.ensurePlayable(absPath, {
         forceTier: typeof forceTier === 'string' ? forceTier : undefined,
         audioIndex: Number.isInteger(audioIndex) ? audioIndex : undefined,
-        onProgress: ({ outMs }) => {
+        onProgress: ({ outMs, totalMs }) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('prepare:progress', { absPath, outMs });
+            mainWindow.webContents.send('prepare:progress', { absPath, outMs, totalMs });
           }
         },
       });

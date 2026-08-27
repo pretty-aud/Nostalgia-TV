@@ -341,6 +341,9 @@ function planPlayback({ fileName, probe, audioIndex: forcedAudioIndex, preferEng
     audioCount,
     audioLanguage: audioTrack ? normaliseLanguage(audioTrack) : null,
     audioPick: chosen.reason,
+    // Passed straight through for the progress display. Nothing here uses it
+    // to decide anything — a file is not more or less playable for being long.
+    durationMs: (probe && Number(probe.durationMs)) || null,
     confident: !videoUnknown && !audioUnknown && video !== 'maybe' && audio !== 'maybe',
   };
 

@@ -29,6 +29,7 @@ import {
   formatEpisodeLabel,
 } from '../shared/scheduler.js';
 import { TIER, needsFallback } from '../shared/playability.js';
+import { preparingCopy } from '../shared/prepProgress.js';
 import {
   readyCopy,
   seedFromCursors,
@@ -1101,10 +1102,12 @@ async function resolvePlayable(item, token, forceTier) {
     }
   }
 
-  // Anything needing real work gets a message, because a silent ten-second gap
-  // before an episode starts reads as the app having frozen.
+  // Anything needing real work says so, because a silent gap before an
+  // episode starts reads as the app having frozen. Delayed slightly: most
+  // conversions are quick, and a panel that flashes up for half a second on
+  // every episode is its own kind of noise.
   const slowNotice = setTimeout(() => {
-    if (token === playToken) toast(`Preparing ${item.showName} ${item.label}…`, 60000);
+    if (token === playToken) showPreparing(item);
   }, 600);
 
   // From here the viewer is waiting. Everything else converting gets out of the
@@ -1126,6 +1129,7 @@ async function resolvePlayable(item, token, forceTier) {
     result = { ok: false, error: String(error) };
   } finally {
     clearTimeout(slowNotice);
+    hidePreparing();
     if (foregroundPath === absPath) foregroundPath = null;
   }
 
@@ -3702,6 +3706,74 @@ async function boot() {
 }
 
 boot();
+
+// ---------------------------------------------------------------------------
+// waiting on a conversion
+// ---------------------------------------------------------------------------
+
+/**
+ * An honest wait.
+ *
+ * This replaced a toast with a sixty-second life. Most conversions finish
+ * inside that and it was fine; a 49GB film whose audio Chromium cannot decode
+ * takes about forty minutes, and the message vanished after one of them. The
+ * report was "it says processing, then the popup disappears and nothing
+ * plays" — the app was working the whole time and had simply stopped saying
+ * so.
+ *
+ * So it stays up until the wait ends, and it says three things a spinner
+ * cannot: how far in, how much longer, and WHY this is happening at all.
+ */
+let preparingFor = null;
+let preparingStartedAt = 0;
+let preparingSeen = 0;
+let stopPreparingProgress = null;
+
+function showPreparing(item) {
+  const absPath = item.episode && item.episode.absPath;
+  if (!absPath) return;
+
+  preparingFor = absPath;
+  preparingStartedAt = performance.now();
+  preparingSeen = 0;
+
+  el('preppingTitle').textContent = item.isMovie
+    ? item.showName
+    : `${item.showName} ${item.label}`;
+  el('preppingFill').style.width = '0%';
+  el('preppingCount').textContent = 'Starting…';
+  el('preppingNote').textContent = 'This file needs converting before it can play. It only happens once — after this it starts immediately.';
+  el('prepping').hidden = false;
+
+  if (stopPreparingProgress) stopPreparingProgress();
+  stopPreparingProgress = window.tv.onPrepareProgress
+    ? window.tv.onPrepareProgress((payload) => {
+      if (!payload || payload.absPath !== preparingFor) return;
+      renderPreparing(payload.outMs || 0, payload.totalMs || 0);
+    })
+    : null;
+}
+
+/**
+ * Draws what preparingCopy decided. The wording and the estimate live in
+ * src/shared/prepProgress.js, where they can be tested — the parts that can be
+ * wrong here are all arithmetic, and none of it is visible in a screenshot.
+ */
+function renderPreparing(outMs, totalMs) {
+  preparingSeen = outMs;
+  const elapsed = (performance.now() - preparingStartedAt) / 1000;
+  const { fraction, text } = preparingCopy(outMs, totalMs, elapsed);
+
+  if (fraction !== null) el('preppingFill').style.width = `${(fraction * 100).toFixed(1)}%`;
+  el('preppingCount').textContent = text;
+}
+
+function hidePreparing() {
+  el('prepping').hidden = true;
+  preparingFor = null;
+  void preparingSeen;
+  if (stopPreparingProgress) { stopPreparingProgress(); stopPreparingProgress = null; }
+}
 
 // ---------------------------------------------------------------------------
 // library mode

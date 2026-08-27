@@ -300,6 +300,9 @@ async function probeWithFfprobe(absPath) {
     '-v', 'quiet',
     '-print_format', 'json',
     '-show_streams',
+    // Duration too, which nothing needed until progress did: without a total
+    // there is no percentage and no estimate, only a number going up.
+    '-show_format',
     absPath,
   ]);
 
@@ -311,6 +314,10 @@ async function probeWithFfprobe(absPath) {
   } catch {
     return null;
   }
+
+  const durationMs = Number(parsed.format && parsed.format.duration) > 0
+    ? Number(parsed.format.duration) * 1000
+    : null;
 
   const streams = Array.isArray(parsed.streams) ? parsed.streams : [];
   const tracks = streams
@@ -340,7 +347,7 @@ async function probeWithFfprobe(absPath) {
       };
     });
 
-  return { ok: tracks.length > 0, tracks, source: 'ffprobe' };
+  return { ok: tracks.length > 0, tracks, source: 'ffprobe', durationMs };
 }
 
 /**
@@ -608,7 +615,9 @@ function partArgsFor(args, outputPath, partPath) {
  * cache path, and every future run treats it as a finished conversion — the
  * episode would play halfway and stop, forever, with nothing to indicate why.
  */
-function runFfmpeg(ffmpeg, args, outputPath, onProgress) {
+// totalMs comes from the plan rather than being measured here: ffmpeg reports
+// how far it has got, never how far there is to go.
+function runFfmpeg(ffmpeg, args, outputPath, onProgress, totalMs) {
   const partPath = `${outputPath}.part`;
   const finalArgs = partArgsFor(args, outputPath, partPath);
 
@@ -635,7 +644,7 @@ function runFfmpeg(ffmpeg, args, outputPath, onProgress) {
         buffered = lines.pop() || '';
         for (const line of lines) {
           const match = /^out_time_ms=(\d+)/.exec(line.trim());
-          if (match) onProgress({ outMs: Number(match[1]) / 1000 });
+          if (match) onProgress({ outMs: Number(match[1]) / 1000, totalMs });
         }
       });
     }
@@ -771,7 +780,7 @@ async function ensurePlayable(absPath, options = {}) {
   await fsp.mkdir(cacheDir, { recursive: true });
   const args = ffmpegArgsFor(plan, absPath, outputPath);
 
-  const job = runFfmpeg(ffmpeg, args, outputPath, options.onProgress);
+  const job = runFfmpeg(ffmpeg, args, outputPath, options.onProgress, plan.durationMs || null);
   const wrapped = job.promise.then(async (result) => {
     jobs.delete(jobKey);
     if (!result.ok) {
