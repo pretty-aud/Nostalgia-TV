@@ -210,7 +210,16 @@ function argsFor(abs, out, p) {
 
 function run(args, onPercent) {
   return new Promise((resolve) => {
-    const child = spawn(FFMPEG, args, { windowsHide: true });
+    /**
+     * Its own process group, so a console break aimed at something else cannot
+     * reach it.
+     *
+     * An overnight run was killed exactly that way: an unrelated command in the
+     * same console was stopped, and every ffmpeg child took the break with it —
+     * exit 0x40010004, DBG_TERMINATE_PROCESS, thirty-three files from the end.
+     * Detached, the only thing that can stop this is this.
+     */
+    const child = spawn(FFMPEG, args, { windowsHide: true, detached: true });
     let stderr = '';
     let buffered = '';
     child.stdout.on('data', (chunk) => {
