@@ -47,7 +47,7 @@
  *   --limit N            stop after N files
  */
 
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -240,6 +240,34 @@ function run(args, onPercent) {
   });
 }
 
+/**
+ * Does the END of the file actually decode?
+ *
+ * The check that matters, and the one that was missing. Matroska writes its
+ * duration into the HEADER, so a file killed mid-write still reports the full
+ * running time — Fight Club came back as 8392.917 seconds, identical to its
+ * source, while missing three gigabytes off the end. Track counts survive
+ * truncation for the same reason. Both checks passed it, and the run skipped
+ * it as done.
+ *
+ * Decoding the last few seconds cannot be faked by metadata. Cheap, too: it
+ * seeks rather than reading the file through.
+ *
+ * The exit CODE is not the signal — ffmpeg returns 0 while printing "File
+ * ended prematurely" — so the message is what gets read.
+ */
+function tailDecodes(out) {
+  try {
+    const r = spawnSync(FFMPEG, [
+      '-hide_banner', '-nostdin', '-v', 'error',
+      '-sseof', '-20', '-i', out, '-map', '0:v:0', '-frames:v', '30', '-f', 'null', '-',
+    ], { encoding: 'utf8', windowsHide: true, timeout: 120000 });
+    const said = String(r.stderr || '');
+    if (/ended prematurely|Invalid data|corrupt|Truncat/i.test(said)) return false;
+    return !r.error;
+  } catch { return false; }
+}
+
 /** Why an existing output cannot be kept, or null if it can. */
 function stale(out, p) {
   let j;
@@ -252,6 +280,11 @@ function stale(out, p) {
   if (audio.length !== p.audio.length) return `has ${audio.length} audio tracks, expected ${p.audio.length}`;
   const subs = (j.streams || []).filter((s) => s.codec_type === 'subtitle');
   if (subs.length !== p.subs.length) return `has ${subs.length} subtitle tracks, expected ${p.subs.length}`;
+
+  // Last, because it is the only one that costs anything — and the only one a
+  // truncated file cannot get past.
+  if (!tailDecodes(out)) return 'truncated — the end does not decode';
+
   return null;
 }
 
