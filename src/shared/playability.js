@@ -110,6 +110,30 @@ function lookupSupport(table, codecId) {
   return 'unknown';
 }
 
+/**
+ * Audio that can be re-encoded without losing anything.
+ *
+ * Matters because the conversion has a choice to make. A TrueHD 7.1 track
+ * turned into 192k stereo — which is what this app used to do — throws away
+ * both the fidelity and six of the channels, on a 4K disc remux. Re-encoded
+ * to FLAC instead it is bit-for-bit the same audio, in every channel.
+ *
+ * DTS is the awkward one: a single codec id covering a lossy core and a
+ * lossless master track. Only the profile string tells them apart, and when
+ * it is missing the safe answer is "lossy" — that costs a bigger file than
+ * necessary, where the other mistake costs the audio.
+ */
+const LOSSLESS_AUDIO = new Set([
+  'A_TRUEHD', 'A_MLP', 'A_FLAC',
+  'A_PCM/INT/LIT', 'A_PCM/INT/BIG', 'A_PCM/FLOAT/IEEE',
+]);
+
+function isLosslessAudio(codecId, profile) {
+  if (LOSSLESS_AUDIO.has(codecId)) return true;
+  if (codecId === 'A_DTS') return /\bMA\b|lossless/i.test(String(profile || ''));
+  return false;
+}
+
 function codecSupport(codecId, kind) {
   return lookupSupport(kind === 'video' ? VIDEO_SUPPORT : AUDIO_SUPPORT, codecId);
 }
@@ -341,6 +365,10 @@ function planPlayback({ fileName, probe, audioIndex: forcedAudioIndex, preferEng
     audioCount,
     audioLanguage: audioTrack ? normaliseLanguage(audioTrack) : null,
     audioPick: chosen.reason,
+    // Both only exist to choose an audio codec for the conversion; nothing
+    // here decides playability from them.
+    audioChannels: audioTrack ? (Number(audioTrack.channels) || null) : null,
+    audioLossless: audioTrack ? isLosslessAudio(audioCodec, audioTrack.profile) : false,
     // Passed straight through for the progress display. Nothing here uses it
     // to decide anything — a file is not more or less playable for being long.
     durationMs: (probe && Number(probe.durationMs)) || null,
@@ -461,6 +489,32 @@ function prettyCodec(codecId) {
  * rewriting on top of the 29 the first pass took, to save a seek on a file
  * sitting on the same disk.
  */
+/**
+ * How to carry the audio across.
+ *
+ * Lossless in, lossless out: FLAC keeps every sample and every channel, and
+ * Chromium decodes it — verified at 8 channels, in both MP4 and Matroska,
+ * against this exact Electron build.
+ *
+ * Lossy in, and there is nothing to preserve, so the goal becomes size:
+ * 640k AAC at the source channel count rather than a lossless copy of
+ * already-degraded audio, which would be several gigabytes spent on nothing.
+ * Stereo sources stay at 192k, which was always enough for them.
+ *
+ * Either way the channels survive. Downmixing 7.1 to stereo, which is what
+ * this did before, was the part with no defence at all.
+ */
+function audioArgs(planResult) {
+  if (planResult.audioLossless) return ['-c:a', 'flac'];
+
+  const channels = Number(planResult.audioChannels) || 2;
+  if (channels <= 2) return ['-c:a', 'aac', '-b:a', '192k', '-ac', '2'];
+
+  // Capped at six: 7.1 AAC is legal and less widely handled, and the ask was
+  // for 5.1 at worst.
+  return ['-c:a', 'aac', '-b:a', '640k', '-ac', String(Math.min(6, channels))];
+}
+
 function ffmpegArgsFor(planResult, inputPath, outputPath) {
   if (!planResult || !planResult.needsWork) return null;
 
@@ -483,12 +537,7 @@ function ffmpegArgsFor(planResult, inputPath, outputPath) {
   }
 
   if (planResult.tier === TIER.AUDIO) {
-    return [
-      ...common,
-      '-c:v', 'copy',
-      '-c:a', 'aac', '-b:a', '192k', '-ac', '2',
-      outputPath,
-    ];
+    return [...common, '-c:v', 'copy', ...audioArgs(planResult), outputPath];
   }
 
   // Full re-encode. veryfast because this is a background job racing a running
@@ -497,7 +546,7 @@ function ffmpegArgsFor(planResult, inputPath, outputPath) {
     ...common,
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
     '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-b:a', '192k', '-ac', '2',
+    ...audioArgs(planResult),
     outputPath,
   ];
 }

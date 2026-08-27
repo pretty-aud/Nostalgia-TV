@@ -184,3 +184,64 @@ describe('prettyCodec', () => {
     expect(prettyCodec('A_AAC/MPEG4/LC')).toBe('AAC MPEG4 LC');
   });
 });
+
+describe('how the audio is carried across', () => {
+  const audioTrack = (codecId, channels, profile) => ({
+    ok: true,
+    tracks: [
+      { type: 'video', index: 0, codecId: 'V_MPEGH/ISO/HEVC' },
+      { type: 'audio', index: 0, codecId, channels, profile, language: 'eng' },
+    ],
+  });
+  const argsFor = (probe) => ffmpegArgsFor(planPlayback({ fileName: 'film.mkv', probe }), 'in', 'out');
+
+  it('keeps lossless audio lossless, in every channel', () => {
+    // TrueHD 7.1 flattened to 192k stereo was the old behaviour, on a 4K disc
+    // remux. FLAC is bit-for-bit the same audio and Chromium decodes it.
+    const a = argsFor(audioTrack('A_TRUEHD', 8));
+    expect(a).toContain('flac');
+    expect(a).not.toContain('aac');
+    expect(a).not.toContain('-ac');          // no downmix at all
+  });
+
+  it('treats a DTS-HD master track as lossless', () => {
+    expect(argsFor(audioTrack('A_DTS', 6, 'DTS-HD MA'))).toContain('flac');
+  });
+
+  it('treats a plain DTS core as lossy, because it is', () => {
+    // One codec id covers both. Guessing "lossless" here would spend gigabytes
+    // making a perfect copy of already-degraded audio.
+    const a = argsFor(audioTrack('A_DTS', 6, 'DTS-ES'));
+    expect(a).toContain('aac');
+    expect(a).not.toContain('flac');
+  });
+
+  it('assumes lossy when the profile is missing', () => {
+    // The safe direction: this costs a bigger file than necessary, where the
+    // other mistake costs the audio.
+    expect(argsFor(audioTrack('A_DTS', 6, null))).toContain('aac');
+  });
+
+  it('keeps the channels on a lossy multichannel source', () => {
+    const a = argsFor(audioTrack('A_EAC3', 6));
+    expect(a[a.indexOf('-ac') + 1]).toBe('6');
+    expect(a[a.indexOf('-b:a') + 1]).toBe('640k');
+  });
+
+  it('leaves a stereo source alone at the old bitrate', () => {
+    const a = argsFor(audioTrack('A_AC3', 2));
+    expect(a[a.indexOf('-ac') + 1]).toBe('2');
+    expect(a[a.indexOf('-b:a') + 1]).toBe('192k');
+  });
+
+  it('caps a lossy 7.1 source at six rather than emitting 7.1 AAC', () => {
+    expect(argsFor(audioTrack('A_EAC3', 8))[argsFor(audioTrack('A_EAC3', 8)).indexOf('-ac') + 1]).toBe('6');
+  });
+
+  it('never re-encodes the video for an audio-only problem', () => {
+    const a = argsFor(audioTrack('A_TRUEHD', 8));
+    expect(a).toContain('-c:v');
+    expect(a[a.indexOf('-c:v') + 1]).toBe('copy');
+    expect(a).not.toContain('libx264');
+  });
+});

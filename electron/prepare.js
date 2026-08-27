@@ -340,6 +340,9 @@ async function probeWithFfprobe(absPath) {
         height: Number(s.coded_height) || Number(s.height) || null,
         duration: Number(s.duration) || null,
         channels: Number.isFinite(s.channels) ? s.channels : null,
+        // A_DTS covers BOTH a lossy core and a lossless master track, and
+        // nothing but the profile string separates them.
+        profile: s.profile || null,
         channelLayout: s.channel_layout || null,
         default: disposition.default === 1,
         forced: disposition.forced === 1,
@@ -719,7 +722,12 @@ async function ensurePlayable(absPath, options = {}) {
   // The audio track is part of the identity of the output: switching language
   // must produce a DIFFERENT cached file, or the first conversion would be
   // served forever and the audio menu would appear to do nothing.
-  const variant = `${plan.tier}:a${Number.isInteger(plan.audioIndex) ? plan.audioIndex : 0}`;
+  // The audio CODEC is part of the identity too, not just the track index.
+  // Without it, a file converted under the old rule — TrueHD 7.1 flattened to
+  // 192k stereo — keeps being served from cache forever, and the improvement
+  // never reaches any file that has already been played once.
+  const audioCodec = plan.audioLossless ? 'flac' : 'aac';
+  const variant = `${plan.tier}:a${Number.isInteger(plan.audioIndex) ? plan.audioIndex : 0}:${audioCodec}`;
   const key = await cacheKeyFor(absPath, variant);
   const outputPath = cachePathFor(key);
   // Jobs are keyed by variant too, so preparing English and Japanese at once
