@@ -28,7 +28,7 @@ import {
   applySettings,
   formatEpisodeLabel,
 } from '../shared/scheduler.js';
-import { TIER, needsFallback } from '../shared/playability.js';
+import { TIER, needsFallback, audioIndexFromInspect } from '../shared/playability.js';
 import { preparingCopy } from '../shared/prepProgress.js';
 import {
   readyCopy,
@@ -1057,10 +1057,29 @@ const wantedAudio = new Map();
 async function wantedAudioIndex(absPath) {
   if (wantedAudio.has(absPath)) return wantedAudio.get(absPath);
   if (!window.tv.inspect) return 0;
-  const plan = await window.tv.inspect(absPath).catch(() => null);
-  // No plan means no evidence either way. Converting is the safe direction to
-  // be wrong in: it is slow, where guessing is silently in the wrong language.
-  const index = plan && Number.isInteger(plan.audioIndex) ? plan.audioIndex : 0;
+
+  /**
+   * inspect() answers with an ENVELOPE — { ok, plan } — and the plan is one
+   * level down. Reading audioIndex off the envelope gives undefined for every
+   * file ever inspected, which collapses to 0, which means "track one is fine",
+   * which is how a Japanese first track came to be played under an English
+   * label. The guard in resolvePlayable exists to stop precisely that, and
+   * could never fire, because its input was a constant.
+   *
+   * The other call site (the ffmpeg-missing count) unwraps this correctly, so
+   * the shape was never in doubt — only this line was wrong.
+   */
+  const index = audioIndexFromInspect(await window.tv.inspect(absPath).catch(() => null));
+
+  /**
+   * No answer means no evidence, and a guess must not be remembered. A probe
+   * fails for reasons that have nothing to do with the file — an external
+   * drive dropping off mid-scan being the obvious one — and caching 0 would
+   * hold the wrong language for the rest of the session, long after the drive
+   * came back.
+   */
+  if (index === null) return 0;
+
   wantedAudio.set(absPath, index);
   return index;
 }
@@ -1088,14 +1107,19 @@ async function resolvePlayable(item, token, forceTier) {
    * forceTier means somebody already overruled this from the audio menu, so
    * the measurement is not worth repeating.
    */
+  let wanted = null;
   if (!forceTier) {
-    const wanted = audioOverride === null ? await wantedAudioIndex(absPath) : audioOverride;
+    wanted = audioOverride === null ? await wantedAudioIndex(absPath) : audioOverride;
     if (token !== playToken) return null;
 
     if (wanted === 0) {
       const native = await canPlayNatively(item);
       if (token !== playToken) return null;
       if (native && native.video && native.audio) {
+        // Playing the file untouched means playing audio track one, whatever
+        // language that turns out to be. Record it, so the menu names the track
+        // actually being heard rather than the one the planner would prefer.
+        playingAudioIndex = 0;
         playableUrls.set(absPath, episode.mediaUrl);
         return episode.mediaUrl;
       }
@@ -1136,6 +1160,12 @@ async function resolvePlayable(item, token, forceTier) {
   if (token !== playToken) return null; // superseded; caller discards this
 
   if (result && result.ok && result.mediaUrl) {
+    // A prepared file has the chosen track mapped to position one, so what plays
+    // is what was asked for. Null when nothing decided it (a forced tier), which
+    // leaves the menu on the planner's preference as before.
+    playingAudioIndex = audioOverride !== null
+      ? audioOverride
+      : (Number.isInteger(wanted) ? wanted : null);
     if (result.prepared) toast(`Ready — ${item.showName} ${item.label}`, 1800);
     else clearToast();
     playableUrls.set(absPath, result.mediaUrl);
@@ -1304,6 +1334,7 @@ async function loadAndPlay(item, seekTo = 0) {
   // decision about the episode you are watching, not a setting that follows you
   // into the next show.
   audioOverride = null;
+  playingAudioIndex = null;
   activeSubIndex = null;
   clearSubtitles();
   toggleTrackMenu(false);
@@ -2754,6 +2785,16 @@ function locksOpen() {
  */
 let audioOverride = null;
 
+/**
+ * Which audio track is ACTUALLY playing, as opposed to which one was wanted.
+ *
+ * These are not the same thing and the difference is the whole bug: the menu
+ * used to highlight the planner's preference, so a file that fell back to
+ * playing untouched was labelled English while track one played Japanese. Null
+ * means nothing has established it yet, and the menu falls back to the plan.
+ */
+let playingAudioIndex = null;
+
 let currentTracks = { audio: [], subtitles: [], defaultAudioIndex: 0 };
 let activeSubIndex = null;
 let subtitleObjectUrl = null;
@@ -2905,7 +2946,11 @@ function renderTrackMenu() {
     return li;
   };
 
-  const activeAudio = audioOverride === null ? currentTracks.defaultAudioIndex : audioOverride;
+  // What is playing beats what was planned. Falling back to the plan is only
+  // right before playback has established anything.
+  let activeAudio = currentTracks.defaultAudioIndex;
+  if (playingAudioIndex !== null) activeAudio = playingAudioIndex;
+  if (audioOverride !== null) activeAudio = audioOverride;
   if (currentTracks.audio.length === 0) {
     audioList.append(row('No audio tracks found', false, () => {}, true));
   } else {

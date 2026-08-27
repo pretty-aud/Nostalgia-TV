@@ -576,8 +576,28 @@ function needsFallback(mediaError) {
   return code === 3 || code === 4;
 }
 
+/**
+ * Read the chosen audio track out of an inspect() IPC reply.
+ *
+ * This lives here, tested, rather than inline in the renderer because the seam
+ * is exactly where it went wrong. inspect() answers { ok, plan } and the index
+ * sits on the plan; reading it off the envelope returns undefined for every
+ * file that has ever existed, and undefined quietly became "track one" — which
+ * is how English-labelled episodes played in Japanese.
+ *
+ * Returns null for "no usable answer", which the caller must NOT confuse with
+ * 0. Zero is a decision that track one is right; null is the absence of one.
+ */
+function audioIndexFromInspect(reply) {
+  if (!reply || reply.ok !== true) return null;
+  const plan = reply.plan;
+  if (!plan || typeof plan !== 'object') return null;
+  return Number.isInteger(plan.audioIndex) ? plan.audioIndex : null;
+}
+
 module.exports = {
   TIER,
+  audioIndexFromInspect,
   NATIVE_CONTAINERS,
   REMUXABLE_CONTAINERS,
   VIDEO_SUPPORT,

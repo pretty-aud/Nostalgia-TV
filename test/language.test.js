@@ -9,6 +9,7 @@ import {
   isTextSubtitle,
   planPlayback,
   ffmpegArgsFor,
+  audioIndexFromInspect,
 } from '../src/shared/playability.js';
 
 const audio = (language, extra = {}) => ({
@@ -214,5 +215,44 @@ describe('describeLanguage', () => {
 
   it('says so when nothing is tagged', () => {
     expect(describeLanguage(null)).toBe('untagged');
+  });
+});
+
+/**
+ * These cover the seam, not the logic — and the seam is what actually shipped
+ * broken. Every function above was correct the whole time: the planner picked
+ * the English track properly, and the renderer then read the index off the IPC
+ * ENVELOPE instead of the plan inside it, got undefined for every file, treated
+ * that as "track one is fine", and played Japanese under an English label.
+ *
+ * The guard meant to prevent this could not fire, because its input was a
+ * constant. A guard that cannot execute reads exactly like one that works, so
+ * the case that was broken is asserted here directly.
+ */
+describe('audioIndexFromInspect', () => {
+  it('reads the index from the plan INSIDE the envelope', () => {
+    // The exact shape prepare:inspect returns. Before the fix this produced 0,
+    // which is what made English-labelled episodes play in Japanese.
+    expect(audioIndexFromInspect({ ok: true, plan: { audioIndex: 3 } })).toBe(3);
+  });
+
+  it('does not trust an index sitting on the envelope itself', () => {
+    // If this ever returns 3, someone has re-flattened the reply and the bug
+    // is back in a new shape.
+    expect(audioIndexFromInspect({ ok: true, audioIndex: 3 })).toBe(null);
+  });
+
+  it('keeps "track one" and "no answer" apart', () => {
+    // 0 is a decision; null is the absence of one. Collapsing them is the bug.
+    expect(audioIndexFromInspect({ ok: true, plan: { audioIndex: 0 } })).toBe(0);
+    expect(audioIndexFromInspect({ ok: false, error: 'drive went away' })).toBe(null);
+  });
+
+  it('refuses every shape a failed probe can take', () => {
+    for (const reply of [null, undefined, {}, { ok: true }, { ok: true, plan: null },
+      { ok: true, plan: {} }, { ok: true, plan: { audioIndex: '2' } },
+      { ok: true, plan: { audioIndex: 1.5 } }]) {
+      expect(audioIndexFromInspect(reply), JSON.stringify(reply)).toBe(null);
+    }
   });
 });
