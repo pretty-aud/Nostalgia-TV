@@ -83,6 +83,13 @@ function probe(abs) {
   ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
 }
 
+/** "01:27:07.764000000" -> milliseconds. Null when the tag is absent. */
+function hhmmssToMs(text) {
+  const m = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/.exec(String(text || '').trim());
+  if (!m) return null;
+  return ((Number(m[1]) * 3600) + (Number(m[2]) * 60) + Number(m[3])) * 1000;
+}
+
 const langOf = (s) => String((s.tags && (s.tags.language || s.tags.LANGUAGE)) || 'und').toLowerCase();
 
 function isLossless(stream) {
@@ -173,6 +180,16 @@ function plan(abs) {
     audio: chosenAudio,
     subs: chosenSubs,
     durationMs: (Number(j.format.duration) || 0) * 1000,
+    /**
+     * The VIDEO stream's own length, which is not the same as the container's.
+     *
+     * Several of these sources carry a track that runs past the end of the
+     * picture — an extra dub, or a subtitle with a trailing entry — so the
+     * container claims 24.2 minutes while the video is 23:22. Dropping those
+     * tracks makes the output correctly SHORTER than its source, and comparing
+     * it to the container's figure rejected six finished files as truncated.
+     */
+    videoMs: hhmmssToMs(video.tags && (video.tags.DURATION || video.tags['DURATION-eng'])),
     droppedAudio: audioStreams.length - chosenAudio.length,
     droppedSubs: subStreams.length - chosenSubs.length,
   };
@@ -268,13 +285,35 @@ function tailDecodes(out) {
   } catch { return false; }
 }
 
-/** Why an existing output cannot be kept, or null if it can. */
+/**
+ * Why an existing output cannot be kept, or null if it can.
+ *
+ * Length is compared VIDEO to VIDEO, never container to container. This
+ * library made that necessary twice over, in opposite directions:
+ *
+ *  - Some sources carry a track running PAST the end of the picture, so the
+ *    container claims 24.2 minutes for 23:22 of video. Dropping those tracks
+ *    makes a correct output look short.
+ *  - Three Evangelion episodes have audio five and a half minutes LONGER than
+ *    their video — 28:52 against 23:22, apparently from a longer cut. The
+ *    output inherits that, so a correct file looks long.
+ *  - And three sources report no container duration at all.
+ *
+ * The video streams match to the millisecond in every one of those cases,
+ * because the video is copied. That is the comparison worth making; the rest
+ * is left to the tail decode, which is the only check a truncated file cannot
+ * pass anyway.
+ */
 function stale(out, p) {
   let j;
   try { j = probe(out); } catch { return 'unreadable'; }
-  const outMs = (Number(j.format.duration) || 0) * 1000;
-  if (p.durationMs && (!outMs || Math.abs(outMs - p.durationMs) / p.durationMs > 0.02)) {
-    return outMs ? `incomplete (${(outMs / 60000).toFixed(0)} of ${(p.durationMs / 60000).toFixed(0)} min)` : 'incomplete';
+
+  const outVideo = (j.streams || []).find((s) => s.codec_type === 'video');
+  const outMs = outVideo
+    ? hhmmssToMs(outVideo.tags && (outVideo.tags.DURATION || outVideo.tags['DURATION-eng']))
+    : null;
+  if (p.videoMs && outMs && Math.abs(outMs - p.videoMs) / p.videoMs > 0.02) {
+    return `video is ${(outMs / 60000).toFixed(1)} min, source is ${(p.videoMs / 60000).toFixed(1)}`;
   }
   const audio = (j.streams || []).filter((s) => s.codec_type === 'audio');
   if (audio.length !== p.audio.length) return `has ${audio.length} audio tracks, expected ${p.audio.length}`;
