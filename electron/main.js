@@ -78,6 +78,40 @@ const MIME_BY_EXT = {
   '.flv': 'video/x-flv',
 };
 
+/**
+ * How much to read from disk at a time when serving video.
+ *
+ * Node's default for a file stream is 64 KB. That is fine on an internal SSD
+ * and pathological on a degraded external one: measured cold on a USB drive
+ * that had fallen back to the legacy Bulk-Only Transport driver — which has no
+ * command queuing, so every read costs a full round trip — 64 KB reads
+ * sustained 2 MB/s while 8 MB reads sustained 28 MB/s on the same file, minutes
+ * apart. A 4K remux needs 12 MB/s. At 64 KB the app could not read its own
+ * library fast enough to play it, and the drive was not even the limit: the
+ * request count was.
+ *
+ * 1 MB rather than 8 MB. The overhead works out near 31 ms per request, which
+ * 1 MB already amortises almost entirely, while keeping time-to-first-byte
+ * small enough not to blunt seeking and keeping the per-stream buffer cheap —
+ * playback, prepare-ahead and thumbnail decoding all hold one at once.
+ */
+const MEDIA_READ_CHUNK = 1024 * 1024;
+
+/**
+ * The one place that opens a video file for the player.
+ *
+ * Kept as a single function because serveMedia answers on three branches and
+ * the read size has to be identical on all of them; three separate
+ * createReadStream calls is exactly the shape where one quietly keeps the old
+ * default and only some requests are slow.
+ */
+function mediaBody(absPath, range) {
+  return Readable.toWeb(fs.createReadStream(absPath, {
+    ...(range || {}),
+    highWaterMark: MEDIA_READ_CHUNK,
+  }));
+}
+
 function mediaUrlFor(absPath) {
   return `media://local/${encodeURIComponent(absPath)}`;
 }
@@ -136,7 +170,7 @@ async function serveMedia(request) {
 
   const rangeHeader = request.headers.get('Range');
   if (!rangeHeader) {
-    return new Response(Readable.toWeb(fs.createReadStream(absPath)), {
+    return new Response(mediaBody(absPath), {
       status: 200,
       headers: { ...baseHeaders, 'Content-Length': String(stat.size) },
     });
@@ -145,7 +179,7 @@ async function serveMedia(request) {
   // Seeking in a long episode depends entirely on this branch answering 206.
   const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
   if (!match) {
-    return new Response(Readable.toWeb(fs.createReadStream(absPath)), {
+    return new Response(mediaBody(absPath), {
       status: 200,
       headers: { ...baseHeaders, 'Content-Length': String(stat.size) },
     });
@@ -162,7 +196,7 @@ async function serveMedia(request) {
   }
   end = Math.min(end, stat.size - 1);
 
-  return new Response(Readable.toWeb(fs.createReadStream(absPath, { start, end })), {
+  return new Response(mediaBody(absPath, { start, end }), {
     status: 206,
     headers: {
       ...baseHeaders,
