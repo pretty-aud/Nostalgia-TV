@@ -67,3 +67,28 @@ describe('the size fingerprint', () => {
     ], entries)).toHaveLength(0);
   });
 });
+
+describe('the ledger follows the file', () => {
+  it('picks up an external rewrite without a restart', async () => {
+    const os = await import('node:os');
+    const fs = await import('node:fs');
+    const pathmod = await import('node:path');
+    const { init, status } = await import('../electron/ingest.js');
+
+    const file = pathmod.join(os.tmpdir(), `ingest-test-${process.pid}.json`);
+    fs.writeFileSync(file, JSON.stringify({ entries: {} }));
+    init({ file });
+
+    const items = [{ kind: 'episode', id: 'x/1.mkv', absPath: 'X:/x/1.mkv' }];
+    expect((await status(items)).newCount).toBe(1);
+
+    // An external tool rewrites the ledger while "the app" is open. The next
+    // read must see it — a forever-cache served stale tables until restart.
+    fs.writeFileSync(file, JSON.stringify({ entries: { 'episode:x/1.mkv': { at: 1, needsWork: false } } }));
+    // mtime granularity can be coarse; nudge it explicitly.
+    fs.utimesSync(file, new Date(), new Date(Date.now() + 2000));
+    expect((await status(items)).newCount).toBe(0);
+
+    fs.rmSync(file, { force: true });
+  });
+});

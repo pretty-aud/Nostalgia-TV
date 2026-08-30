@@ -21,20 +21,33 @@ const fsp = require('node:fs/promises');
 
 let ledgerPath = null;
 let ledger = null;   // { entries: { [key]: { at, tier?, needsWork? } } }
+let ledgerMtime = 0; // mtime of the file the cache was read from
 
 function init(options) {
   ledgerPath = options.file;
   ledger = null;
+  ledgerMtime = 0;
 }
 
+/**
+ * Cached, but never past the file's own mtime.
+ *
+ * A forever-cache burned us: an external tool rewrote the ledger while the
+ * app was open, and every table and status readout served the stale memory
+ * copy until a restart. The file is ~100 KB — one stat per read is the whole
+ * price of always being right about it.
+ */
 async function load() {
-  if (ledger) return ledger;
+  let mtime = 0;
+  try { mtime = (await fsp.stat(ledgerPath)).mtimeMs; } catch { /* no file yet */ }
+  if (ledger && mtime === ledgerMtime) return ledger;
   try {
     const parsed = JSON.parse(await fsp.readFile(ledgerPath, 'utf8'));
     ledger = { entries: (parsed && parsed.entries) || {} };
   } catch {
     ledger = { entries: {} };
   }
+  ledgerMtime = mtime;
   return ledger;
 }
 
@@ -44,6 +57,7 @@ async function save() {
   const tmp = `${ledgerPath}.tmp`;
   await fsp.writeFile(tmp, JSON.stringify(ledger, null, 2));
   await fsp.rename(tmp, ledgerPath);
+  try { ledgerMtime = (await fsp.stat(ledgerPath)).mtimeMs; } catch { ledgerMtime = 0; }
 }
 
 const keyOf = (item) => `${item.kind}:${item.id}`;
