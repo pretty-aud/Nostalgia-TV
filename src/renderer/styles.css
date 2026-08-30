@@ -2942,3 +2942,33 @@ video::cue {
 }
 .mediaeps > li { display: contents; }
 .mediaeps .mono { color: var(--ink-mute); }
+
+/* ---------------------------------------------------------------------------
+   Panel openers.
+
+   Three settings buttons do not DO something, they open somewhere — the
+   library table, the play-order table, the schedules window. A different job
+   deserves a different shape (Law of Similarity cuts both ways): full-row,
+   label left, a destination chevron right. Plain actions keep the plain look.
+   --------------------------------------------------------------------------- */
+.btn--opens {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--u) * 2);
+  width: 100%;
+  background: var(--lift);
+  border-color: var(--hair);
+}
+.btn--opens::after {
+  content: 'B8';               /* ▸ */
+  color: var(--ink-faint);
+  font-size: 13px;
+  transition: color var(--fast), transform var(--fast);
+}
+.btn--opens:hover { border-color: var(--ink-faint); background: var(--lift); }
+.btn--opens:hover::after { color: var(--signal); transform: translateX(2px); }
+.btn--opens:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) {
+  .btn--opens:hover::after { transform: none; }
+}
