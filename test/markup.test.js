@@ -108,3 +108,42 @@ describe('every element the renderer reaches for exists', () => {
     expect([...looked].filter((id) => !ids.has(id))).toEqual([]);
   });
 });
+
+/**
+ * The reverse direction: every id in the markup must be REACHED by something.
+ *
+ * The forward assertion above catches a renderer asking for an id that is not
+ * there; this catches the opposite rot — nine orphan ids sat in the markup
+ * referenced by nothing until an audit swept them. An id may be consumed by
+ * el()/getElementById/querySelector in the renderer, by a #selector in the
+ * stylesheet, or by an aria-labelledby/for attribute in the markup itself.
+ */
+describe('every markup id is referenced', () => {
+  const html = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.html'), 'utf8');
+  const js = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.js'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'src', 'renderer', 'styles.css'), 'utf8');
+
+  const ids = [...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
+
+  it('finds a sensible number of ids at all', () => {
+    // The control: an extraction regex that quietly matches nothing would
+    // make the assertion below pass over an unchecked page.
+    expect(ids.length).toBeGreaterThan(100);
+  });
+
+  it('leaves no id unreachable', () => {
+    const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const orphans = ids.filter((id) => {
+      // Word-bounded on purpose: substring matching would let '#npShow'
+      // excuse an orphaned 'np', or a '#fff' colour literal excuse an id
+      // called 'fff' — the exact silent hole this assertion exists to close.
+      const quoted = new RegExp('[\'"`]' + escapeRe(id) + '[\'"`]');
+      const hashed = new RegExp('#' + escapeRe(id) + '(?![\\w-])');
+      if (quoted.test(js) || hashed.test(js)) return false;
+      if (hashed.test(css)) return false;
+      if (html.includes(`aria-labelledby="${id}"`) || html.includes(`for="${id}"`)) return false;
+      return true;
+    });
+    expect(orphans).toEqual([]);
+  });
+});

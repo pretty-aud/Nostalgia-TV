@@ -151,15 +151,36 @@ function unlockedMovies(movies, state) {
   return (movies || []).filter((movie) => !isLocked(movieKey(movie.relPath), state));
 }
 
-/** Short code for an episode, kept here so the table does not need the renderer. */
-function episodeLabel(episode) {
+/**
+ * The one episode-label formatter.
+ *
+ * It lives HERE, in the leaf module, because scheduler.js requires locks.js —
+ * this is the only direction without a cycle; scheduler re-exports it for its
+ * own callers. It replaced a stripped-down local copy that had quietly
+ * diverged: the play-order table rendered "S1994E512" for dated episodes and
+ * "S00E07" for bare-numbered ones while every other surface said "1994-05-12"
+ * and "Ep 7". Two formatters for one concept always end up disagreeing in
+ * front of the viewer.
+ */
+function formatEpisodeLabel(episode) {
   if (!episode) return '';
-  const season = Number(episode.season);
-  const number = Number(episode.episode);
-  if (Number.isFinite(season) && Number.isFinite(number)) {
-    return `S${String(season).padStart(2, '0')}E${String(number).padStart(2, '0')}`;
+  if (episode.dated && episode.season) {
+    const mmdd = String(episode.episode).padStart(4, '0');
+    return `${episode.season}-${mmdd.slice(0, 2)}-${mmdd.slice(2)}`;
   }
-  return episode.fileName || '';
+  if (episode.season !== null && episode.season !== undefined && episode.episode !== null) {
+    const s = String(episode.season).padStart(2, '0');
+    const e = String(episode.episode).padStart(2, '0');
+    const base = `S${s}E${e}`;
+    if (episode.episodeEnd && episode.episodeEnd !== episode.episode) {
+      return `${base}-E${String(episode.episodeEnd).padStart(2, '0')}`;
+    }
+    return base;
+  }
+  if (episode.episode !== null && episode.episode !== undefined) {
+    return `Ep ${episode.episode}`;
+  }
+  return episode.fileName;
 }
 
 /** What an item is waiting for, in words, or null when it is free. */
@@ -180,7 +201,7 @@ function lockLabel(key, state, shows, movies) {
 
   const episode = (show.episodes || [])[lock.episodeIndex];
   return episode
-    ? `${show.name} ${episodeLabel(episode)}`
+    ? `${show.name} ${formatEpisodeLabel(episode)}`
     : `${show.name} episode ${(Number(lock.episodeIndex) || 0) + 1}`;
 }
 
@@ -246,13 +267,12 @@ module.exports = {
   parseKey,
   lockableItems,
   prerequisiteMet,
-  contextFor,
   earnUnlocks,
   isLocked,
   lockedShowIds,
   unlockedMovies,
   lockLabel,
-  episodeLabel,
+  formatEpisodeLabel,
   wouldCycle,
   setLock,
   resetUnlocks,

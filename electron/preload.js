@@ -54,7 +54,6 @@ contextBridge.exposeInMainWorld('tv', {
     return () => ipcRenderer.removeListener('window:state', listener);
   },
 
-  revealFile: (absPath) => ipcRenderer.invoke('shell:revealFile', absPath),
 
   capabilities: () => ipcRenderer.invoke('prepare:capabilities'),
 

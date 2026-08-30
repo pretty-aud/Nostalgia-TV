@@ -28,7 +28,6 @@ import {
   applySettings,
   formatEpisodeLabel,
   activeSchedule,
-  blockSizeFor,
 } from '../shared/scheduler.js';
 import { TIER, needsFallback, audioIndexFromInspect, matchesLanguage } from '../shared/playability.js';
 import { preparingCopy } from '../shared/prepProgress.js';
@@ -59,7 +58,6 @@ import {
   earnUnlocks,
   isLocked,
   lockLabel,
-  episodeLabel,
   wouldCycle,
   setLock,
   resetUnlocks,
@@ -1526,7 +1524,7 @@ async function loadAndPlay(item, seekTo = 0) {
   clearTimeout(chromeTimer);
   app.dataset.chrome = 'off';
   renderSidebar();
-  persist({ immediate: true });
+  persist();
 
   // Read this episode's tracks so the menu is populated before it is opened —
   // and then honour the show's subtitle preference, which can only be applied
@@ -1691,7 +1689,6 @@ async function playClip(clip, onDone, kind = 'Bumper') {
     player.removeEventListener('error', finish);
     player.removeEventListener('loadedmetadata', armFullWatchdog);
     bumperClipCleanup = null;
-    delete app.dataset.bumperClip;
     // Cleared LAST: the permanent `ended`/`error` listeners were registered
     // before ours and fire first, and they read this flag to stand down.
     playingBumperClip = false;
@@ -1742,7 +1739,6 @@ async function playClip(clip, onDone, kind = 'Bumper') {
   bumperClipCleanup = () => { if (!done) { done = true; teardown(); } };
 
   playingBumperClip = true;
-  app.dataset.bumperClip = 'true';
   setView('playing');
   // No transport over a clip: it is a few seconds long and the controls would
   // be acting on an episode that is no longer on screen.
@@ -2964,7 +2960,7 @@ function lockRow(item, items, locks) {
     picker.className = 'select select--slim';
     picker.setAttribute('aria-label', `Which episode of ${targetShow.name} must play`);
     targetShow.episodes.forEach((episode, index) => {
-      const label = `${episodeLabel(episode)}${episode.title ? ` · ${episode.title}` : ''}`;
+      const label = `${formatEpisodeLabel(episode)}${episode.title ? ` · ${episode.title}` : ''}`;
       const option = new Option(label || `Episode ${index + 1}`, String(index));
       option.selected = Number(lock.episodeIndex) === index;
       picker.append(option);
@@ -3141,7 +3137,7 @@ function commitDraft({ activate = false } = {}) {
     patch.marathonShowId = null;
   }
   state = applySettings(shows, state, patch, {});
-  persist({ immediate: true });
+  persist();
   renderSidebar();
 }
 
@@ -3205,9 +3201,6 @@ function scheduleCard(show, source, index) {
   li.className = 'setsched__card';
   li.draggable = true;
   li.tabIndex = 0;
-  li.dataset.source = source;
-  li.dataset.showId = show.id;
-  if (index !== undefined) li.dataset.index = String(index);
 
   if (source === 'order') {
     const pos = document.createElement('span');
@@ -3217,7 +3210,7 @@ function scheduleCard(show, source, index) {
   }
 
   const name = document.createElement('span');
-  name.className = 'setsetsched__name';
+  name.className = 'setsched__name';
   name.textContent = show.name;
   li.append(name);
 
@@ -3634,7 +3627,7 @@ function saveShowPref(patch) {
     showPrefs: { ...(state.settings.showPrefs || {}), [show.id]: next },
   }, {});
   prefGeneration += 1;
-  persist({ immediate: true });
+  persist();
 
   const paths = new Set(show.episodes.map((e) => e.absPath));
   for (const absPath of paths) {
@@ -4000,11 +3993,10 @@ function onShowControl(showIdValue, act) {
 
   renderSidebar();
   if (app.dataset.view === 'ready') renderReady();
-  persist({ immediate: true });
+  persist();
 }
 
 function wireEvents() {
-  el('btnPickFolder').addEventListener('click', pickFolder);
   el('btnChangeFolder').addEventListener('click', pickFolder);
   el('btnRescan').addEventListener('click', () => {
     if (state.rootPath) loadLibrary(state.rootPath);
@@ -4057,7 +4049,7 @@ function wireEvents() {
       activeScheduleId: id || null,
       marathonShowId: null,
     }, {});
-    persist({ immediate: true });
+    persist();
     renderSidebar();
     if (!el('settingsModal').hidden) renderSettings();
 
@@ -4116,7 +4108,7 @@ function wireEvents() {
     // keeps following an order nothing can show you any more.
     if (state.settings.activeScheduleId === gone) patch.activeScheduleId = null;
     state = applySettings(shows, state, patch, {});
-    persist({ immediate: true });
+    persist();
     renderSidebar();
 
     const remaining = savedSchedules();
@@ -4203,7 +4195,7 @@ ${show.id}`);
 
 The channel keeps its own place.`)) return;
     state = forgetShow(state, show.id);
-    persist({ immediate: true });
+    persist();
     closeShowSettings();
     if (detailOpen()) openDetail(show);   // redraw counts, ticks and the resume point
     if (browseOpen()) renderBrowse();
@@ -4289,7 +4281,7 @@ The channel keeps its own place.`)) return;
     // say exactly which store this touches, because the app has two.
     if (!window.confirm('Forget which episodes the library says you watched?\n\nEvery show card goes back to unwatched. The channel keeps its own place in every show.')) return;
     state = forgetAll(state);
-    persist({ immediate: true });
+    persist();
     if (browseOpen()) renderBrowse();
     toast('Library watch history cleared.');
   });
@@ -4310,7 +4302,7 @@ The channel keeps its own place.`)) return;
     state = forgetAll(state);
     renderSidebar();
     if (app.dataset.view === 'ready') renderReady();
-    persist({ immediate: true });
+    persist();
     toast('Every show is back at episode 1.');
   });
 
@@ -4401,7 +4393,7 @@ The channel keeps its own place.`)) return;
   const setSetting = (patch) => {
     state = applySettings(shows, state, patch, {});
     renderSettings();
-    persist({ immediate: true });
+    persist();
   };
 
   el('movieEvery').addEventListener('change', (event) => {
@@ -4607,7 +4599,7 @@ The channel keeps its own place.`)) return;
       volume: goingAudible && level === 0 ? 60 : level,
     }, {});
     applyVolume();
-    persist({ immediate: true });
+    persist();
   });
 
   el('volumeRange').addEventListener('input', (event) => {
@@ -5078,7 +5070,6 @@ boot();
  */
 let preparingFor = null;
 let preparingStartedAt = 0;
-let preparingSeen = 0;
 let stopPreparingProgress = null;
 
 function showPreparing(item) {
@@ -5087,7 +5078,6 @@ function showPreparing(item) {
 
   preparingFor = absPath;
   preparingStartedAt = performance.now();
-  preparingSeen = 0;
 
   el('preppingTitle').textContent = item.isMovie
     ? item.showName
@@ -5112,7 +5102,6 @@ function showPreparing(item) {
  * wrong here are all arithmetic, and none of it is visible in a screenshot.
  */
 function renderPreparing(outMs, totalMs) {
-  preparingSeen = outMs;
   const elapsed = (performance.now() - preparingStartedAt) / 1000;
   const { fraction, text } = preparingCopy(outMs, totalMs, elapsed);
 
@@ -5123,7 +5112,6 @@ function renderPreparing(outMs, totalMs) {
 function hidePreparing() {
   el('prepping').hidden = true;
   preparingFor = null;
-  void preparingSeen;
   if (stopPreparingProgress) { stopPreparingProgress(); stopPreparingProgress = null; }
 }
 

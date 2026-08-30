@@ -101,7 +101,6 @@
     },
     putThumb: async () => ({ ok: true }),
     setFullscreen: async () => false,
-    revealFile: async () => ({ ok: true }),
     capabilities: async () => ({ ffmpeg: true, ffmpegPath: 'ffmpeg' }),
     inspect: async () => ({ ok: true, plan: { tier: 'direct', needsWork: false } }),
     ensurePlayable: async (absPath) => ({ ok: true, playablePath: absPath, mediaUrl: '', tier: 'direct' }),

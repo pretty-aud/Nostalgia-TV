@@ -31,10 +31,6 @@ const DONE_FRACTION = 0.92;
 /** Below this, "resume" is a lie: nobody wants to pick up nine seconds in. */
 const RESUME_FLOOR_SECONDS = 30;
 
-function emptyLibrary() {
-  return { shows: {}, movies: {}, seeded: false };
-}
-
 /** Never mutate what came off disk; every writer here returns a new object. */
 function withLibrary(state, library) {
   return { ...state, library };
@@ -245,15 +241,6 @@ function episodeStatus(show, episodeIndex, state) {
   return 'unseen';
 }
 
-/** How far into the episode currently being resumed, as a 0..1 fraction. */
-function episodeFraction(show, episodeIndex, state, duration) {
-  const record = libraryOf(state).shows[show.id];
-  if (!record || record.index !== episodeIndex) return 0;
-  const position = Number(record.position) || 0;
-  if (!Number.isFinite(duration) || duration <= 0) return 0;
-  return Math.min(1, position / duration);
-}
-
 function watchedCount(show, state) {
   const record = libraryOf(state).shows[show.id];
   if (!record || !record.seen) return 0;
@@ -358,10 +345,6 @@ function readyCopy(onScreen, resumable, upcoming) {
 
 module.exports = {
   readyCopy,
-  DONE_FRACTION,
-  RESUME_FLOOR_SECONDS,
-  emptyLibrary,
-  libraryOf,
   seedFromCursors,
   markEpisode,
   markMovie,
@@ -370,7 +353,8 @@ module.exports = {
   resumePoint,
   movieResumePoint,
   episodeStatus,
-  episodeFraction,
   watchedCount,
   continueWatching,
+  // Exported for tests: the suite's window into the raw library record.
+  libraryOf,
 };

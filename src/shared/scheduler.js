@@ -21,7 +21,7 @@
  * deterministic.
  */
 
-const { lockedShowIds, unlockedMovies, recordMoviePlayed } = require('./locks.js');
+const { lockedShowIds, unlockedMovies, recordMoviePlayed, formatEpisodeLabel } = require('./locks.js');
 
 const DEFAULT_SETTINGS = {
   /**
@@ -514,27 +514,6 @@ function decorate(item, show, episode) {
   };
 }
 
-/** "S02E04", or "Ep 4", or the filename when we could not parse anything. */
-function formatEpisodeLabel(episode) {
-  if (!episode) return '';
-  if (episode.dated && episode.season) {
-    const mmdd = String(episode.episode).padStart(4, '0');
-    return `${episode.season}-${mmdd.slice(0, 2)}-${mmdd.slice(2)}`;
-  }
-  if (episode.season !== null && episode.season !== undefined && episode.episode !== null) {
-    const s = String(episode.season).padStart(2, '0');
-    const e = String(episode.episode).padStart(2, '0');
-    const base = `S${s}E${e}`;
-    if (episode.episodeEnd && episode.episodeEnd !== episode.episode) {
-      return `${base}-E${String(episode.episodeEnd).padStart(2, '0')}`;
-    }
-    return base;
-  }
-  if (episode.episode !== null && episode.episode !== undefined) {
-    return `Ep ${episode.episode}`;
-  }
-  return episode.fileName;
-}
 
 /**
  * Pop the head of the queue and commit it as played.
@@ -1121,14 +1100,11 @@ module.exports = {
   DEFAULT_SETTINGS,
   activeSchedule,
   blockSizeFor,
-  QUEUE_TARGET,
   createState,
-  shuffle,
   reconcileCursors,
   pruneQueue,
   refillQueue,
   peek,
-  decorate,
   formatEpisodeLabel,
   advance,
   playNow,

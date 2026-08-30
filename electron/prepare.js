@@ -201,13 +201,6 @@ async function writeVerdict(absPath, verdict) {
   } catch (error) { return { ok: false, error: String(error && error.message) }; }
 }
 
-/** Forget the cached result, so a fresh install is picked up without a restart. */
-function rescanFfmpeg() {
-  ffmpegPathCache = undefined;
-  ffprobePathCache = undefined;
-  return findFfmpeg();
-}
-
 let ffprobePathCache = undefined;
 
 /**
@@ -1041,11 +1034,8 @@ function activeJobs() {
 }
 
 module.exports = {
-  TIER,
   setCacheDir,
   findFfmpeg,
-  ffmpegCandidates,
-  rescanFfmpeg,
   hasFfmpeg,
   readVerdict,
   writeVerdict,
@@ -1053,10 +1043,7 @@ module.exports = {
   listTracks,
   detectCrop,
   extractSubtitle,
-  findFfprobe,
-  partArgsFor,
   ensurePlayable,
-  enforceBudget,
   cleanupCache,
   cacheEntries,
   pin,
@@ -1065,5 +1052,9 @@ module.exports = {
   cancelAll,
   activeJobs,
   DEFAULT_CACHE_BUDGET,
-  MIN_FREE_BYTES,
+  // Exported for tests: the candidate ORDER and the .part redirect are the
+  // parts that cannot be checked by running them. Consumers import TIER from
+  // src/shared/playability.js directly.
+  ffmpegCandidates,
+  partArgsFor,
 };

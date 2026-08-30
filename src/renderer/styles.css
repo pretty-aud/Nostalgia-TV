@@ -488,7 +488,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .field[data-on="true"] .field__label { color: var(--signal); }
 
 /* Rotation is inert during a marathon; dimming says so without hiding it. */
-.modes[data-muted="true"] { opacity: 0.4; }
+
 
 /* Same idea for a field whose setting does not currently apply — block length
    while another rotation is selected, box opacity with the box switched off. */
@@ -501,7 +501,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .schedule { list-style: none; padding-bottom: var(--u); }
 .sched {
   display: grid;
-  grid-template-columns: 22px 1fr;
+  grid-template-columns: 22px 1fr auto;
   gap: calc(var(--u) * 1.5);
   padding: 7px var(--gutter);
   font-size: var(--t-body);
@@ -589,7 +589,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 }
 .sched:hover .sched__drop { opacity: 1; }
 .sched__drop:hover { color: #ff8f6b; }
-.sched { grid-template-columns: 22px 1fr auto; }
 
 /* ── sidebar foot ─────────────────────────────────────────────────────── */
 
@@ -906,7 +905,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* Held past the countdown: the rule pulses instead of sitting full, so a wait
    never looks like a frozen screen. */
-.app[data-view="bumper"] .bumper__prep:not([hidden]) ~ * { opacity: 1; }
 .bumper__prep:not([hidden]) { animation: prep-pulse 1.6s ease-in-out infinite; }
 @keyframes prep-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
@@ -942,7 +940,6 @@ input[type="range"]::-webkit-slider-thumb {
   margin-top: calc(var(--u) * 2);
   padding-right: var(--gutter);   /* clears the sidebar edge, matching the rows */
 }
-.footactions .settingsbtn { margin: 0; }
 
 /* On is the app's amber; off keeps the icon and drops the accent. A control
    that vanishes when you switch it off cannot be switched back on. */
@@ -957,9 +954,6 @@ input[type="range"]::-webkit-slider-thumb {
 .setrow { display: flex; flex-wrap: wrap; gap: var(--u); margin-top: var(--u); }
 
 .settingsbtn {
-  margin-top: calc(var(--u) * 2);
-  margin-left: auto;
-  margin-right: var(--gutter);   /* clears the sidebar edge, matching the rows */
   width: 36px;
   height: 36px;
   border-radius: var(--r-sm);
@@ -1260,7 +1254,6 @@ video::cue {
 
 /* Narrow windows: the sidebar would crush the picture, so it overlays. */
 @media (max-width: 900px) {
-  .app { grid-template-columns: 0 1fr; }
   .sidebar { position: absolute; z-index: 5; width: var(--sidebar-w); height: 100%; }
   .bumper__grid { padding: calc(var(--u) * 5) calc(var(--u) * 5) calc(var(--u) * 9); }
   .lead { grid-template-columns: 1fr; gap: calc(var(--u) * 3); }
@@ -1741,6 +1734,11 @@ video::cue {
 :root[data-light="true"] .trackmenu,
 :root[data-light="true"] .skipask,
 :root[data-light="true"] .toast,
+/* The conversion-wait overlay is an over-video surface like everything above
+   it. Left off this list it drew PANEL ink over its own near-black scrim on
+   every light theme — unreadable during exactly the wait it exists to
+   explain, which the stylesheet itself warns can be forty minutes. */
+:root[data-light="true"] .prepping,
 /* The window buttons belong here too. The top-right corner is over the STAGE
    in every view — the sidebar only ever reaches 340px from the left — so they
    are an over-video surface like the rest of this list, not a panel one.
@@ -2547,7 +2545,7 @@ video::cue {
   border-radius: var(--r-lg);
   box-shadow: var(--e-3);
   overflow: hidden;
-  animation: rise var(--med) both;
+  animation: modal-in var(--med) both;
 }
 
 .detail__hero {
@@ -2838,7 +2836,7 @@ video::cue {
   color: var(--ink-faint);
   min-width: 22px;
 }
-.setsetsched__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setsched__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setsched__eps { font-size: var(--t-meta); color: var(--ink-faint); }
 
 /* --ink-mute, not --ink-faint: at the faintest tint this vanished completely

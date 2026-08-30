@@ -1,12 +1,11 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const crypto = require('node:crypto');
 const { Readable } = require('node:stream');
-const { pathToFileURL } = require('node:url');
 
 const { buildLibrary, isVideoFile } = require('../src/shared/parseEpisode.js');
 const { digestCursors, describeChange } = require('../src/shared/progressJournal.js');
@@ -843,10 +842,6 @@ function registerIpc() {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
   });
 
-  ipcMain.handle('shell:revealFile', async (_event, absPath) => {
-    if (isInsideAllowedRoot(absPath)) shell.showItemInFolder(absPath);
-    return { ok: true };
-  });
 
   // -- preparing unplayable files ------------------------------------------
 

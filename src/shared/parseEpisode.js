@@ -564,22 +564,16 @@ function buildLibrary(entries, options = {}) {
 }
 
 module.exports = {
-  VIDEO_EXTENSIONS,
-  BUMPER_FOLDER,
-  PROMO_FOLDER,
-  MOVIES_FOLDER,
-  PRESENTATION_FOLDER,
   isVideoFile,
+  buildLibrary,
+  // Exported for tests: the parser's seams. Not production API — the only
+  // production consumers of this module are isVideoFile and buildLibrary.
   isBumperPath,
   isPromoPath,
   isMoviePath,
   isPresentationPath,
   parseMovie,
   naturalCompare,
-  stripJunk,
   extractNumbering,
   parseEpisode,
-  compareEpisodes,
-  buildLibrary,
-  showId,
 };

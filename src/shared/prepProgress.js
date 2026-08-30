@@ -76,8 +76,7 @@ function preparingCopy(outMs, totalMs, elapsedSeconds) {
 }
 
 module.exports = {
-  ESTIMATE_AFTER_SECONDS,
-  ESTIMATE_AFTER_FRACTION,
-  describeRemaining,
   preparingCopy,
+  // Exported for tests.
+  describeRemaining,
 };

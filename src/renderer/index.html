@@ -19,7 +19,7 @@
        the controls so a drag never swallows a click on close. -->
   <div class="windrag" aria-hidden="true"></div>
 
-  <div class="wincontrols" id="winControls">
+  <div class="wincontrols">
     <button class="winbtn" id="btnWinMin" type="button" aria-label="Minimise" title="Minimise">
       <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8h9" /></svg>
     </button>
@@ -38,7 +38,7 @@
   </div>
 
   <!-- ── library ────────────────────────────────────────────────────────── -->
-  <aside class="sidebar" id="sidebar">
+  <aside class="sidebar">
     <header class="sidebar__head">
       <div class="ident">
         <!-- The same mark as the app icon, drawn down to its bones: at 22px
@@ -217,22 +217,16 @@
     <video id="player" class="player" preload="auto" crossorigin="anonymous"></video>
 
     <!-- first run -->
-    <section class="welcome" id="welcome">
-      <div class="welcome__inner">
-        <p class="eyebrow mono">Your own channel</p>
-        <h1 class="welcome__title">Shows shuffle.<br />Episodes don't.</h1>
-        <p class="welcome__body">
-          Point this at the folder holding your shows. It plays them in a random
-          order, but every show always picks up on its next episode — and tells
-          you what's coming.
-        </p>
-        <button class="btn btn--signal" id="btnPickFolder" type="button">Choose your TV folder</button>
-        <p class="welcome__hint mono" id="welcomeHint">One subfolder per show works best</p>
-      </div>
+    <section class="welcome">
+      <!-- Deliberately empty: renderWelcome()/renderReady() build this
+           screen's content in full, and used to WIPE a static copy of the
+           same markup that could never be seen or clicked — its button's
+           wiring outlived the button. One source of truth now. -->
+      <div class="welcome__inner"></div>
     </section>
 
     <!-- scanning -->
-    <section class="scanning" id="scanning">
+    <section class="scanning">
       <p class="eyebrow mono">Reading folder</p>
       <p class="scanning__path mono" id="scanningPath"></p>
     </section>
@@ -254,7 +248,7 @@
         <span class="mono bumper__prep" id="bumperPrep" hidden></span>
         <span class="mono bumper__count" id="bumperCount"></span>
       </footer>
-      <div class="timer" id="bumperTimer" aria-hidden="true"><i id="bumperTimerFill"></i></div>
+      <div class="timer" aria-hidden="true"><i id="bumperTimerFill"></i></div>
     </section>
 
     <!-- Waiting on a conversion.
@@ -275,7 +269,7 @@
     </section>
 
     <!-- player chrome -->
-    <div class="chrome" id="chrome">
+    <div class="chrome">
       <div class="chrome__top">
         <div class="nowplaying">
           <span class="nowplaying__show" id="npShow"></span>
@@ -425,7 +419,7 @@
                and a heading repeating it is just the word twice. The second
                half of the section gets one, because that is where the subject
                actually changes. -->
-          <label class="field" id="themeField">
+          <label class="field">
             <span class="field__label mono">Theme</span>
             <span class="field__control">
               <select class="select" id="themeSelect">
@@ -655,7 +649,7 @@
         <section class="setgroup" id="promoGroup" hidden>
           <h3 class="setgroup__head">Promos</h3>
 
-          <label class="check" id="promoRow">
+          <label class="check">
             <input type="checkbox" id="promoToggle" />
             <span>Play promos <span class="mono" id="promoCount"></span></span>
           </label>
@@ -691,7 +685,7 @@
      instantly and an unchecked title honestly says so instead of a spinner
      pretending to know. Same furniture as the play-order table on purpose:
      one way to read a table of titles, learned once. -->
-<div class="modal modal--wide" id="mediaModal" hidden>
+<div class="modal" id="mediaModal" hidden>
   <div class="modal__backdrop" id="mediaBackdrop"></div>
 
   <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="mediaTitle">
@@ -720,7 +714,7 @@
   </div>
 </div>
 
-<div class="modal modal--wide" id="locksModal" hidden>
+<div class="modal" id="locksModal" hidden>
   <div class="modal__backdrop" id="locksBackdrop"></div>
 
   <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="locksTitle">
@@ -763,7 +757,7 @@
      against what COULD be. The left column is the running order, top to bottom;
      the right is every show, and a show may be dragged over more than once to
      give it several blocks. -->
-<div class="modal modal--wide" id="scheduleModal" hidden>
+<div class="modal" id="scheduleModal" hidden>
   <div class="modal__backdrop" id="scheduleBackdrop"></div>
 
   <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="scheduleTitle">

@@ -45,11 +45,6 @@ const TIER = {
  */
 const NATIVE_CONTAINERS = new Set(['.mp4', '.m4v', '.webm', '.ogv']);
 
-/** Containers ffmpeg can repackage from without touching the streams. */
-const REMUXABLE_CONTAINERS = new Set([
-  '.mkv', '.mov', '.avi', '.ts', '.m2ts', '.flv', '.wmv', '.mpg', '.mpeg',
-]);
-
 /**
  * Matroska CodecID -> can Chromium decode it.
  *
@@ -587,16 +582,6 @@ function ffmpegArgsFor(planResult, inputPath, outputPath) {
   ];
 }
 
-/**
- * Rough guess at how long preparation will take, as a multiple of runtime.
- * Used only to decide whether it is worth starting a job we may not finish.
- */
-function speedFactorFor(tier) {
-  if (tier === TIER.REMUX) return 0.02;  // I/O bound
-  if (tier === TIER.AUDIO) return 0.05;
-  if (tier === TIER.FULL) return 0.8;    // can genuinely lose the race
-  return 0;
-}
 
 /**
  * Did playback fail in a way that means "this file needs converting" rather
@@ -635,22 +620,19 @@ module.exports = {
   TIER,
   audioIndexFromInspect,
   matchesLanguage,
-  NATIVE_CONTAINERS,
-  REMUXABLE_CONTAINERS,
-  VIDEO_SUPPORT,
-  AUDIO_SUPPORT,
-  codecSupport,
   codecIdFromFfprobe,
   isTextSubtitle,
-  firstTrack,
   pickAudioTrack,
-  isEnglish,
   isCommentary,
-  normaliseLanguage,
   describeLanguage,
   planPlayback,
   ffmpegArgsFor,
-  speedFactorFor,
-  prettyCodec,
   needsFallback,
+  // Exported for tests (and codecSupport also for scripts/fix-tracks.mjs):
+  // the seams the suite uses to reach internals. Not production API — a
+  // dead-export sweep already re-litigated these once, so they are named.
+  codecSupport,
+  firstTrack,
+  isEnglish,
+  prettyCodec,
 };

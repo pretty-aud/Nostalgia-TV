@@ -251,4 +251,4 @@ function probeMatroska(head) {
   return { ok: false, tracks: [], reason: 'Tracks not found in file header', truncated: true };
 }
 
-module.exports = { probeMatroska, readId, readSize, ID };
+module.exports = { probeMatroska };

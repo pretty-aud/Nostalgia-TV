@@ -60,4 +60,4 @@ function describeChange(previousDigest, cursors) {
   return notes.length ? notes.join('; ') : 'no cursor change';
 }
 
-module.exports = { digestCursors, parseDigest, describeChange };
+module.exports = { digestCursors, describeChange };
