@@ -72,7 +72,10 @@ function describeShowConversion(summary) {
   if (summary.total === 0) return 'no episodes';
   if (summary.unknown === summary.total) return 'not checked — ingest first';
   const bits = [];
-  if (summary.needsWork) bits.push(`${summary.needsWork} need${summary.needsWork === 1 ? 's' : ''} converting`);
+  // "convert automatically", never "need converting": these conversions are
+  // work the app does for itself during the bumper, not a chore on the
+  // viewer's list — the old wording read as a to-do.
+  if (summary.needsWork) bits.push(`${summary.needsWork} convert${summary.needsWork === 1 ? 's' : ''} automatically`);
   if (summary.playsAsIs) bits.push(`${summary.playsAsIs} play${summary.playsAsIs === 1 ? 's' : ''} as-is`);
   if (summary.unknown) bits.push(`${summary.unknown} not checked`);
   return bits.join(' · ');
@@ -81,7 +84,7 @@ function describeShowConversion(summary) {
 /** The conversion cell for a movie row. */
 function describeMovieConversion(verdict) {
   if (!verdict.known) return 'not checked — ingest first';
-  return verdict.needsWork ? 'needs converting' : 'plays as-is';
+  return verdict.needsWork ? 'converts automatically' : 'plays as-is';
 }
 
 /** The conversion cell for one episode's detail row. */

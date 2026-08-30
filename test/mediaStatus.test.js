@@ -49,17 +49,17 @@ describe('the table copy', () => {
 
   it('reads as a sentence when the picture is mixed', () => {
     expect(describeShowConversion({ total: 5, needsWork: 2, playsAsIs: 2, unknown: 1 }))
-      .toBe('2 need converting · 2 play as-is · 1 not checked');
+      .toBe('2 convert automatically · 2 play as-is · 1 not checked');
   });
 
   it('handles the singular', () => {
     expect(describeShowConversion({ total: 2, needsWork: 1, playsAsIs: 1, unknown: 0 }))
-      .toBe('1 needs converting · 1 plays as-is');
+      .toBe('1 converts automatically · 1 plays as-is');
   });
 
   it('movie rows say the same three things the same way', () => {
     expect(describeMovieConversion({ known: false })).toBe('not checked — ingest first');
-    expect(describeMovieConversion({ known: true, needsWork: true })).toBe('needs converting');
+    expect(describeMovieConversion({ known: true, needsWork: true })).toBe('converts automatically');
     expect(describeMovieConversion({ known: true, needsWork: false })).toBe('plays as-is');
   });
 
