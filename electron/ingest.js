@@ -16,6 +16,7 @@
  */
 
 const path = require('node:path');
+const { entryConverts } = require('../src/shared/mediaStatus.js');
 const fsp = require('node:fs/promises');
 
 let ledgerPath = null;
@@ -137,8 +138,12 @@ async function runLocked(items, deps) {
           });
           record.tier = plan.tier;
           record.needsWork = Boolean(plan.needsWork);
+          // Which track the plan chose: what separates "remux because the
+          // language is wrong" (a real conversion) from "remux because the
+          // planner never promises Matroska" (plays natively in practice).
+          record.audioIndex = Number.isInteger(plan.audioIndex) ? plan.audioIndex : 0;
           gotVerdict = true;
-          if (record.needsWork) needConversion += 1;
+          if (entryConverts(record) === true) needConversion += 1;
         } catch { /* unreadable right now */ }
       } else {
         gotVerdict = true;   // a show row has no file of its own to judge

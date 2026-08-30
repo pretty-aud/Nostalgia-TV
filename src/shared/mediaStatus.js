@@ -14,6 +14,32 @@
 const entryOf = (entries, kind, id) => entries[`${kind}:${id}`] || null;
 
 /**
+ * Does a ledger entry mean a REAL conversion at play time?
+ *
+ * The planner is deliberately pessimistic: it marks every Matroska file
+ * "remux" because it will not PROMISE Chromium demuxes it — but the player
+ * measures at first play, and in this library those files play natively.
+ * Recording the planner's caution as "needs converting" painted a wall of
+ * false warnings over a library that plays fine.
+ *
+ * So: a remux verdict with the wanted track already FIRST counts as playing
+ * as-is — the app hands that file straight to the player. A remux forced by
+ * track selection (audioIndex > 0), or any audio/full re-encode, is a real
+ * conversion. A remux entry with no recorded audioIndex is from before this
+ * distinction existed and counts as unknown, so it gets re-checked rather
+ * than guessed about.
+ */
+function entryConverts(entry) {
+  if (!entry || typeof entry.needsWork !== 'boolean') return null;   // unknown
+  if (!entry.needsWork) return false;
+  if (entry.tier === 'remux') {
+    if (!Number.isInteger(entry.audioIndex)) return null;            // pre-fix entry
+    return entry.audioIndex > 0;
+  }
+  return true;
+}
+
+/**
  * One show's conversion story, from its episodes' ledger entries.
  *
  * `unknown` counts episodes the ingest has not judged yet — either never
@@ -26,9 +52,9 @@ function summarizeShow(show, entries) {
   let playsAsIs = 0;
   let unknown = 0;
   for (const episode of show.episodes || []) {
-    const entry = entryOf(entries, 'episode', episode.relPath);
-    if (!entry || typeof entry.needsWork !== 'boolean') unknown += 1;
-    else if (entry.needsWork) needsWork += 1;
+    const converts = entryConverts(entryOf(entries, 'episode', episode.relPath));
+    if (converts === null) unknown += 1;
+    else if (converts) needsWork += 1;
     else playsAsIs += 1;
   }
   return { total: (show.episodes || []).length, needsWork, playsAsIs, unknown };
@@ -36,8 +62,9 @@ function summarizeShow(show, entries) {
 
 function movieVerdict(movie, entries) {
   const entry = entryOf(entries, 'movie', movie.relPath);
-  if (!entry || typeof entry.needsWork !== 'boolean') return { known: false };
-  return { known: true, needsWork: entry.needsWork, tier: entry.tier || null };
+  const converts = entryConverts(entry);
+  if (converts === null) return { known: false };
+  return { known: true, needsWork: converts, tier: entry.tier || null };
 }
 
 /** The conversion cell for a show row. */
@@ -59,12 +86,13 @@ function describeMovieConversion(verdict) {
 
 /** The conversion cell for one episode's detail row. */
 function describeEpisodeConversion(entries, relPath) {
-  const entry = entryOf(entries, 'episode', relPath);
-  if (!entry || typeof entry.needsWork !== 'boolean') return 'not checked';
-  return entry.needsWork ? 'converts' : 'plays as-is';
+  const converts = entryConverts(entryOf(entries, 'episode', relPath));
+  if (converts === null) return 'not checked';
+  return converts ? 'converts' : 'plays as-is';
 }
 
 module.exports = {
+  entryConverts,
   summarizeShow,
   movieVerdict,
   describeShowConversion,

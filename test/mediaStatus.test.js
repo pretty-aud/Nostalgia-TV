@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  entryConverts,
   summarizeShow,
   movieVerdict,
   describeShowConversion,
@@ -75,5 +76,34 @@ describe('movieVerdict', () => {
     expect(movieVerdict(movie, {}).known).toBe(false);
     expect(movieVerdict(movie, { 'movie:MOVIES/Akira.mkv': { needsWork: false, tier: 'direct' } }))
       .toEqual({ known: true, needsWork: false, tier: 'direct' });
+  });
+});
+
+describe('entryConverts — the planner-vs-player rule', () => {
+  it('a remux with the wanted track first plays as-is', () => {
+    // The planner never promises Matroska; the player proves it at first
+    // play. Recording the caution as "needs converting" painted a wall of
+    // false warnings over a library that plays natively.
+    expect(entryConverts({ needsWork: true, tier: 'remux', audioIndex: 0 })).toBe(false);
+  });
+
+  it('a remux forced by track selection is a real conversion', () => {
+    expect(entryConverts({ needsWork: true, tier: 'remux', audioIndex: 2 })).toBe(true);
+  });
+
+  it('audio and full re-encodes are always real', () => {
+    expect(entryConverts({ needsWork: true, tier: 'audio', audioIndex: 0 })).toBe(true);
+    expect(entryConverts({ needsWork: true, tier: 'full', audioIndex: 0 })).toBe(true);
+  });
+
+  it('a pre-fix remux entry is unknown, never guessed', () => {
+    // Entries recorded before audioIndex existed cannot be told apart;
+    // they re-check rather than claim either answer.
+    expect(entryConverts({ needsWork: true, tier: 'remux' })).toBe(null);
+  });
+
+  it('no verdict is unknown', () => {
+    expect(entryConverts(null)).toBe(null);
+    expect(entryConverts({ at: 1 })).toBe(null);
   });
 });
