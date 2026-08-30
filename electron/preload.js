@@ -59,7 +59,7 @@ contextBridge.exposeInMainWorld('tv', {
   cancelPrepare: (absPath) => ipcRenderer.invoke('prepare:cancel', absPath),
   pinPrepared: (paths) => ipcRenderer.invoke('prepare:pin', paths),
   cacheInfo: () => ipcRenderer.invoke('prepare:cacheInfo'),
-  clearPrepared: () => ipcRenderer.invoke('prepare:clearCache'),
+  cleanupPrepared: () => ipcRenderer.invoke('prepare:cleanup'),
 
   /**
    * Conversion progress. Returns its own unsubscribe rather than exposing

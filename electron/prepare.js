@@ -581,13 +581,40 @@ function unpinAllExcept(keep = []) {
   }
 }
 
-async function clearCache() {
-  const entries = await cacheEntries();
-  let removed = 0;
-  for (const entry of entries) {
-    try { await fsp.unlink(entry.path); removed += 1; } catch { /* ignore */ }
-  }
-  return { removed };
+/**
+ * Delete the fragments conversions leave behind, then re-enforce the budget.
+ *
+ * A cancelled or interrupted conversion leaves its `.part` file on disk, and
+ * cacheEntries deliberately counts only finished `.mp4`s — so those fragments
+ * were invisible to the budget, to eviction, and to any cleanup. They once
+ * accumulated to 69 GB before anyone could see them.
+ *
+ * Orphan test: a live ffmpeg writes its `.part` continuously, so a stale mtime
+ * is proof of abandonment — and when no job is running at all, every fragment
+ * is one. The jobs map cannot be consulted for paths (it does not record the
+ * output), and does not need to be.
+ */
+async function cleanupCache(budget = DEFAULT_CACHE_BUDGET) {
+  let removedParts = 0;
+  let reclaimedBytes = 0;
+  try {
+    const names = await fsp.readdir(cacheDir);
+    const now = Date.now();
+    for (const name of names) {
+      if (!name.endsWith('.part')) continue;
+      const full = path.join(cacheDir, name);
+      try {
+        const stat = await fsp.stat(full);
+        if (jobs.size > 0 && now - stat.mtimeMs < 10 * 60 * 1000) continue;
+        await fsp.unlink(full);
+        removedParts += 1;
+        reclaimedBytes += stat.size;
+      } catch { /* locked by a writer, or already gone — leave it */ }
+    }
+  } catch { /* cache dir missing: nothing to clean */ }
+
+  const { evicted, total } = await enforceBudget(budget);
+  return { removedParts, reclaimedBytes, evicted, totalBytes: total };
 }
 
 // ---------------------------------------------------------------------------
@@ -1028,7 +1055,7 @@ module.exports = {
   partArgsFor,
   ensurePlayable,
   enforceBudget,
-  clearCache,
+  cleanupCache,
   cacheEntries,
   pin,
   unpinAllExcept,

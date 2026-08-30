@@ -108,7 +108,7 @@
     cancelPrepare: async () => ({ cancelled: false }),
     pinPrepared: async () => ({ ok: true }),
     cacheInfo: async () => ({ count: 0, bytes: 0, budget: 0, jobs: [] }),
-    clearPrepared: async () => ({ removed: 0 }),
+    cleanupPrepared: async () => ({ ok: true, removedParts: 0, reclaimedBytes: 0, evicted: 0, totalBytes: 0 }),
     onPrepareProgress: () => () => {},
     listTracks: async () => ({ ok: true, audio: [], subtitles: [], defaultAudioIndex: 0 }),
     subtitleText: async () => ({ ok: false }),

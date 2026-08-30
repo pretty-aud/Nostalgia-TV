@@ -509,8 +509,20 @@
             <button class="btn btn--quiet" id="btnManualLoad" type="button">Load saved progress</button>
           </div>
 
+          <h4 class="setsub">Prepared files</h4>
+          <p class="modes__note" id="cacheNote">Checking…</p>
+          <button class="btn" id="btnCleanupCache" type="button">
+            Clean up unfinished conversions
+          </button>
+
+          <h4 class="setsub">Library history</h4>
+          <p class="modes__note">Forgets which episodes the library says you watched. The channel's own place in every show is untouched.</p>
+          <button class="btn" id="btnForgetLibrary" type="button">
+            Reset library watch history
+          </button>
+
           <h4 class="setsub">Start over</h4>
-          <p class="modes__note">Clears every show's place. Nothing on disk is touched.</p>
+          <p class="modes__note">Clears every show's place and the library's watch history. Nothing on disk is touched.</p>
           <button class="btn btn--danger" id="btnResetAll" type="button">
             Reset every show to episode 1
           </button>

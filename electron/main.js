@@ -833,9 +833,18 @@ function registerIpc() {
     };
   });
 
-  ipcMain.handle('prepare:clearCache', async () => {
-    prepare.cancelAll();
-    return prepare.clearCache();
+  /**
+   * The settings button: sweep abandoned .part fragments and re-enforce the
+   * budget. Deliberately does NOT cancel running jobs — cleaning up must never
+   * kill the conversion someone is waiting on; live fragments are skipped by
+   * their fresh mtime instead.
+   */
+  ipcMain.handle('prepare:cleanup', async () => {
+    try {
+      return { ok: true, ...(await prepare.cleanupCache()) };
+    } catch (error) {
+      return { ok: false, error: String(error && error.message ? error.message : error) };
+    }
   });
 }
 

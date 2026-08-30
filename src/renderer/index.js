@@ -37,6 +37,7 @@ import {
   seedFromCursors,
   markEpisode,
   markMovie,
+  forgetAll,
   resumePoint,
   movieResumePoint,
   episodeStatus,
@@ -2606,6 +2607,21 @@ function applyUiScale() {
  * Async and therefore separate from renderSettings, which runs on every
  * keystroke of every slider — reading a file that often would be silly.
  */
+/** GB with one decimal — cache sizes are the only place the app talks in GB. */
+function formatGb(bytes) {
+  return `${(Math.max(0, Number(bytes) || 0) / 1073741824).toFixed(1)} GB`;
+}
+
+async function renderCacheInfo() {
+  const note = el('cacheNote');
+  const info = await window.tv.cacheInfo().catch(() => null);
+  if (!info) { note.textContent = 'Prepared-file details are unavailable.'; return; }
+  note.textContent =
+    `${info.count} prepared file${info.count === 1 ? '' : 's'} — ${formatGb(info.bytes)} of ${formatGb(info.budget)} budget. `
+    + 'Cleaning up removes leftovers from cancelled conversions and trims back to budget; '
+    + 'nothing that is playing or queued is touched.';
+}
+
 async function renderManualSaveInfo() {
   const note = el('manualSaveNote');
   const info = await window.tv.manualInfo().catch(() => ({ exists: false }));
@@ -2683,6 +2699,7 @@ function openSettings() {
   renderSettings();
   renderSettingsNav();
   renderManualSaveInfo();
+  renderCacheInfo();
   el('btnCloseSettings').focus();
 }
 
@@ -3698,12 +3715,47 @@ function wireEvents() {
     onShowControl(id, 'startMarathon');
   });
 
+  el('btnCleanupCache').addEventListener('click', async () => {
+    const button = el('btnCleanupCache');
+    button.disabled = true;
+    const result = await window.tv.cleanupPrepared().catch(() => null);
+    button.disabled = false;
+    if (!result || result.ok === false) {
+      toast('Could not clean up the prepared files.', 4200);
+      return;
+    }
+    const freed = (result.reclaimedBytes || 0);
+    const bits = [];
+    if (result.removedParts) bits.push(`${result.removedParts} unfinished file${result.removedParts === 1 ? '' : 's'} (${formatGb(freed)})`);
+    if (result.evicted) bits.push(`${result.evicted} old prepared file${result.evicted === 1 ? '' : 's'}`);
+    toast(bits.length ? `Removed ${bits.join(' and ')}.` : 'Nothing to clean up — the cache is tidy.', 4200);
+    renderCacheInfo();
+  });
+
+  el('btnForgetLibrary').addEventListener('click', () => {
+    // Destructive to the library's memory, but the CHANNEL keeps its place —
+    // say exactly which store this touches, because the app has two.
+    if (!window.confirm('Forget which episodes the library says you watched?\n\nEvery show card goes back to unwatched. The channel keeps its own place in every show.')) return;
+    state = forgetAll(state);
+    persist({ immediate: true });
+    if (browsing()) renderBrowse();
+    toast('Library watch history cleared.');
+  });
+
   el('btnResetAll').addEventListener('click', () => {
     // Destructive and not undoable, and it is one click from the toggles people
     // use constantly — so it asks.
     const total = shows.reduce((n, s) => n + s.episodes.length, 0);
     if (!window.confirm(`Send all ${shows.length} shows back to episode 1?\n\n${total} episodes will be treated as unwatched. This cannot be undone.`)) return;
     state = resetProgress(shows, state, null, {});
+    /**
+     * The library's own watch record is a SEPARATE store from the channel
+     * cursors, and for a long time this button only reset the cursors — the
+     * gallery went on showing every tick and resume point for shows the
+     * channel had just been told were unwatched. "Clears every show's place"
+     * has to mean both stores or the button is lying.
+     */
+    state = forgetAll(state);
     renderSidebar();
     if (app.dataset.view === 'ready') renderReady();
     persist({ immediate: true });
