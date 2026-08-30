@@ -56,7 +56,21 @@ const keyOf = (item) => `${item.kind}:${item.id}`;
  * open.
  */
 function newItems(items, entries) {
-  return (items || []).filter((item) => item && item.kind && item.id && !entries[keyOf(item)]);
+  return (items || []).filter((item) => {
+    if (!item || !item.kind || !item.id) return false;
+    const entry = entries[keyOf(item)];
+    if (!entry) return true;
+    /**
+     * Same name, different bytes: a file swapped in place (the normalised
+     * copy replacing an original, a better rip) is a NEW file to judge, and
+     * name-only keying was blind to exactly that. Only sizes both sides
+     * actually know can disagree — absence stays "already ingested".
+     */
+    if (Number.isFinite(item.size) && Number.isFinite(entry.size) && item.size !== entry.size) {
+      return true;
+    }
+    return false;
+  });
 }
 
 async function status(items) {
@@ -142,6 +156,7 @@ async function runLocked(items, deps) {
           // language is wrong" (a real conversion) from "remux because the
           // planner never promises Matroska" (plays natively in practice).
           record.audioIndex = Number.isInteger(plan.audioIndex) ? plan.audioIndex : 0;
+          if (Number.isFinite(item.size)) record.size = item.size;
           gotVerdict = true;
           if (entryConverts(record) === true) needConversion += 1;
         } catch { /* unreadable right now */ }

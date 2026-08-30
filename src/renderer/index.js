@@ -2704,11 +2704,14 @@ function ingestItems() {
     for (const episode of show.episodes) {
       // The verdict must be computed under the show's language preference, or
       // a subbed show's episodes are recorded as needing no conversion.
-      items.push({ kind: 'episode', id: episode.relPath, absPath: episode.absPath, preferLanguage });
+      items.push({
+        kind: 'episode', id: episode.relPath, absPath: episode.absPath,
+        preferLanguage, size: episode.size,
+      });
     }
   }
   for (const movie of movieFiles) {
-    items.push({ kind: 'movie', id: movie.relPath, absPath: movie.absPath });
+    items.push({ kind: 'movie', id: movie.relPath, absPath: movie.absPath, size: movie.size });
   }
   return items;
 }

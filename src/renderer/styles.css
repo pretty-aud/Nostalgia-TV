@@ -2961,7 +2961,7 @@ video::cue {
   border-color: var(--hair);
 }
 .btn--opens::after {
-  content: 'B8';               /* ▸ */
+  content: '▸';
   color: var(--ink-faint);
   font-size: 13px;
   transition: color var(--fast), transform var(--fast);

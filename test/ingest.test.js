@@ -43,3 +43,27 @@ describe('newItems', () => {
     expect(newItems([show('a'), episode('a/1.mkv')], {})).toHaveLength(2);
   });
 });
+
+describe('the size fingerprint', () => {
+  it('a swapped file counts as new again', () => {
+    // Same relPath, different bytes: the normalised copy replacing an
+    // original must be re-judged, not trusted on its name.
+    const entries = { 'episode:NGE/E1.mkv': { at: 1, size: 100 } };
+    const swapped = { kind: 'episode', id: 'NGE/E1.mkv', absPath: 'H:/x', size: 200 };
+    expect(newItems([swapped], entries)).toHaveLength(1);
+  });
+
+  it('matching sizes stay ingested', () => {
+    const entries = { 'episode:NGE/E1.mkv': { at: 1, size: 100 } };
+    expect(newItems([{ kind: 'episode', id: 'NGE/E1.mkv', size: 100 }], entries)).toHaveLength(0);
+  });
+
+  it('absence of a size on either side is not a mismatch', () => {
+    // Old entries and show rows carry no size; they must not all relight.
+    const entries = { 'episode:a': { at: 1 }, 'episode:b': { at: 1, size: 5 } };
+    expect(newItems([
+      { kind: 'episode', id: 'a', size: 100 },
+      { kind: 'episode', id: 'b' },
+    ], entries)).toHaveLength(0);
+  });
+});
