@@ -8,3 +8,4 @@ channel-state.json
 # dev artefacts
 shots/shoot.log
 *.log
+shots/*.png

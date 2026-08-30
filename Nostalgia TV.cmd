@@ -17,5 +17,15 @@ if not exist "node_modules\electron\dist\electron.exe" (
   exit /b 1
 )
 
+rem index.html loads bundle.js, which is gitignored build OUTPUT - a fresh
+rem clone (or a checkout that predates the last source change) has none, and
+rem Electron would open a blank window with a console error nobody sees.
+if not exist "src\renderer\bundle.js" (
+  echo The renderer is not built yet. Run this first, then try again:
+  echo     npm run build
+  pause
+  exit /b 1
+)
+
 rem start "" hands off so this console closes instead of sitting behind the app.
 start "" "node_modules\electron\dist\electron.exe" "."

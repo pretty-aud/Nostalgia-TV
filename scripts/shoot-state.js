@@ -3,11 +3,12 @@
 /**
  * Screenshot the renderer after putting it into a particular state.
  *
- * shoot.js captures whatever the page looks like on load, which is enough for
- * the welcome screen and not much else — the transport only exists while
- * something is playing, and a toggle can only be photographed in one of its
- * positions at a time. This runs a snippet first, so the state being reviewed
- * is the state that gets captured.
+ * A plain on-load capture is enough for the welcome screen and not much else —
+ * the transport only exists while something is playing, and a toggle can only
+ * be photographed in one of its positions at a time. So this runs a snippet
+ * first, and the state being reviewed is the state that gets captured. (An
+ * earlier snippet-less shoot.js did the on-load capture; this tool covers that
+ * case too, so it was retired.)
  *
  * The snippet arrives as a FILE, never as an argv string: quoting JavaScript
  * through a shell has silently mangled source in this project before.

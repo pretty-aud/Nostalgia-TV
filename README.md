@@ -101,6 +101,8 @@ jumping. Mid-episode position is saved too, so closing the app offers a resume.
 | `N` | Next episode |
 | `M` | Mute |
 | `F` | Fullscreen |
+| `L` | Library (while playing) / resume or start (on the library screen) |
+| `Esc` | Leave fullscreen, or close an open dialog |
 | Any key | During a bumper: start the next episode now |
 
 ## Formats
@@ -162,9 +164,12 @@ afterwards on purpose, so use `npm run dist` when you want an installer to keep.
 npm test
 ```
 
-53 tests covering the filename parser and the scheduler, including the invariants
-that matter: episodes never go backwards, no show plays twice in a row, every
-show gets a turn per round, and the bumper's promise matches what plays.
+The vitest suite (22 files) covers the filename parser, the scheduler, set
+schedules, locks, the browse library, the IPC surface, the markup/id wiring,
+media streaming, and the prepare pipeline — including the invariants that
+matter: episodes never go backwards, no show plays twice in a row, every show
+gets a turn per round, and the bumper's promise matches what plays. The exact
+test count changes as features land; `npm test` prints it.
 
 ### Test fixtures
 
@@ -191,6 +196,12 @@ glance whether what played matches what the bumper promised.
 
 Both rule-bearing modules are pure and take their randomness as a parameter,
 which is what makes the invariants testable rather than a matter of opinion.
+
+The fonts in `src/renderer/fonts/` are vendored woff2 copies of Inter,
+Space Grotesk and JetBrains Mono, originally taken from the
+`@fontsource-variable` npm packages (v5.3). They are committed directly and
+loaded by relative `url()` from `styles.css`; nothing depends on the npm
+packages, so a font refresh means replacing the woff2 files by hand.
 
 ### Security posture
 
