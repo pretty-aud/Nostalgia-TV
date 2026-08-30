@@ -107,13 +107,29 @@ function parseMovie(relPath) {
   const fileName = segments(relPath).pop();
   const stem = stripExtension(fileName);
 
-  // A bare four-digit year, anywhere. Bracketed ones are removed by stripJunk
-  // before this runs, so this catches the "Blade Runner 1982 1080p" form.
-  const yearMatch = normaliseSeparators(stem).match(/(?:^|[\s([-])((?:19|20)\d{2})(?:$|[\s)\]-])/);
-  const year = yearMatch ? Number(yearMatch[1]) : null;
+  /**
+   * A bare four-digit year — the LAST one, not the first.
+   *
+   * Titles contain year-shaped numbers: "BladeRunner 2049 - 2017.mkv" is the
+   * 2017 film, and taking the first match made 2049 the "year" and stripped
+   * it from the name. The release year sits at the end by convention, so the
+   * last candidate is the year and everything before it is title.
+   */
+  const yearMatches = [...normaliseSeparators(stem).matchAll(/(?:^|[\s([-])((?:19|20)\d{2})(?:$|[\s)\]-])/g)];
+  const year = yearMatches.length ? Number(yearMatches[yearMatches.length - 1][1]) : null;
 
   let title = stripJunk(normaliseSeparators(stem));
-  if (year) title = title.replace(new RegExp(`\\b${year}\\b`), ' ');
+  if (year) {
+    // Strip only the LAST occurrence, boundary-checked — the same digits
+    // earlier in the string are part of the name ("2001 A Space Odyssey - 2001").
+    const token = String(year);
+    const at = title.lastIndexOf(token);
+    const before = at > 0 ? title[at - 1] : ' ';
+    const after = at + token.length < title.length ? title[at + token.length] : ' ';
+    if (at !== -1 && !/\d/.test(before) && !/\d/.test(after)) {
+      title = `${title.slice(0, at)} ${title.slice(at + token.length)}`;
+    }
+  }
   title = trimTitle(title.replace(/\s+/g, ' '));
 
   return {

@@ -244,3 +244,25 @@ describe('nextMovie', () => {
     expect(nextMovie([], createState('/tv'), { rng: mulberry32(1) }).movie).toBeNull();
   });
 });
+
+describe('years inside titles', () => {
+  it('keeps 2049 in BladeRunner 2049 and takes 2017 as the year', () => {
+    // The first year-shaped number is part of the NAME; the release year sits
+    // at the end. Taking the first match renamed the film "BladeRunner".
+    const movie = parseMovie('MOVIES/BladeRunner 2049 - 2017.mkv');
+    expect(movie.name).toBe('BladeRunner 2049');
+    expect(movie.year).toBe(2017);
+  });
+
+  it('survives the year appearing twice', () => {
+    const movie = parseMovie('MOVIES/2001 A Space Odyssey - 1968.mkv');
+    expect(movie.name).toBe('2001 A Space Odyssey');
+    expect(movie.year).toBe(1968);
+  });
+
+  it('still parses the plain trailing-year form', () => {
+    const movie = parseMovie('MOVIES/Akira (1988) - 1080p Hybrid.mkv');
+    expect(movie.year).toBe(1988);
+    expect(movie.name).toMatch(/^Akira/);
+  });
+});
