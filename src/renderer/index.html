@@ -384,13 +384,38 @@
             <button class="btn btn--quiet" id="btnRescan" type="button">Rescan</button>
           </div>
 
+          <h4 class="setsub">New additions</h4>
           <!-- Lit only while a scan has brought titles the ledger has not
                seen; grey means "nothing new", which is an answer, not a
                broken button. -->
           <p class="modes__note" id="ingestNote">Checking for new titles…</p>
-          <button class="btn" id="btnIngest" type="button" disabled>
-            Ingest new additions
-          </button>
+          <div class="setrow">
+            <button class="btn" id="btnIngest" type="button" disabled>
+              Ingest new additions
+            </button>
+          </div>
+
+          <h4 class="setsub">The library table</h4>
+          <p class="modes__note">Every show and movie — what needs converting, what has artwork, and where to set a movie's card image.</p>
+          <div class="setrow">
+            <button class="btn" id="btnOpenMedia" type="button">Open the library table</button>
+          </div>
+
+          <h4 class="setsub">Prepared files</h4>
+          <p class="modes__note" id="cacheNote">Checking…</p>
+          <div class="setrow">
+            <button class="btn" id="btnCleanupCache" type="button">
+              Clean up unfinished conversions
+            </button>
+          </div>
+
+          <h4 class="setsub">Watch history</h4>
+          <p class="modes__note">Forgets which episodes the library says you watched. The channel's own place in every show is untouched.</p>
+          <div class="setrow">
+            <button class="btn" id="btnForgetLibrary" type="button">
+              Reset library watch history
+            </button>
+          </div>
         </section>
 
         <section class="setgroup">
@@ -528,23 +553,13 @@
             <button class="btn btn--quiet" id="btnManualLoad" type="button">Load saved progress</button>
           </div>
 
-          <h4 class="setsub">Prepared files</h4>
-          <p class="modes__note" id="cacheNote">Checking…</p>
-          <button class="btn" id="btnCleanupCache" type="button">
-            Clean up unfinished conversions
-          </button>
-
-          <h4 class="setsub">Library history</h4>
-          <p class="modes__note">Forgets which episodes the library says you watched. The channel's own place in every show is untouched.</p>
-          <button class="btn" id="btnForgetLibrary" type="button">
-            Reset library watch history
-          </button>
-
           <h4 class="setsub">Start over</h4>
           <p class="modes__note">Clears every show's place and the library's watch history. Nothing on disk is touched.</p>
-          <button class="btn btn--danger" id="btnResetAll" type="button">
-            Reset every show to episode 1
-          </button>
+          <div class="setrow">
+            <button class="btn btn--danger" id="btnResetAll" type="button">
+              Reset every show to episode 1
+            </button>
+          </div>
         </section>
 
         <section class="setgroup">
@@ -558,7 +573,9 @@
 
           <!-- The same window the sidebar button opens. A feature reachable
                only from one small icon is a feature most people never find. -->
-          <button class="btn" id="btnOpenSchedule" type="button">Open set schedules</button>
+          <div class="setrow">
+            <button class="btn" id="btnOpenSchedule" type="button">Open set schedules</button>
+          </div>
 
           <!-- Shown always, not just while Blocks is selected: a control that
                appears only once you have already chosen the mode is one most
@@ -668,6 +685,41 @@
      Its own full-height sheet rather than a section inside Settings: one row
      per show AND per movie is far more than a settings panel can hold, and
      every row carries three controls. -->
+<!-- The library table: every show and movie against the ingest ledger.
+
+     Reads ONLY what ingest recorded — it never probes files, so it opens
+     instantly and an unchecked title honestly says so instead of a spinner
+     pretending to know. Same furniture as the play-order table on purpose:
+     one way to read a table of titles, learned once. -->
+<div class="modal modal--wide" id="mediaModal" hidden>
+  <div class="modal__backdrop" id="mediaBackdrop"></div>
+
+  <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="mediaTitle">
+    <header class="modal__head">
+      <h2 class="modal__title" id="mediaTitle">The library table</h2>
+      <button class="modal__close" id="btnCloseMedia" type="button" aria-label="Close the library table">✕</button>
+    </header>
+
+    <div class="locks__tools">
+      <div class="modes modes--inline" id="mediaTabs" role="tablist" aria-label="Which titles to show">
+        <button class="mode" type="button" role="tab" data-kind="show" aria-pressed="true">Shows</button>
+        <button class="mode" type="button" role="tab" data-kind="movie" aria-pressed="false">Movies</button>
+      </div>
+      <input class="locks__search" type="search" id="mediaSearch"
+             placeholder="Search" aria-label="Search titles" />
+      <span class="mono locks__count" id="mediaCount"></span>
+    </div>
+
+    <div class="modal__body">
+      <table class="locktable">
+        <thead><tr id="mediaHead"></tr></thead>
+        <tbody id="mediaRows"></tbody>
+      </table>
+      <p class="locks__empty" id="mediaEmpty" hidden>Nothing matches that search.</p>
+    </div>
+  </div>
+</div>
+
 <div class="modal modal--wide" id="locksModal" hidden>
   <div class="modal__backdrop" id="locksBackdrop"></div>
 

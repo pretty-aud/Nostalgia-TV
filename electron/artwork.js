@@ -251,4 +251,16 @@ function planFor(library) {
   return items;
 }
 
-module.exports = { init, read, has, setFromImage, capture, sweep, cancelSweep, planFor, keyFor };
+/**
+ * Batch presence check for the library table's artwork column: ~1200 stats is
+ * one pass of cheap metadata reads, where 1200 separate IPC calls would not be.
+ */
+async function stats(items) {
+  const out = [];
+  for (const item of items || []) {
+    out.push(item && item.kind && item.id ? await has(item.kind, item.id) : false);
+  }
+  return out;
+}
+
+module.exports = { init, read, has, stats, setFromImage, capture, sweep, cancelSweep, planFor, keyFor };

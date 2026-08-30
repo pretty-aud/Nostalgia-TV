@@ -494,7 +494,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
    while another rotation is selected, box opacity with the box switched off. */
 .field[data-muted="true"] { opacity: 0.42; }
 
-.btn--danger { color: var(--ink-mute); width: 100%; margin-top: var(--u); }
+.btn--danger { color: var(--ink-mute); }
 .btn--danger:hover { color: #ff8f6b; border-color: #ff8f6b; }
 
 /* schedule preview */
@@ -2891,3 +2891,54 @@ video::cue {
   margin: calc(var(--u) * 1.5) 0 0;
   line-height: 1.5;
 }
+
+/* ---------------------------------------------------------------------------
+   Settings sheet rhythm
+
+   .field / .check / .modes__note are sidebar components that carry the
+   sidebar's --gutter inset. Reused inside the settings sheet they produced a
+   ragged left edge — heads and button rows at zero, everything else indented —
+   which read as every section being spaced differently. Inside the sheet
+   there is ONE left edge and one vertical scale; the sidebar keeps its own.
+   --------------------------------------------------------------------------- */
+#settingsBody .field,
+#settingsBody .check,
+#settingsBody .modes__note {
+  padding-left: 0;
+  padding-right: 0;
+}
+#settingsBody .modes__note { padding-top: calc(var(--u) * 0.5); min-height: 0; }
+#settingsBody .field { padding-top: calc(var(--u) * 1.5); }
+#settingsBody .check { padding-top: calc(var(--u) * 1.75); }
+#settingsBody .setrow { margin-top: calc(var(--u) * 1.25); }
+
+/* Subsection heads breathe more than the controls inside a subsection: the
+   gap ABOVE a group must beat the gaps WITHIN it or the grouping reads wrong. */
+#settingsBody .setsub { margin-top: calc(var(--u) * 3); }
+#settingsBody .setsub:first-of-type { margin-top: calc(var(--u) * 0.5); }
+
+/* ---------------------------------------------------------------------------
+   The library table's own cells (the table furniture itself is .locktable,
+   shared with the play-order table so the two read as one component).
+   --------------------------------------------------------------------------- */
+.mediarow__name { color: var(--ink); }
+.mediarow__meta { font-family: var(--mono, monospace); font-size: var(--t-meta); color: var(--ink-mute); white-space: nowrap; }
+.mediarow__ok   { color: var(--signal-soft); }
+.mediarow__warn { color: var(--ink-mute); }
+.mediarow__unknown { color: var(--ink-faint); }
+.mediarow__art  { font-size: var(--t-meta); }
+
+/* Episode detail rows live INSIDE the show's row, indented under its title —
+   uniform connectedness by shared left edge rather than another border. */
+.mediarow--detail td { background: var(--lift); border-bottom: 1px solid var(--hair-soft); }
+.mediaeps {
+  list-style: none;
+  margin: 0;
+  padding: calc(var(--u) * 0.5) 0 calc(var(--u) * 0.5) calc(var(--u) * 2);
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 2px calc(var(--u) * 2);
+  font-size: var(--t-meta);
+}
+.mediaeps > li { display: contents; }
+.mediaeps .mono { color: var(--ink-mute); }

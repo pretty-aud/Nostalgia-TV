@@ -33,6 +33,13 @@ import {
 import { TIER, needsFallback, audioIndexFromInspect, matchesLanguage } from '../shared/playability.js';
 import { preparingCopy } from '../shared/prepProgress.js';
 import {
+  summarizeShow,
+  movieVerdict,
+  describeShowConversion,
+  describeMovieConversion,
+  describeEpisodeConversion,
+} from '../shared/mediaStatus.js';
+import {
   readyCopy,
   seedFromCursors,
   markEpisode,
@@ -3372,6 +3379,213 @@ function wireColumnDrops() {
 }
 
 // ---------------------------------------------------------------------------
+// the library table
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything the table needs, fetched once per open: the ingest ledger and a
+ * has-artwork boolean per title. No file is ever probed from here — a title
+ * the ingest has not judged says "not checked", which is the honest answer
+ * and also the pointer back to the Ingest button.
+ */
+let mediaKind = 'show';
+let mediaData = null;   // { entries, art: Map('kind\nid' -> bool) }
+
+async function openMedia() {
+  el('mediaModal').hidden = false;
+  el('mediaSearch').value = '';
+  mediaData = null;
+  renderMediaTable();          // paints the "loading" shell immediately
+
+  const items = ingestItems();
+  const [entries, flags] = await Promise.all([
+    window.tv.ingestEntries().catch(() => ({})),
+    window.tv.artworkStats(items).catch(() => []),
+  ]);
+  if (el('mediaModal').hidden) return;   // closed while loading
+
+  const art = new Map();
+  items.forEach((item, i) => art.set(`${item.kind}\n${item.id}`, Boolean(flags[i])));
+  mediaData = { entries, art };
+  renderMediaTable();
+  el('mediaSearch').focus();
+}
+
+function closeMedia() {
+  el('mediaModal').hidden = true;
+  mediaData = null;
+}
+
+function mediaOpen() {
+  return !el('mediaModal').hidden;
+}
+
+const hasArt = (kind, id) => Boolean(mediaData && mediaData.art.get(`${kind}\n${id}`));
+
+function conversionCell(text) {
+  const td = document.createElement('td');
+  td.textContent = text;
+  td.className = /not checked/.test(text) ? 'mediarow__unknown'
+    : (/need|converts/.test(text) ? 'mediarow__warn' : 'mediarow__ok');
+  return td;
+}
+
+function artCell(present, label) {
+  const td = document.createElement('td');
+  td.className = 'mediarow__art';
+  td.textContent = label !== undefined ? label : (present ? '✓' : '—');
+  return td;
+}
+
+function renderMediaTable() {
+  const head = el('mediaHead');
+  const rows = el('mediaRows');
+  head.textContent = '';
+  rows.textContent = '';
+
+  const th = (label) => {
+    const cell = document.createElement('th');
+    cell.scope = 'col';
+    cell.textContent = label;
+    head.append(cell);
+  };
+
+  for (const button of el('mediaTabs').querySelectorAll('.mode')) {
+    button.setAttribute('aria-pressed', String(button.dataset.kind === mediaKind));
+  }
+
+  if (!mediaData) {
+    th('Title');
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.className = 'mediarow__unknown';
+    td.textContent = 'Reading the ledger…';
+    tr.append(td);
+    rows.append(tr);
+    el('mediaEmpty').hidden = true;
+    el('mediaCount').textContent = '';
+    return;
+  }
+
+  const query = el('mediaSearch').value.trim().toLowerCase();
+  const { entries } = mediaData;
+  let shown = 0;
+
+  if (mediaKind === 'show') {
+    ['Title', 'Episodes', 'Conversion', 'Artwork', 'Details'].forEach(th);
+
+    for (const show of shows) {
+      if (query && !show.name.toLowerCase().includes(query)) continue;
+      shown += 1;
+
+      const summary = summarizeShow(show, entries);
+      const artCount = show.episodes.reduce(
+        (n, e) => n + (hasArt('episode', e.relPath) ? 1 : 0), 0,
+      );
+
+      const tr = document.createElement('tr');
+      const name = document.createElement('td');
+      name.className = 'mediarow__name';
+      name.textContent = show.name;
+      const eps = document.createElement('td');
+      eps.className = 'mediarow__meta';
+      eps.textContent = String(summary.total);
+
+      const art = artCell(hasArt('show', show.id),
+        `${hasArt('show', show.id) ? '✓ card' : '— card'} · ${artCount}/${summary.total} eps`);
+
+      const detailTd = document.createElement('td');
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'btn btn--quiet';
+      toggle.textContent = 'Episodes';
+      detailTd.append(toggle);
+
+      tr.append(name, eps, conversionCell(describeShowConversion(summary)), art, detailTd);
+      rows.append(tr);
+
+      /**
+       * Details expand IN PLACE, built only when asked for: thirty shows'
+       * worth of episode rows up front is a wall; one show's on request is
+       * an answer.
+       */
+      let detailRow = null;
+      toggle.addEventListener('click', () => {
+        if (detailRow) {
+          detailRow.remove();
+          detailRow = null;
+          toggle.textContent = 'Episodes';
+          return;
+        }
+        detailRow = document.createElement('tr');
+        detailRow.className = 'mediarow--detail';
+        const cell = document.createElement('td');
+        cell.colSpan = 5;
+        const list = document.createElement('ul');
+        list.className = 'mediaeps';
+        for (const episode of show.episodes) {
+          const li = document.createElement('li');
+          const label = document.createElement('span');
+          label.className = 'mono';
+          label.textContent = formatEpisodeLabel(episode);
+          const verdict = document.createElement('span');
+          verdict.textContent = describeEpisodeConversion(entries, episode.relPath);
+          verdict.className = /not checked/.test(verdict.textContent)
+            ? 'mediarow__unknown' : (/converts/.test(verdict.textContent) ? 'mediarow__warn' : 'mediarow__ok');
+          const tick = document.createElement('span');
+          tick.className = 'mediarow__art';
+          tick.textContent = hasArt('episode', episode.relPath) ? '✓' : '—';
+          li.append(label, verdict, tick);
+          list.append(li);
+        }
+        cell.append(list);
+        detailRow.append(cell);
+        tr.after(detailRow);
+        toggle.textContent = 'Hide';
+      });
+    }
+  } else {
+    ['Title', 'Conversion', 'Artwork', 'Card image'].forEach(th);
+
+    for (const movie of movieFiles) {
+      if (query && !movie.name.toLowerCase().includes(query)) continue;
+      shown += 1;
+
+      const tr = document.createElement('tr');
+      const name = document.createElement('td');
+      name.className = 'mediarow__name';
+      name.textContent = movie.name;
+
+      const art = artCell(hasArt('movie', movie.relPath));
+
+      const setTd = document.createElement('td');
+      const set = document.createElement('button');
+      set.type = 'button';
+      set.className = 'btn btn--quiet';
+      set.textContent = 'Set image…';
+      set.addEventListener('click', async () => {
+        const result = await window.tv.chooseArtwork('movie', movie.relPath).catch(() => null);
+        if (!result || result.cancelled) return;
+        if (!result.ok) { toast(result.error || 'Could not use that image.', 4200); return; }
+        artworkCache.delete(`movie\n${movie.relPath}`);
+        mediaData.art.set(`movie\n${movie.relPath}`, true);
+        art.textContent = '✓';
+        toast('Card image updated.', 2400);
+      });
+      setTd.append(set);
+
+      tr.append(name, conversionCell(describeMovieConversion(movieVerdict(movie, entries))), art, setTd);
+      rows.append(tr);
+    }
+  }
+
+  el('mediaEmpty').hidden = shown > 0;
+  el('mediaCount').textContent = shown
+    ? `${shown} title${shown === 1 ? '' : 's'}`
+    : '';
+}
+
+// ---------------------------------------------------------------------------
 // per-show settings
 // ---------------------------------------------------------------------------
 
@@ -3930,6 +4144,19 @@ function wireEvents() {
   // --- marathon ------------------------------------------------------------
 
   // --- per-show settings ---------------------------------------------------
+
+  // --- the library table ---------------------------------------------------
+
+  el('btnOpenMedia').addEventListener('click', openMedia);
+  el('btnCloseMedia').addEventListener('click', closeMedia);
+  el('mediaBackdrop').addEventListener('click', closeMedia);
+  el('mediaSearch').addEventListener('input', renderMediaTable);
+  el('mediaTabs').addEventListener('click', (event) => {
+    const button = event.target.closest('.mode');
+    if (!button) return;
+    mediaKind = button.dataset.kind;
+    renderMediaTable();
+  });
 
   el('btnDetailSettings').addEventListener('click', () => openShowSettings(browseDetailShow));
   el('btnCloseShowSet').addEventListener('click', closeShowSettings);
@@ -4706,6 +4933,12 @@ function onGlobalKey(event) {
   // Escape should peel off the sheet in front, not the one behind it.
   if (locksOpen()) {
     if (event.key === 'Escape') { event.preventDefault(); closeLocks(); }
+    return;
+  }
+
+  // Same layering rule as the play-order table above it.
+  if (mediaOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeMedia(); }
     return;
   }
 

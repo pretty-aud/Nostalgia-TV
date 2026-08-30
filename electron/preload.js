@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('tv', {
     ipcRenderer.on('ingest:progress', listener);
     return () => ipcRenderer.removeListener('ingest:progress', listener);
   },
+  ingestEntries: () => ipcRenderer.invoke('ingest:entries'),
+  artworkStats: (items) => ipcRenderer.invoke('artwork:stats', items),
   getArtwork: (kind, id) => ipcRenderer.invoke('artwork:get', kind, id),
   chooseArtwork: (kind, id) => ipcRenderer.invoke('artwork:choose', kind, id),
   getThumb: (absPath) => ipcRenderer.invoke('thumb:get', absPath),

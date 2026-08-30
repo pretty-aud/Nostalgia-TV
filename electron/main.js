@@ -753,6 +753,16 @@ function registerIpc() {
     }
   });
 
+  /** The ingest ledger, read-only, for the library table. */
+  ipcMain.handle('ingest:entries', async () => {
+    try { return await ingest.entriesSnapshot(); } catch { return {}; }
+  });
+
+  /** Which of these titles have artwork — booleans in input order. */
+  ipcMain.handle('artwork:stats', async (_event, items) => {
+    try { return await artwork.stats(Array.isArray(items) ? items : []); } catch { return []; }
+  });
+
   /** Permanent artwork, keyed by show id / relPath — see electron/artwork.js. */
   ipcMain.handle('artwork:get', async (_event, kind, id) => {
     if (typeof kind !== 'string' || typeof id !== 'string') return null;
