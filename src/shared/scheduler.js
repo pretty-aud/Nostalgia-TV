@@ -53,6 +53,16 @@ const DEFAULT_SETTINGS = {
   schedules: [],
   activeScheduleId: null,   // when set, the running order is fixed, not shuffled
 
+  /**
+   * Per-show playback preferences, keyed by show id.
+   * { [showId]: { audio: 'jpn'|'spa'|null, subs: 'eng'|'spa'|null } }
+   *
+   * Audio changes which track the preparer selects; subtitles auto-enable the
+   * matching text track. Neither reshapes the queue, so this key is
+   * deliberately NOT in applySettings' reshape list.
+   */
+  showPrefs: {},
+
   bumperClipsEnabled: true, // play a clip from the BUMPERS folder between episodes
   promosEnabled: true,      // play a clip from the PROMOS folder after the bumper
   promoEvery: 1,            // gap in episodes: 1 = between every episode

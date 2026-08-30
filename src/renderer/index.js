@@ -30,7 +30,7 @@ import {
   activeSchedule,
   blockSizeFor,
 } from '../shared/scheduler.js';
-import { TIER, needsFallback, audioIndexFromInspect } from '../shared/playability.js';
+import { TIER, needsFallback, audioIndexFromInspect, matchesLanguage } from '../shared/playability.js';
 import { preparingCopy } from '../shared/prepProgress.js';
 import {
   readyCopy,
@@ -38,6 +38,7 @@ import {
   markEpisode,
   markMovie,
   forgetAll,
+  forgetShow,
   resumePoint,
   movieResumePoint,
   episodeStatus,
@@ -1118,8 +1119,28 @@ async function canPlayNatively(item) {
  */
 const wantedAudio = new Map();
 
-async function wantedAudioIndex(absPath) {
-  if (wantedAudio.has(absPath)) return wantedAudio.get(absPath);
+/** This show's saved playback preferences, or an empty object. */
+function prefFor(showId) {
+  return (state.settings.showPrefs || {})[showId] || {};
+}
+
+/**
+ * Bumped whenever any show's preference changes.
+ *
+ * The purge in saveShowPref clears the caches, but a conversion already IN
+ * FLIGHT under the old preference finishes afterwards and writes its result
+ * back — re-poisoning playableUrls with the old language for the rest of the
+ * session. Every async path that caches a playable URL captures this counter
+ * before its await and declines to cache when it moved.
+ */
+let prefGeneration = 0;
+
+async function wantedAudioIndex(absPath, preferLanguage) {
+  // The preference is part of the QUESTION: "which track for Evangelion in
+  // Japanese" and "in English" are different answers about the same file.
+  const cacheKey = `${absPath}
+${preferLanguage || ''}`;
+  if (wantedAudio.has(cacheKey)) return wantedAudio.get(cacheKey);
   if (!window.tv.inspect) return 0;
 
   /**
@@ -1133,7 +1154,10 @@ async function wantedAudioIndex(absPath) {
    * The other call site (the ffmpeg-missing count) unwraps this correctly, so
    * the shape was never in doubt — only this line was wrong.
    */
-  const index = audioIndexFromInspect(await window.tv.inspect(absPath).catch(() => null));
+  const index = audioIndexFromInspect(await window.tv.inspect(
+    absPath,
+    preferLanguage ? { preferLanguage } : undefined,
+  ).catch(() => null));
 
   /**
    * No answer means no evidence, and a guess must not be remembered. A probe
@@ -1144,7 +1168,7 @@ async function wantedAudioIndex(absPath) {
    */
   if (index === null) return 0;
 
-  wantedAudio.set(absPath, index);
+  wantedAudio.set(cacheKey, index);
   return index;
 }
 
@@ -1153,7 +1177,35 @@ async function resolvePlayable(item, token, forceTier) {
   const absPath = episode.absPath;
   if (!absPath || !window.tv.ensurePlayable) return episode.mediaUrl;
 
-  if (!forceTier && playableUrls.has(absPath)) return playableUrls.get(absPath);
+  // Captured before any await: a preference change mid-flight means whatever
+  // this call produces is the OLD language and must not be remembered.
+  const generation = prefGeneration;
+
+  if (!forceTier && playableUrls.has(absPath)) {
+    /**
+     * The cache hit is the NORMAL path — prepare-ahead means almost every
+     * episode arrives here — and it used to skip every line that records
+     * which track is playing, leaving the menu to fall back to a default
+     * computed without the preference. That is the confidently-wrong-label
+     * bug wearing a new coat. The cached URL plays the track the plan chose,
+     * so ask the plan (cached after its first answer) and say so.
+     */
+    const url = playableUrls.get(absPath);
+    if (audioOverride !== null) {
+      playingAudioIndex = audioOverride;
+    } else {
+      /**
+       * Resolved WITHOUT blocking: this is the hottest path in the app — the
+       * prepared-ahead episode about to hit the screen — and an ffprobe here
+       * is seconds of black on a slow drive. The label lands moments later,
+       * token-guarded so a rapid Next cannot be stamped by a stale answer.
+       */
+      wantedAudioIndex(absPath, prefFor(item.showId).audio || undefined)
+        .then((heard) => { if (token === playToken) playingAudioIndex = heard; })
+        .catch(() => {});
+    }
+    return url;
+  }
 
   /**
    * Ask the player before asking ffmpeg — but only when the track we want is
@@ -1173,7 +1225,9 @@ async function resolvePlayable(item, token, forceTier) {
    */
   let wanted = null;
   if (!forceTier) {
-    wanted = audioOverride === null ? await wantedAudioIndex(absPath) : audioOverride;
+    wanted = audioOverride === null
+      ? await wantedAudioIndex(absPath, prefFor(item.showId).audio || undefined)
+      : audioOverride;
     if (token !== playToken) return null;
 
     if (wanted === 0) {
@@ -1184,7 +1238,7 @@ async function resolvePlayable(item, token, forceTier) {
         // language that turns out to be. Record it, so the menu names the track
         // actually being heard rather than the one the planner would prefer.
         playingAudioIndex = 0;
-        playableUrls.set(absPath, episode.mediaUrl);
+        if (generation === prefGeneration) playableUrls.set(absPath, episode.mediaUrl);
         return episode.mediaUrl;
       }
     }
@@ -1212,6 +1266,9 @@ async function resolvePlayable(item, token, forceTier) {
       absPath,
       forceTier,
       audioOverride === null ? undefined : audioOverride,
+      // The preference re-plans in the main process, so a forced tier or an
+      // explicit override still wins — the language only fills the default.
+      prefFor(item.showId).audio || undefined,
     );
   } catch (error) {
     result = { ok: false, error: String(error) };
@@ -1232,7 +1289,7 @@ async function resolvePlayable(item, token, forceTier) {
       : (Number.isInteger(wanted) ? wanted : null);
     if (result.prepared) toast(`Ready — ${item.showName} ${item.label}`, 1800);
     else clearToast();
-    playableUrls.set(absPath, result.mediaUrl);
+    if (generation === prefGeneration) playableUrls.set(absPath, result.mediaUrl);
     return result.mediaUrl;
   }
 
@@ -1268,11 +1325,17 @@ function prepareItem(item) {
   if (playableUrls.has(absPath)) return Promise.resolve(playableUrls.get(absPath));
   if (preparing.has(absPath)) return preparing.get(absPath);
 
-  const job = window.tv.ensurePlayable(absPath)
+  const generation = prefGeneration;
+  const job = window.tv.ensurePlayable(
+    absPath, undefined, undefined,
+    prefFor(item.showId).audio || undefined,
+  )
     .then((result) => {
       preparing.delete(absPath);
       if (result && result.ok && result.mediaUrl) {
-        playableUrls.set(absPath, result.mediaUrl);
+        // A preference change mid-conversion makes this the OLD language;
+        // deliver it to whoever is already waiting, but do not remember it.
+        if (generation === prefGeneration) playableUrls.set(absPath, result.mediaUrl);
         return result.mediaUrl;
       }
       return null;
@@ -1458,8 +1521,13 @@ async function loadAndPlay(item, seekTo = 0) {
   renderSidebar();
   persist({ immediate: true });
 
-  // Read this episode's tracks so the menu is populated before it is opened.
-  loadTracksForCurrent();
+  // Read this episode's tracks so the menu is populated before it is opened —
+  // and then honour the show's subtitle preference, which can only be applied
+  // once the track list actually exists.
+  loadTracksForCurrent().then(() => {
+    if (token !== playToken) return;
+    applySubtitlePref(item);
+  });
   loadCropForCurrent();
 
   // Warm the next bumper's thumbnail while this episode plays, so the
@@ -2159,6 +2227,14 @@ async function loadLibrary(rootPath) {
   presentationClips = result.presentations || [];
   state.rootPath = result.rootPath;
 
+  // A scan is exactly when "anything new?" changes its answer. The elements
+  // always exist (the settings sheet is merely hidden), so this is safe to
+  // refresh whether or not anyone is looking at it.
+  renderIngestStatus();
+  // A scan can mean a different library entirely — cached art from the old
+  // one must not paint the new one's cards.
+  artworkCache.clear();
+
   // The decks hold paths from the previous scan; anything no longer present is
   // dropped so a deleted clip is never handed to the player as a missing file.
   const bumperPaths = new Set(bumperClips.map((clip) => clip.relPath));
@@ -2607,6 +2683,51 @@ function applyUiScale() {
  * Async and therefore separate from renderSettings, which runs on every
  * keystroke of every slider — reading a file that often would be silly.
  */
+/**
+ * Everything the ingest ledger tracks, in its keying: shows by id, episodes
+ * and movies by relPath — the same identities the artwork store uses, so a
+ * drive-letter change never makes the library read as new.
+ */
+function ingestItems() {
+  const items = [];
+  for (const show of shows) {
+    const first = show.episodes[0];
+    const preferLanguage = prefFor(show.id).audio || undefined;
+    items.push({ kind: 'show', id: show.id, absPath: first ? first.absPath : null });
+    for (const episode of show.episodes) {
+      // The verdict must be computed under the show's language preference, or
+      // a subbed show's episodes are recorded as needing no conversion.
+      items.push({ kind: 'episode', id: episode.relPath, absPath: episode.absPath, preferLanguage });
+    }
+  }
+  for (const movie of movieFiles) {
+    items.push({ kind: 'movie', id: movie.relPath, absPath: movie.absPath });
+  }
+  return items;
+}
+
+async function renderIngestStatus() {
+  const note = el('ingestNote');
+  const button = el('btnIngest');
+  if (!window.tv.ingestStatus) { note.textContent = ''; button.disabled = true; return; }
+
+  const status = await window.tv.ingestStatus(ingestItems()).catch(() => null);
+  if (!status) { note.textContent = 'Could not check for new titles.'; button.disabled = true; return; }
+
+  if (status.newCount === 0) {
+    note.textContent = 'Nothing new since the last ingest.';
+    button.disabled = true;
+    return;
+  }
+  const bits = [];
+  if (status.newShows) bits.push(`${status.newShows} show${status.newShows === 1 ? '' : 's'}`);
+  if (status.newEpisodes) bits.push(`${status.newEpisodes} episode${status.newEpisodes === 1 ? '' : 's'}`);
+  if (status.newMovies) bits.push(`${status.newMovies} movie${status.newMovies === 1 ? '' : 's'}`);
+  note.textContent = `New since the last ingest: ${bits.join(', ')}. `
+    + 'Ingesting captures artwork and checks which files will need converting.';
+  button.disabled = false;
+}
+
 /** GB with one decimal — cache sizes are the only place the app talks in GB. */
 function formatGb(bytes) {
   return `${(Math.max(0, Number(bytes) || 0) / 1073741824).toFixed(1)} GB`;
@@ -2700,6 +2821,7 @@ function openSettings() {
   renderSettingsNav();
   renderManualSaveInfo();
   renderCacheInfo();
+  renderIngestStatus();
   el('btnCloseSettings').focus();
 }
 
@@ -3250,6 +3372,66 @@ function wireColumnDrops() {
 }
 
 // ---------------------------------------------------------------------------
+// per-show settings
+// ---------------------------------------------------------------------------
+
+/** The show whose settings dialog is on screen. */
+let showSetShow = null;
+
+function openShowSettings(show) {
+  if (!show) return;
+  showSetShow = show;
+  const pref = prefFor(show.id);
+  el('showSetTitle').textContent = show.name;
+  el('showSetAudio').value = pref.audio || '';
+  el('showSetSubs').value = pref.subs || '';
+  el('showSetNote').textContent =
+    'A language other than the default may need each episode converted once before it plays.';
+  el('showSetModal').hidden = false;
+  el('showSetAudio').focus();
+}
+
+function closeShowSettings() {
+  el('showSetModal').hidden = true;
+  showSetShow = null;
+}
+
+function showSetOpen() {
+  return !el('showSetModal').hidden;
+}
+
+/**
+ * Save one show's preference and drop every cache the old answer poisoned.
+ *
+ * The wanted-track and playable-URL caches were computed under the previous
+ * preference; leaving them would keep serving the old language until a restart,
+ * which reads exactly like the setting not working.
+ */
+function saveShowPref(patch) {
+  if (!showSetShow) return;
+  const show = showSetShow;
+  const prior = prefFor(show.id);
+  const next = { ...prior, ...patch };
+
+  state = applySettings(shows, state, {
+    showPrefs: { ...(state.settings.showPrefs || {}), [show.id]: next },
+  }, {});
+  prefGeneration += 1;
+  persist({ immediate: true });
+
+  const paths = new Set(show.episodes.map((e) => e.absPath));
+  for (const absPath of paths) {
+    playableUrls.delete(absPath);
+    preparing.delete(absPath);
+  }
+  // By key prefix, not by enumerating languages: a list here would silently
+  // couple to the <select> options and rot the first time one was added.
+  for (const key of [...wantedAudio.keys()]) {
+    if (paths.has(key.slice(0, key.indexOf('\n')))) wantedAudio.delete(key);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // marathon picker
 // ---------------------------------------------------------------------------
 
@@ -3341,9 +3523,21 @@ function clearSubtitles() {
  * renders and toggles instantly — no reload, unlike audio. Image-based subtitle
  * formats cannot become text and are refused rather than silently doing nothing.
  */
+/**
+ * Monotonic subtitle request id: the LAST decision wins.
+ *
+ * An extraction can run for minutes on a slow drive, and the viewer can turn
+ * subtitles off (or pick another track) while it runs — the late arrival must
+ * not attach over a decision made after it started. Every entry into
+ * setSubtitle, including the synchronous Off branch, claims a new id, and the
+ * async tail only applies while its id is still the newest.
+ */
+let subRequestSeq = 0;
+
 async function setSubtitle(index) {
   if (!current) return;
   const absPath = current.episode.absPath;
+  const seq = ++subRequestSeq;
 
   if (index === null || index === undefined) {
     clearSubtitles();
@@ -3360,6 +3554,14 @@ async function setSubtitle(index) {
 
   toast('Loading subtitles…', 30000);
   const result = await window.tv.subtitleText(absPath, index).catch(() => null);
+  /**
+   * The extraction can take minutes on a slow drive, and `current` does not
+   * change while an interstitial plays — so a track that finished extracting
+   * after the viewer moved on would pass the absPath guard below and paint
+   * the skipped episode's captions over the bumper. A clip never wants
+   * subtitles, full stop.
+   */
+  if (playingBumperClip || seq !== subRequestSeq) { clearToast(); return; }
   if (!result || !result.ok || !result.vtt) {
     clearToast();
     toast(result && result.needsFfmpeg ? 'Subtitles need ffmpeg.' : 'Could not load those subtitles.', 4000);
@@ -3423,7 +3625,12 @@ async function switchAudio(index) {
     return;
   }
 
-  playableUrls.set(absPath, result.mediaUrl);
+  /**
+   * Deliberately NOT cached in playableUrls. That cache's contract is "this
+   * URL plays the track the plan chose", and this one plays the track the
+   * viewer overrode — caching it would mislabel the next natural replay.
+   * The main-process variant cache keeps the re-prepare on that replay cheap.
+   */
   player.src = result.mediaUrl;
   player.load();
   player.addEventListener('loadedmetadata', () => {
@@ -3438,6 +3645,25 @@ async function switchAudio(index) {
   toast(`Audio: ${label}`, 2200);
 }
 
+/**
+ * Switch on the subtitles this show asked for, if the episode carries them.
+ *
+ * Quietly does nothing when there is no preference, no matching track, or only
+ * an image-based one — a missing track must not produce an error toast between
+ * every episode of a show whose files simply lack that language.
+ */
+function applySubtitlePref(item) {
+  const want = prefFor(item.showId).subs;
+  if (!want || activeSubIndex !== null) return;
+  // Non-forced first: a forced track carries only the foreign-dialogue lines,
+  // which is not what "subtitles on" means to a person who asked for them.
+  const usable = currentTracks.subtitles.filter(
+    (t) => t.usable && matchesLanguage({ language: t.language }, want),
+  );
+  const track = usable.find((t) => !t.forced) || usable[0];
+  if (track) setSubtitle(track.index);
+}
+
 /** Read the current episode's tracks and draw the menu. */
 async function loadTracksForCurrent() {
   if (!current || !current.episode.absPath || !window.tv.listTracks) {
@@ -3445,7 +3671,10 @@ async function loadTracksForCurrent() {
     return;
   }
   const absPath = current.episode.absPath;
-  const result = await window.tv.listTracks(absPath).catch(() => null);
+  const result = await window.tv.listTracks(
+    absPath,
+    prefFor(current.showId).audio ? { preferLanguage: prefFor(current.showId).audio } : undefined,
+  ).catch(() => null);
   if (!current || current.episode.absPath !== absPath) return;
   currentTracks = result && result.audio
     ? result
@@ -3700,7 +3929,58 @@ function wireEvents() {
 
   // --- marathon ------------------------------------------------------------
 
-  el('btnMarathon').addEventListener('click', () => {
+  // --- per-show settings ---------------------------------------------------
+
+  el('btnDetailSettings').addEventListener('click', () => openShowSettings(browseDetailShow));
+  el('btnCloseShowSet').addEventListener('click', closeShowSettings);
+  el('showSetBackdrop').addEventListener('click', closeShowSettings);
+
+  el('showSetAudio').addEventListener('change', (event) => {
+    saveShowPref({ audio: event.target.value || null });
+    toast(event.target.value
+      ? 'Audio preference saved — episodes may convert once before playing.'
+      : 'Back to the default audio.', 3200);
+  });
+
+  el('showSetSubs').addEventListener('change', (event) => {
+    saveShowPref({ subs: event.target.value || null });
+    toast(event.target.value ? 'Subtitles will switch on for this show.' : 'Subtitles back to off.', 2600);
+  });
+
+  el('btnShowSetImage').addEventListener('click', async () => {
+    if (!showSetShow) return;
+    const show = showSetShow;
+    const result = await window.tv.chooseArtwork('show', show.id).catch(() => null);
+    if (!result || result.cancelled) return;
+    if (!result.ok) { toast(result.error || 'Could not use that image.', 4200); return; }
+    // Drop the cached miss/old art so the new image shows the moment it can.
+    artworkCache.delete(`show
+${show.id}`);
+    if (browseDetailShow && browseDetailShow.id === show.id) {
+      const art = el('detailArt');
+      art.textContent = '';
+      art.dataset.empty = 'true';
+      paintArt(art, [], { kind: 'show', id: show.id });
+    }
+    if (browseOpen()) renderBrowse();
+    toast('Card image updated.', 2600);
+  });
+
+  el('btnShowSetForget').addEventListener('click', () => {
+    if (!showSetShow) return;
+    const show = showSetShow;
+    if (!window.confirm(`Forget the library's watch history for ${show.name}?
+
+The channel keeps its own place.`)) return;
+    state = forgetShow(state, show.id);
+    persist({ immediate: true });
+    closeShowSettings();
+    if (detailOpen()) openDetail(show);   // redraw counts, ticks and the resume point
+    if (browseOpen()) renderBrowse();
+    toast(`${show.name} — library history cleared.`, 2600);
+  });
+
+    el('btnMarathon').addEventListener('click', () => {
     if (!shows.length) { toast('No shows to marathon yet.', 2400); return; }
     openMarathon();
   });
@@ -3713,6 +3993,48 @@ function wireEvents() {
     if (!id) { closeMarathon(); return; }
     closeMarathon();
     onShowControl(id, 'startMarathon');
+  });
+
+  el('btnIngest').addEventListener('click', async () => {
+    const button = el('btnIngest');
+    const original = button.textContent;
+    button.disabled = true;
+
+    // Progress on the button itself: a first ingest of a whole show is real
+    // minutes of one-at-a-time disk work, and a frozen label reads as a hang.
+    const stopProgress = window.tv.onIngestProgress
+      ? window.tv.onIngestProgress(({ done, total, waiting }) => {
+        // The run stands down while anything plays or converts; a label that
+        // says so is the difference between patience and a bug report.
+        button.textContent = waiting
+          ? `Waiting for playback to finish… (${done} of ${total} done)`
+          : `Ingesting ${done} of ${total}…`;
+      })
+      : null;
+
+    const result = await window.tv.ingestRun(ingestItems()).catch(() => null);
+    if (stopProgress) stopProgress();
+    button.textContent = original;
+
+    if (result && result.busy) {
+      toast('An ingest is already running.', 3200);
+      return;
+    }
+    if (!result || result.ok === false) {
+      toast('Could not ingest the new titles.', 4200);
+      button.disabled = false;
+      return;
+    }
+    // New artwork exists now; cached misses would hide it until a restart.
+    artworkCache.clear();
+    const what = [];
+    if (result.shows) what.push(`${result.shows} show${result.shows === 1 ? '' : 's'}`);
+    if (result.episodes) what.push(`${result.episodes} episode${result.episodes === 1 ? '' : 's'}`);
+    if (result.movies) what.push(`${result.movies} movie${result.movies === 1 ? '' : 's'}`);
+    toast(result.ingested
+      ? `Ingested ${what.join(', ')} — ${result.needConversion} will need converting, artwork captured for ${result.captured}.`
+      : 'Nothing new to ingest.', 6000);
+    renderIngestStatus();
   });
 
   el('btnCleanupCache').addEventListener('click', async () => {
@@ -3738,7 +4060,7 @@ function wireEvents() {
     if (!window.confirm('Forget which episodes the library says you watched?\n\nEvery show card goes back to unwatched. The channel keeps its own place in every show.')) return;
     state = forgetAll(state);
     persist({ immediate: true });
-    if (browsing()) renderBrowse();
+    if (browseOpen()) renderBrowse();
     toast('Library watch history cleared.');
   });
 
@@ -4341,13 +4663,36 @@ function onGlobalKey(event) {
   // the document itself, which has no matches(). Calling it blind throws and
   // kills the handler for that keypress, so the key silently does nothing.
   const target = event.target;
+  // Escape pressed to cancel an IME composition is not a command to the app.
+  if (event.isComposing) return;
+  /**
+   * Form fields own their keys — except Escape. The show-settings dialog
+   * opens with a <select> focused, and changing a select re-focuses it, so
+   * without this exemption the dialog's Escape arm below could never fire in
+   * exactly the states the dialog is actually in. A guard that cannot
+   * execute reads exactly like one that works.
+   *
+   * One carve-out inside the exemption: Escape in a search box that HOLDS
+   * text is the browser's own clear-the-query gesture. Let it clear; only an
+   * already-empty field lets Escape fall through to close the layer.
+   */
   if (target && typeof target.matches === 'function'
-      && target.matches('input, textarea, select')) return;
+      && target.matches('input, textarea, select')) {
+    if (event.key !== 'Escape') return;
+    if (target.matches('input[type="search"]') && target.value) return;
+  }
 
   // Library mode is checked first because it covers the whole window. Escape
   // peels one layer at a time — the show card, then the grid — and nothing else
   // gets through: space must not pause an episode nobody can see, and N must
   // not advance a channel that is not the thing on screen.
+  // Checked before browse: this dialog opens OVER the detail card inside the
+  // library, and Escape must close the thing on top, not the card under it.
+  if (showSetOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeShowSettings(); }
+    return;
+  }
+
   if (browseOpen()) {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -4711,7 +5056,7 @@ function section(title, count, tiles) {
  * frame grab means decoding a multi-GB file — so the initials go down first and
  * the image replaces them if and when it lands.
  */
-function tile({ name, sub, subStrong, initials, thumbFrom, fraction, onOpen }) {
+function tile({ name, sub, subStrong, initials, thumbFrom, artKey, fraction, onOpen }) {
   const li = document.createElement('li');
   li.className = 'tile';
   li.tabIndex = 0;
@@ -4750,7 +5095,7 @@ function tile({ name, sub, subStrong, initials, thumbFrom, fraction, onOpen }) {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(); }
   });
 
-  if (thumbFrom) paintArt(art, thumbFrom);
+  if (thumbFrom || artKey) paintArt(art, thumbFrom || [], artKey);
 
   return li;
 }
@@ -4769,12 +5114,43 @@ function tile({ name, sub, subStrong, initials, thumbFrom, fraction, onOpen }) {
  * 41 of those at once, all against the same disk. getThumb is a file read and
  * never decodes, so every candidate can be probed before anything is decoded.
  */
-async function paintArt(art, candidates) {
+/**
+ * Permanent artwork, cached per session — HITS only. Misses are deliberately
+ * not cached (see artFor): the background sweep lands art all session long,
+ * and a remembered null would hide it until restart. Cleared wholesale on
+ * scan and after an ingest; a chosen image clears its own key.
+ */
+const artworkCache = new Map();
+
+async function artFor(kind, id) {
+  if (!kind || !id || !window.tv.getArtwork) return null;
+  const key = `${kind}\n${id}`;
+  if (artworkCache.has(key)) return artworkCache.get(key);
+  const dataUrl = await window.tv.getArtwork(kind, id).catch(() => null);
+  /**
+   * Misses are NOT cached. The background sweep lands art all session long,
+   * and a remembered null would hide every capture made after the first
+   * gallery open until a restart — the feature looking broken on exactly the
+   * first-run session it exists for. A miss costs one cheap IPC per paint.
+   */
+  if (dataUrl) artworkCache.set(key, dataUrl);
+  return dataUrl;
+}
+
+async function paintArt(art, candidates, artKey) {
   const list = (Array.isArray(candidates) ? candidates : [candidates]).filter(Boolean);
-  if (!list.length) return;
+
+  /**
+   * Tiles are rebuilt per render, so isConnected catches their stale paints —
+   * but #detailArt is one static element reused by every show card. Opening
+   * card B while card A's slower decode is in flight would let A's frame land
+   * on B. The stamp makes the later call the only one allowed to paint.
+   */
+  const stamp = String((Number(art.dataset.paintStamp) || 0) + 1);
+  art.dataset.paintStamp = stamp;
 
   const show = (dataUrl) => {
-    if (!dataUrl || !art.isConnected) return false;
+    if (!dataUrl || !art.isConnected || art.dataset.paintStamp !== stamp) return false;
     const img = document.createElement('img');
     img.src = dataUrl;
     img.alt = '';
@@ -4782,6 +5158,18 @@ async function paintArt(art, candidates) {
     art.prepend(img);
     return true;
   };
+
+  /**
+   * The permanent store outranks everything: it holds either a deliberate
+   * capture or an image the user chose by hand, and both beat whatever frame
+   * the thumbnail cache happens to have.
+   */
+  if (artKey) {
+    const kept = await artFor(artKey.kind, artKey.id);
+    if (kept && show(kept)) return;
+  }
+
+  if (!list.length) return;
 
   for (const candidate of list) {
     if (!candidate.absPath) continue;
@@ -4834,6 +5222,7 @@ function showTile(show) {
     // The episode the library is up to is the one most likely already
     // decoded, because it is the one that was most recently played.
     thumbFrom: [show.episodes[resumePoint(show, state).episodeIndex], ...show.episodes.slice(0, 6)],
+    artKey: { kind: 'show', id: show.id },
     fraction: show.episodeCount ? watched / show.episodeCount : 0,
     onOpen: () => openDetail(show),
   });
@@ -4845,6 +5234,7 @@ function movieTile(movie) {
     initials: initialsOf(movie.name),
     sub: movie.year ? String(movie.year) : 'Movie',
     thumbFrom: [{ absPath: movie.absPath, mediaUrl: movie.mediaUrl }],
+    artKey: { kind: 'movie', id: movie.relPath },
     fraction: 0,
     onOpen: () => playMovieFromLibrary(movie),
   });
@@ -4893,9 +5283,7 @@ function openDetail(show) {
   art.textContent = '';
   art.dataset.empty = 'true';
   art.dataset.initials = initialsOf(show.name);
-  if (next) {
-    paintArt(art, [next, ...show.episodes.slice(0, 6)]);
-  }
+  paintArt(art, next ? [next, ...show.episodes.slice(0, 6)] : [], { kind: 'show', id: show.id });
 
   const play = el('btnDetailPlay');
   play.textContent = point.seekTo > 0
@@ -4961,7 +5349,7 @@ function renderEpisodes(show) {
     // hundred-and-nine episodes each is a lot of multi-gigabyte files to start
     // seeking through the moment a card opens.
     if (index < 12) {
-      paintArt(art, [episode]);
+      paintArt(art, [episode], { kind: 'episode', id: episode.relPath });
     }
   });
 }

@@ -25,6 +25,15 @@ contextBridge.exposeInMainWorld('tv', {
   manualLoad: () => ipcRenderer.invoke('state:manualLoad'),
   manualInfo: () => ipcRenderer.invoke('state:manualInfo'),
 
+  ingestStatus: (items) => ipcRenderer.invoke('ingest:status', items),
+  ingestRun: (items) => ipcRenderer.invoke('ingest:run', items),
+  onIngestProgress: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('ingest:progress', listener);
+    return () => ipcRenderer.removeListener('ingest:progress', listener);
+  },
+  getArtwork: (kind, id) => ipcRenderer.invoke('artwork:get', kind, id),
+  chooseArtwork: (kind, id) => ipcRenderer.invoke('artwork:choose', kind, id),
   getThumb: (absPath) => ipcRenderer.invoke('thumb:get', absPath),
   putThumb: (absPath, dataUrl) => ipcRenderer.invoke('thumb:put', absPath, dataUrl),
 
@@ -51,10 +60,10 @@ contextBridge.exposeInMainWorld('tv', {
   // once per file rather than once per play.
   playbackVerdict: (absPath) => ipcRenderer.invoke('prepare:verdict', absPath),
   savePlaybackVerdict: (absPath, verdict) => ipcRenderer.invoke('prepare:saveVerdict', absPath, verdict),
-  inspect: (absPath) => ipcRenderer.invoke('prepare:inspect', absPath),
-  ensurePlayable: (absPath, forceTier, audioIndex) => ipcRenderer.invoke('prepare:ensure', absPath, forceTier, audioIndex),
+  inspect: (absPath, options) => ipcRenderer.invoke('prepare:inspect', absPath, options),
+  ensurePlayable: (absPath, forceTier, audioIndex, preferLanguage) => ipcRenderer.invoke('prepare:ensure', absPath, forceTier, audioIndex, preferLanguage),
   detectCrop: (absPath) => ipcRenderer.invoke('prepare:crop', absPath),
-  listTracks: (absPath) => ipcRenderer.invoke('prepare:tracks', absPath),
+  listTracks: (absPath, options) => ipcRenderer.invoke('prepare:tracks', absPath, options),
   subtitleText: (absPath, index) => ipcRenderer.invoke('prepare:subtitle', absPath, index),
   cancelPrepare: (absPath) => ipcRenderer.invoke('prepare:cancel', absPath),
   pinPrepared: (paths) => ipcRenderer.invoke('prepare:pin', paths),

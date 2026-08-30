@@ -243,6 +243,31 @@ function isEnglish(track) {
 }
 
 /**
+ * The languages a show can PREFER, each in every spelling files use.
+ *
+ * Exists for the per-show audio setting: "watch this one subbed" means the
+ * Japanese track has to be findable by the same machinery that finds English.
+ * Keyed by the ISO 639-2 code the settings store uses.
+ */
+const LANGUAGE_FAMILIES = {
+  eng: ENGLISH,
+  jpn: new Set(['jpn', 'ja', 'jp', 'japanese']),
+  spa: new Set(['spa', 'es', 'esp', 'spanish', 'es-419', 'es-es', 'es-mx']),
+};
+
+function matchesLanguage(track, family) {
+  const codes = LANGUAGE_FAMILIES[family];
+  if (!codes) return false;
+  const code = normaliseLanguage(track);
+  if (codes.has(code)) return true;
+  // "ja-JP", "es-AR" and friends: match on the family's short prefixes.
+  for (const known of codes) {
+    if (known.length <= 3 && code.startsWith(`${known}-`)) return true;
+  }
+  return false;
+}
+
+/**
  * Tracks that are English but are NOT the ones you want playing.
  *
  * A director's commentary is tagged `eng` exactly like the feature audio, so
@@ -279,6 +304,17 @@ function pickAudioTrack(tracks, options = {}) {
 
   const pick = (track, reason) => ({ track, index: audio.indexOf(track), reason });
 
+  /**
+   * A per-show language preference outranks the English default — someone who
+   * set a show to Japanese has said so explicitly. It does NOT outrank the
+   * commentary filter, and when the file simply has no such track the ladder
+   * below carries on: a missing dub falls back to English rather than nothing.
+   */
+  if (options.preferLanguage && options.preferLanguage !== 'eng') {
+    const wanted = pool.find((t) => matchesLanguage(t, options.preferLanguage));
+    if (wanted) return pick(wanted, `preferred ${options.preferLanguage}`);
+  }
+
   if (prefersEnglish) {
     const english = pool.find(isEnglish);
     if (english) return pick(english, 'English');
@@ -301,7 +337,7 @@ function pickAudioTrack(tracks, options = {}) {
  * @param {object} [input.probe]   result from probeMatroska, when it ran
  * @returns {{tier, reason, video, audio, videoCodec, audioCodec, container, confident}}
  */
-function planPlayback({ fileName, probe, audioIndex: forcedAudioIndex, preferEnglish } = {}) {
+function planPlayback({ fileName, probe, audioIndex: forcedAudioIndex, preferEnglish, preferLanguage } = {}) {
   const container = extnameOf(fileName);
   const native = NATIVE_CONTAINERS.has(container);
 
@@ -334,7 +370,7 @@ function planPlayback({ fileName, probe, audioIndex: forcedAudioIndex, preferEng
 
   const chosen = forced
     ? { track: audioTracks[forcedAudioIndex], index: forcedAudioIndex, reason: 'chosen by viewer' }
-    : pickAudioTrack(probe.tracks, { preferEnglish });
+    : pickAudioTrack(probe.tracks, { preferEnglish, preferLanguage });
 
   const audioTrack = chosen.track;
   const audioIndex = Math.max(0, chosen.index);
@@ -598,6 +634,7 @@ function audioIndexFromInspect(reply) {
 module.exports = {
   TIER,
   audioIndexFromInspect,
+  matchesLanguage,
   NATIVE_CONTAINERS,
   REMUXABLE_CONTAINERS,
   VIDEO_SUPPORT,

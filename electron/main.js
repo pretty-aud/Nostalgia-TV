@@ -11,6 +11,8 @@ const { pathToFileURL } = require('node:url');
 const { buildLibrary, isVideoFile } = require('../src/shared/parseEpisode.js');
 const { digestCursors, describeChange } = require('../src/shared/progressJournal.js');
 const prepare = require('./prepare.js');
+const artwork = require('./artwork.js');
+const ingest = require('./ingest.js');
 
 const MAX_SCAN_DEPTH = 6;
 const MAX_FILES = 20000;
@@ -105,11 +107,36 @@ const MEDIA_READ_CHUNK = 1024 * 1024;
  * createReadStream calls is exactly the shape where one quietly keeps the old
  * default and only some requests are slow.
  */
+/**
+ * How many media streams are open right now — the main process's only honest
+ * answer to "is somebody watching?".
+ *
+ * Background work (the artwork sweep, ingest) must stand down during playback,
+ * and playback does not go through the jobs map — it is this protocol. A
+ * stream stays open for as long as the player is consuming it, and 'close'
+ * fires on finish, seek-away and stop alike, so open-count is the signal.
+ * ('close' is safe to listen for: unlike 'data' it does not switch the stream
+ * into flowing mode before toWeb takes over.)
+ */
+let openMediaStreams = 0;
+
+function mediaStreamsActive() {
+  return openMediaStreams > 0;
+}
+
 function mediaBody(absPath, range) {
-  return Readable.toWeb(fs.createReadStream(absPath, {
+  const stream = fs.createReadStream(absPath, {
     ...(range || {}),
     highWaterMark: MEDIA_READ_CHUNK,
-  }));
+  });
+  openMediaStreams += 1;
+  let counted = true;
+  const release = () => {
+    if (counted) { counted = false; openMediaStreams -= 1; }
+  };
+  stream.on('close', release);
+  stream.on('error', release);
+  return Readable.toWeb(stream);
 }
 
 function mediaUrlFor(absPath) {
@@ -317,6 +344,22 @@ async function scanLibrary(rootPath) {
   for (const clip of [...bumpers, ...promos, ...movies, ...presentations]) {
     clip.mediaUrl = mediaUrlFor(clip.absPath);
   }
+
+  /**
+   * Fill in missing artwork behind the scan, one file at a time.
+   *
+   * Fire-and-forget on purpose: the scan result must not wait on hundreds of
+   * frame grabs. A rescan cancels the previous sweep so two never interleave,
+   * skip-existing makes it resumable, and it stands down whenever a conversion
+   * is running — background art never competes for the disk with a viewer.
+   */
+  artwork.cancelSweep();
+  artwork.sweep(artwork.planFor({ shows, movies }), {
+    // A conversion owns the disk, and so does the VIEWER: on a drive that has
+    // dropped off the bus under sustained reads, background frame-grabs while
+    // an episode streams are how the picture stutters and the drive dies.
+    shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive(),
+  }).catch(() => { /* art is best-effort; the library works without it */ });
 
   return {
     ok: true,
@@ -673,6 +716,74 @@ function registerIpc() {
     }
   });
 
+  /**
+   * The ingest ledger — has a scan brought anything new? Cheap: a dictionary
+   * diff, no disk probing, so the renderer may ask on every settings open.
+   */
+  ipcMain.handle('ingest:status', async (_event, items) => {
+    try { return await ingest.status(Array.isArray(items) ? items : []); }
+    catch { return { newCount: 0, newShows: 0, newEpisodes: 0, newMovies: 0 }; }
+  });
+
+  /**
+   * Take in the new titles: capture artwork and answer "will this need
+   * converting?", one file at a time. Runs with the sweep's own courtesy —
+   * standing down while a conversion is running — and reports progress so a
+   * first ingest of a whole show does not look like a hang.
+   */
+  ipcMain.handle('ingest:run', async (event, items) => {
+    try {
+      // The background sweep and an ingest both capture frames; two ffmpegs
+      // against the fragile drive is exactly what neither should cause. The
+      // ingest covers the new items' art itself, and the next scan restarts
+      // the sweep for anything else.
+      artwork.cancelSweep();
+      return await ingest.run(Array.isArray(items) ? items : [], {
+        artwork,
+        inspect: (absPath, options) => prepare.inspect(absPath, options),
+        shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive(),
+        onProgress: (progress) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('ingest:progress', progress);
+          }
+        },
+      });
+    } catch (error) {
+      return { ok: false, error: String(error && error.message ? error.message : error) };
+    }
+  });
+
+  /** Permanent artwork, keyed by show id / relPath — see electron/artwork.js. */
+  ipcMain.handle('artwork:get', async (_event, kind, id) => {
+    if (typeof kind !== 'string' || typeof id !== 'string') return null;
+    try { return await artwork.read(kind, id); } catch { return null; }
+  });
+
+  /**
+   * Let the user pick an image for a show or movie card. The dialog runs here
+   * because only the main process can open one; the renderer gets back either
+   * the stored PNG as a data URL, cancelled:true, or an error to show.
+   */
+  ipcMain.handle('artwork:choose', async (_event, kind, id) => {
+    // 'movie' has no caller YET — the media/status table (planned) adds the
+    // movie-card image picker. Named here so the no-caller sweep knows it is
+    // deliberate, not another half-shipped feature.
+    if (!['show', 'movie'].includes(kind) || typeof id !== 'string') {
+      return { ok: false, error: 'Bad request' };
+    }
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose an image',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
+    });
+    if (picked.canceled || !picked.filePaths.length) return { ok: false, cancelled: true };
+    try {
+      return await artwork.setFromImage(kind, id, picked.filePaths[0]);
+    } catch (error) {
+      return { ok: false, error: String(error && error.message ? error.message : error) };
+    }
+  });
+
   ipcMain.handle('thumb:get', async (_event, absPath) => {
     try {
       const buf = await fsp.readFile(thumbPathFor(absPath));
@@ -744,10 +855,13 @@ function registerIpc() {
   }));
 
   /** Read a file's codecs and say what would have to happen for it to play. */
-  ipcMain.handle('prepare:inspect', async (_event, absPath) => {
+  ipcMain.handle('prepare:inspect', async (_event, absPath, options) => {
     if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
+    const preferLanguage = options && typeof options.preferLanguage === 'string'
+      ? options.preferLanguage
+      : undefined;
     try {
-      return { ok: true, plan: await prepare.inspect(absPath) };
+      return { ok: true, plan: await prepare.inspect(absPath, { preferLanguage }) };
     } catch (error) {
       return { ok: false, error: String(error && error.message ? error.message : error) };
     }
@@ -759,10 +873,13 @@ function registerIpc() {
    * second ffmpeg against the same output.
    */
   /** Audio and subtitle tracks, labelled for the player's track menu. */
-  ipcMain.handle('prepare:tracks', async (_event, absPath) => {
+  ipcMain.handle('prepare:tracks', async (_event, absPath, options) => {
     if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
+    const preferLanguage = options && typeof options.preferLanguage === 'string'
+      ? options.preferLanguage
+      : undefined;
     try {
-      return await prepare.listTracks(absPath);
+      return await prepare.listTracks(absPath, { preferLanguage });
     } catch (error) {
       return { ok: false, audio: [], subtitles: [], error: String(error && error.message ? error.message : error) };
     }
@@ -785,12 +902,13 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('prepare:ensure', async (_event, absPath, forceTier, audioIndex) => {
+  ipcMain.handle('prepare:ensure', async (_event, absPath, forceTier, audioIndex, preferLanguage) => {
     if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
     try {
       const result = await prepare.ensurePlayable(absPath, {
         forceTier: typeof forceTier === 'string' ? forceTier : undefined,
         audioIndex: Number.isInteger(audioIndex) ? audioIndex : undefined,
+        preferLanguage: typeof preferLanguage === 'string' ? preferLanguage : undefined,
         onProgress: ({ outMs, totalMs }) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('prepare:progress', { absPath, outMs, totalMs });
@@ -865,6 +983,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     prepareCacheRoot = path.join(app.getPath('userData'), 'prepared');
     prepare.setCacheDir(prepareCacheRoot);
+    artwork.init({ dir: path.join(app.getPath('userData'), 'artwork'), findFfmpeg: prepare.findFfmpeg });
+    ingest.init({ file: path.join(app.getPath('userData'), 'ingest.json') });
 
     protocol.handle('media', serveMedia);
     registerIpc();

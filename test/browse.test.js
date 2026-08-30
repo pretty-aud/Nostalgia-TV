@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  readyCopy, seedFromCursors, markEpisode, markMovie, forgetAll, libraryOf,
+  readyCopy, seedFromCursors, markEpisode, markMovie, forgetAll, forgetShow, libraryOf,
   resumePoint, movieResumePoint, episodeStatus, watchedCount, continueWatching,
 } from '../src/shared/browse.js';
 
@@ -251,5 +251,28 @@ describe('what the library screen says about what is behind it', () => {
     const copy = readyCopy(null, null, null);
 
     expect(copy.body).toMatch(/Switch a show back on/);
+  });
+});
+
+describe('forgetShow', () => {
+  it('forgets one show and keeps every other record', () => {
+    const shows = [
+      { id: 'a', episodes: episodes('a', 3) },
+      { id: 'b', episodes: episodes('b', 3) },
+    ];
+    const seeded = seedFromCursors(
+      { cursors: { a: { index: 1 }, b: { index: 1 } }, history: [] },
+      shows,
+    );
+    const cleared = forgetShow(seeded, 'a');
+    expect(libraryOf(cleared).shows.a).toBeUndefined();
+    expect(libraryOf(cleared).shows.b).toBeDefined();
+    // seeded stays true: clearing one show must not invite a global re-seed.
+    expect(libraryOf(cleared).seeded).toBe(true);
+  });
+
+  it('returns the state unchanged when there is nothing to forget', () => {
+    const state = { library: { shows: {}, movies: {}, seeded: true } };
+    expect(forgetShow(state, 'ghost')).toBe(state);
   });
 });

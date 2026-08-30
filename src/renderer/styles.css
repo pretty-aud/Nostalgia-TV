@@ -297,16 +297,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   line-height: 1;
 }
 
-.sidebar__root {
-  font-size: var(--t-meta);
-  color: var(--ink-mute);
-  word-break: break-all;
-  line-height: 1.5;
-}
 
-.sidebar__stats { font-size: var(--t-meta); color: var(--signal-soft); margin-top: 4px; }
 
-.sidebar__actions { display: flex; gap: var(--u); margin-top: calc(var(--u) * 2); }
 
 .btn {
   padding: 9px 14px;
@@ -2889,3 +2881,13 @@ video::cue {
    unavailable one — it stays pressable and says so by looking stood down. */
 .settingsbtn[data-standdown="true"] { opacity: 0.38; }
 .settingsbtn[data-standdown="true"]:hover { opacity: 1; }
+
+/* Show-settings dialog: plain stacked fields inside a small modal. */
+#showSetModal .field--tight + .field--tight { margin-top: calc(var(--u) * 1.5); }
+#showSetModal .setrow { margin-top: calc(var(--u) * 2); }
+.setsub-note {
+  font-size: var(--t-meta);
+  color: var(--ink-faint);
+  margin: calc(var(--u) * 1.5) 0 0;
+  line-height: 1.5;
+}

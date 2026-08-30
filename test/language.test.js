@@ -10,6 +10,7 @@ import {
   planPlayback,
   ffmpegArgsFor,
   audioIndexFromInspect,
+  matchesLanguage,
 } from '../src/shared/playability.js';
 
 const audio = (language, extra = {}) => ({
@@ -229,6 +230,76 @@ describe('describeLanguage', () => {
  * constant. A guard that cannot execute reads exactly like one that works, so
  * the case that was broken is asserted here directly.
  */
+describe('per-show language preference', () => {
+  it('picks the preferred language over English', () => {
+    const picked = pickAudioTrack(
+      [video, audio('eng'), audio('jpn')],
+      { preferLanguage: 'jpn' },
+    );
+    expect(picked.index).toBe(1);
+    expect(picked.reason).toMatch(/jpn/);
+  });
+
+  it('matches every spelling files use for the language', () => {
+    for (const code of ['jpn', 'ja', 'JA', 'ja-JP', 'japanese']) {
+      const picked = pickAudioTrack(
+        [video, audio('eng'), audio(code)],
+        { preferLanguage: 'jpn' },
+      );
+      expect(picked.index, code).toBe(1);
+    }
+  });
+
+  it('does not hand the preference a commentary track', () => {
+    const picked = pickAudioTrack(
+      [video, audio('eng'), audio('jpn', { name: 'Commentary' }), audio('jpn')],
+      { preferLanguage: 'jpn' },
+    );
+    expect(picked.index).toBe(2);
+  });
+
+  it('falls back to English when the dub simply is not there', () => {
+    // A missing track must not strand the show: the ladder carries on.
+    const picked = pickAudioTrack(
+      [video, audio('fre'), audio('eng')],
+      { preferLanguage: 'jpn' },
+    );
+    expect(picked.index).toBe(1);
+    expect(picked.reason).toBe('English');
+  });
+
+  it('forces a repackage when the preferred track is not first', () => {
+    // Chromium plays track one; preferring Japanese on an English-first file
+    // means the file must be rebuilt around the Japanese track.
+    const plan = planPlayback({
+      fileName: 'e1.mp4',
+      probe: probeOf(audio('eng'), audio('jpn')),
+      preferLanguage: 'jpn',
+    });
+    expect(plan.needsWork).toBe(true);
+    expect(plan.audioIndex).toBe(1);
+  });
+
+  it('leaves a preferred-first file alone', () => {
+    const plan = planPlayback({
+      fileName: 'e1.mp4',
+      probe: probeOf(audio('jpn'), audio('eng')),
+      preferLanguage: 'jpn',
+    });
+    expect(plan.needsWork).toBe(false);
+    expect(plan.audioIndex).toBe(0);
+  });
+});
+
+describe('matchesLanguage', () => {
+  it('knows the families and rejects strangers', () => {
+    expect(matchesLanguage({ language: 'ja' }, 'jpn')).toBe(true);
+    expect(matchesLanguage({ language: 'es-AR' }, 'spa')).toBe(true);
+    expect(matchesLanguage({ language: 'eng' }, 'jpn')).toBe(false);
+    expect(matchesLanguage({ language: 'jpn' }, 'nosuchfamily')).toBe(false);
+  });
+});
+
 describe('audioIndexFromInspect', () => {
   it('reads the index from the plan INSIDE the envelope', () => {
     // The exact shape prepare:inspect returns. Before the fix this produced 0,

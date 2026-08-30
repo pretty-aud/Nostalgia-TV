@@ -193,6 +193,21 @@ function forgetAll(state) {
 }
 
 /**
+ * Forget ONE show's library history; every other record stays.
+ *
+ * The per-show mirror of forgetAll, for the show card's own settings. Returns
+ * the state unchanged when there is nothing to forget, so callers can persist
+ * unconditionally without writing a no-op save.
+ */
+function forgetShow(state, showId) {
+  const library = libraryOf(state);
+  if (!library.shows[showId]) return state;
+  const shows = { ...library.shows };
+  delete shows[showId];
+  return withLibrary(state, { ...library, shows });
+}
+
+/**
  * What "play" on a show card should do: resume, or start the next one.
  *
  * Returns { episodeIndex, seekTo }. A show finished to the end starts over,
@@ -351,6 +366,7 @@ module.exports = {
   markEpisode,
   markMovie,
   forgetAll,
+  forgetShow,
   resumePoint,
   movieResumePoint,
   episodeStatus,

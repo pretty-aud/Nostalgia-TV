@@ -359,7 +359,7 @@ async function probeWithFfprobe(absPath) {
  * `index` counts within its own kind, because that is what both ffmpeg's
  * `-map 0:a:N` and the UI need.
  */
-async function listTracks(absPath) {
+async function listTracks(absPath, options = {}) {
   const probe = (await probeWithFfprobe(absPath)) || { ok: false, tracks: [] };
 
   const label = (track, i, kind, disambiguate) => {
@@ -432,7 +432,9 @@ async function listTracks(absPath) {
       : item));
   };
 
-  const chosen = pickAudioTrack(probe.tracks, {});
+  // The menu's highlighted default has to be the track playback would pick,
+  // preference included — two answers to "which track" is the lying-label bug.
+  const chosen = pickAudioTrack(probe.tracks, { preferLanguage: options.preferLanguage });
   return {
     ok: probe.ok,
     audio: dedupe(audio),
@@ -490,7 +492,7 @@ async function inspect(absPath, options = {}) {
   }
 
   return {
-    ...planPlayback({ fileName, probe, audioIndex: options.audioIndex }),
+    ...planPlayback({ fileName, probe, audioIndex: options.audioIndex, preferLanguage: options.preferLanguage }),
     absPath,
   };
 }
@@ -723,7 +725,7 @@ function runFfmpeg(ffmpeg, args, outputPath, onProgress, totalMs) {
  * and two ffmpeg processes writing the same output would corrupt it.
  */
 async function ensurePlayable(absPath, options = {}) {
-  let plan = options.plan || await inspect(absPath, { audioIndex: options.audioIndex });
+  let plan = options.plan || await inspect(absPath, { audioIndex: options.audioIndex, preferLanguage: options.preferLanguage });
 
   /**
    * The codec tables are a prediction, and two cases can beat them: a codec id
