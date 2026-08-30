@@ -1549,18 +1549,6 @@ const FADE_MS = 340;
 async function playClip(clip, onDone, kind = 'Bumper') {
   if (!clip) { onDone(); return; }
 
-  /**
-   * Kick the next conversions off BEFORE anything in this function awaits.
-   *
-   * The clip may need preparing itself, and that await used to sit in front of
-   * this call — so on a transition where the bumper was not already cached,
-   * the episode's conversion did not start until the bumper had finished
-   * converting. This is the moment the interstitial begins, which is the
-   * earliest the work can start, and it is exactly the dead time it should be
-   * spending. Deliberately not awaited: it runs behind the clip.
-   */
-  prepareAhead();
-
   // Clips get the same codec treatment as episodes — an AC3 .mkv bumper is
   // exactly as unplayable as an AC3 .mkv episode.
   const token = ++playToken;
@@ -1645,6 +1633,18 @@ async function playClip(clip, onDone, kind = 'Bumper') {
   player.src = url;
   player.load();
   player.play().catch(finish);
+
+  /**
+   * Convert the next episodes now the clip is actually rolling.
+   *
+   * Deliberately AFTER the clip's own preparation, not before it. Hoisting this
+   * above the await looks like it starts the work sooner, and does not:
+   * onEpisodeEnded already calls prepareAhead() before the first interstitial,
+   * so by here the job is running. All hoisting it achieved was running the
+   * episode's conversion CONCURRENTLY with the clip's own, which contends for
+   * the same disk — the thing prepareAhead's own sequencing exists to avoid.
+   */
+  prepareAhead();
 }
 
 /** Deal and play a bumper, or pass straight through when there is none. */
