@@ -874,10 +874,14 @@ async function showBumper(onDone, leadOverride) {
     })
     : null;
 
+  /** When the card actually started waiting, as opposed to counting down. */
+  let waitingSince = 0;
+
   /** Swap the "any key" hint for honest progress once we are actually waiting. */
   const showWaiting = () => {
     if (waitingShown) return;
     waitingShown = true;
+    waitingSince = performance.now();
     el('bumperSkip').hidden = true;
     prepLabel.hidden = false;
   };
@@ -943,6 +947,19 @@ async function showBumper(onDone, leadOverride) {
       : 'Preparing the next episode…';
     countLabel.textContent = '';
     fill.style.transform = 'scaleX(1)';
+
+    /**
+     * Hand the wait to a promo rather than sitting on a static card.
+     *
+     * Closing the card is safe: fillUntilReady runs immediately after it and
+     * puts a promo up while the conversion carries on. If there is no promo to
+     * spend, this does nothing and the card keeps holding as before, which is
+     * still better than a black screen.
+     */
+    if (performance.now() - waitingSince > FILLER_HANDOFF_MS && fillerPromoAvailable()) {
+      finish();
+      return;
+    }
 
     // Give up eventually rather than sit here forever; loadAndPlay will report
     // the real failure and move on.
@@ -1381,7 +1398,16 @@ async function loadAndPlay(item, seekTo = 0) {
   };
   player.addEventListener('loadedmetadata', start, { once: true });
 
-  showChrome();
+  /**
+   * The episode opens with NO interface over it.
+   *
+   * This used to call showChrome(), so every episode began with the transport
+   * fading in and out across the first couple of seconds of the picture. The
+   * controls are one hover or one press away and the title is on the card that
+   * just played, so nothing here needs announcing over the opening shot.
+   */
+  clearTimeout(chromeTimer);
+  app.dataset.chrome = 'off';
   renderSidebar();
   persist({ immediate: true });
 
@@ -1523,6 +1549,18 @@ const FADE_MS = 340;
 async function playClip(clip, onDone, kind = 'Bumper') {
   if (!clip) { onDone(); return; }
 
+  /**
+   * Kick the next conversions off BEFORE anything in this function awaits.
+   *
+   * The clip may need preparing itself, and that await used to sit in front of
+   * this call — so on a transition where the bumper was not already cached,
+   * the episode's conversion did not start until the bumper had finished
+   * converting. This is the moment the interstitial begins, which is the
+   * earliest the work can start, and it is exactly the dead time it should be
+   * spending. Deliberately not awaited: it runs behind the clip.
+   */
+  prepareAhead();
+
   // Clips get the same codec treatment as episodes — an AC3 .mkv bumper is
   // exactly as unplayable as an AC3 .mkv episode.
   const token = ++playToken;
@@ -1607,12 +1645,6 @@ async function playClip(clip, onDone, kind = 'Bumper') {
   player.src = url;
   player.load();
   player.play().catch(finish);
-
-  // The clip is time we are spending anyway, and nothing is competing for the
-  // disk while a few seconds of video plays — so convert the next episodes now.
-  // Between this and the up-next card, an ordinary transition buys the better
-  // part of a minute before the viewer waits on anything.
-  prepareAhead();
 }
 
 /** Deal and play a bumper, or pass straight through when there is none. */
@@ -1649,6 +1681,81 @@ function playPromoClip(onDone) {
   const picked = nextPromo(promoClips, state, {});
   state = countEpisodeForPromo(picked.state, true);
   playClip(picked.promo, onDone, 'Promo');
+}
+
+/**
+ * How many promos may be spent covering a conversion that has run long.
+ *
+ * Bounded, because what a promo displaces is the episode. Three covers a slow
+ * remux comfortably without turning the channel into a promo reel when
+ * something is genuinely stuck — loadAndPlay still has its own preparing panel
+ * for that case, and it reports real failures.
+ */
+const MAX_FILLER_PROMOS = 3;
+
+/**
+ * How long the up-next card waits before handing off to a promo.
+ *
+ * Most conversions land within a second or two of the countdown ending, and
+ * cutting to a promo for those would replace a short wait with a longer one.
+ */
+const FILLER_HANDOFF_MS = 2500;
+
+/** Is there a promo available to spend on a wait? */
+function fillerPromoAvailable() {
+  const settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
+  return Boolean(settings.promosEnabled) && promoClips.length > 0;
+}
+
+/** Is this item playable this instant, with nothing left to wait for? */
+function readyToPlay(item) {
+  const absPath = item && item.episode ? item.episode.absPath : null;
+  if (!absPath) return true;              // nothing to prepare; let it through
+  return playableUrls.has(absPath);
+}
+
+/**
+ * Is a conversion for this item actually RUNNING?
+ *
+ * "Not ready" is not the same as "worth waiting for". A preparation that has
+ * already finished and failed leaves no job and no URL, and filling that with
+ * promos would spend three of them delaying a failure the player is about to
+ * report properly. Only an in-flight job is worth covering.
+ */
+function stillPreparing(item) {
+  const absPath = item && item.episode ? item.episode.absPath : null;
+  return Boolean(absPath) && preparing.has(absPath);
+}
+
+/**
+ * Cover a conversion that outlasted the transition, with promos.
+ *
+ * The transition already spends its bumper, promo and card on the conversion,
+ * which is enough for almost everything — but a big remux on a slow disk can
+ * outlast all three, and what the viewer got then was a static card reading
+ * "Preparing…". Honest, and still someone sitting watching a progress line.
+ *
+ * A promo costs the wait nothing: the same seconds pass, the conversion keeps
+ * running behind it, and there is something on screen instead. Deliberately
+ * NOT counted against the promo schedule — this is covering a gap, not a promo
+ * that was due, and letting it advance the counter would suppress a real one
+ * later.
+ *
+ * Falls straight through when the episode is ready, when promos are off or
+ * absent, or when the budget is spent.
+ */
+function fillUntilReady(item, done, spent = 0) {
+  if (readyToPlay(item) || !stillPreparing(item)
+    || spent >= MAX_FILLER_PROMOS || !fillerPromoAvailable()) {
+    done();
+    return;
+  }
+
+  const picked = nextPromo(promoClips, state, {});
+  state = picked.state;
+  if (!picked.promo) { done(); return; }
+
+  playClip(picked.promo, () => fillUntilReady(item, done, spent + 1), 'Promo');
 }
 
 /**
@@ -1770,11 +1877,18 @@ function onEpisodeEnded() {
   playBumperClip(() => {
     playPromoClip(() => {
       const movieNow = movieIsDue(state);
+      const leadOverride = movieNow ? movieItem(state.pendingMovie) : null;
+      // The same item the card headlines and prepareAhead converts first, so
+      // "is it ready" is asked about the thing that is actually next.
+      const lead = leadOverride || peek(shows, state, 1)[0];
       const after = () => (movieNow ? startMovie() : playNext());
+      // Anything still converting when the card closes is covered by promos
+      // rather than by a static card or a black screen.
+      const then = () => fillUntilReady(lead, after);
       if (state.settings.bumperEnabled && state.settings.bumperSeconds > 0) {
-        showBumper(after, movieNow ? movieItem(state.pendingMovie) : null);
+        showBumper(then, leadOverride);
       } else {
-        after();
+        then();
       }
     });
   });
@@ -1784,7 +1898,19 @@ function onEpisodeEnded() {
 // chrome auto-hide
 // ---------------------------------------------------------------------------
 
+/**
+ * Show the transport, and start its countdown to hiding again.
+ *
+ * Only ever called from something the VIEWER did — a press, a hover, a key.
+ * It is deliberately not wired to the <video> 'play' event: that event cannot
+ * tell "the viewer pressed play" from "the app started the next thing", so
+ * hanging chrome off it made the interface flash up over the first second of
+ * every episode and every bumper.
+ */
 function showChrome() {
+  // A clip never gets chrome, not even on hover. It runs for a few seconds and
+  // the transport would be acting on an episode that is no longer on screen.
+  if (playingBumperClip) return;
   app.dataset.chrome = 'on';
   clearTimeout(chromeTimer);
   chromeTimer = setTimeout(() => {
@@ -3425,8 +3551,12 @@ function wireEvents() {
   player.addEventListener('ended', onEpisodeEnded);
   player.addEventListener('timeupdate', onTimeUpdate);
   player.addEventListener('progress', renderBuffer);
-  player.addEventListener('play', () => { el('btnPlay').textContent = '❚❚'; showChrome(); });
-  player.addEventListener('pause', () => { el('btnPlay').textContent = '▶'; showChrome(); });
+  // Glyph only. Showing chrome here would fire on every automatic start —
+  // each episode, each bumper, each promo — which is the interface appearing
+  // over the opening of the picture. Chrome comes from togglePlay, hover and
+  // the keyboard, all of which are the viewer actually asking for it.
+  player.addEventListener('play', () => { el('btnPlay').textContent = '❚❚'; });
+  player.addEventListener('pause', () => { el('btnPlay').textContent = '▶'; });
   player.addEventListener('error', onPlaybackError);
 
   el('stage').addEventListener('mousemove', () => {
@@ -3526,6 +3656,15 @@ function onPlaybackError() {
 function togglePlay() {
   if (app.dataset.view !== 'playing') return;
   if (player.paused) player.play().catch(() => {}); else player.pause();
+  /**
+   * Pressing is intent, so the transport comes back — and this is the ONLY
+   * play/pause path that shows it, because every caller here is a viewer
+   * action (the click on the picture, the space bar, the transport button).
+   *
+   * It also re-arms the hide timer on resume: chrome stays up while paused by
+   * design, and without this a resume would leave it up for good.
+   */
+  showChrome();
 }
 
 /**
