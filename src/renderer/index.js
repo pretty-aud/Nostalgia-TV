@@ -27,6 +27,8 @@ import {
   playNow,
   applySettings,
   formatEpisodeLabel,
+  activeSchedule,
+  blockSizeFor,
 } from '../shared/scheduler.js';
 import { TIER, needsFallback, audioIndexFromInspect } from '../shared/playability.js';
 import { preparingCopy } from '../shared/prepProgress.js';
@@ -638,6 +640,61 @@ function renderSchedule() {
   }
 
   renderScheduleMovie();
+  renderScheduleField();
+}
+
+/**
+ * The sidebar's running-order control.
+ *
+ * One picker for "what decides the order", rather than two that can disagree.
+ * While a marathon runs it stands down and says so, because during a marathon
+ * the schedule genuinely is not deciding anything — but it stays usable, since
+ * picking a schedule from it is how the marathon ends.
+ */
+function renderScheduleField() {
+  const select = el('scheduleSelect');
+  const field = el('scheduleField');
+  const marathonId = state.settings.marathonShowId || null;
+  const marathonShow = marathonId ? shows.find((s) => s.id === marathonId) : null;
+  const running = activeSchedule(state.settings);
+
+  select.textContent = '';
+
+  if (marathonShow) {
+    // A disabled <select> cannot be opened, and this one has to be — so it is
+    // dimmed by the field, not disabled.
+    const status = document.createElement('option');
+    status.value = '__marathon__';
+    status.textContent = `${marathonShow.name} — marathon playing`;
+    select.append(status);
+  }
+
+  const off = document.createElement('option');
+  off.value = '';
+  off.textContent = savedSchedules().length ? 'Off — shuffle the rotation' : 'No schedules yet';
+  select.append(off);
+
+  for (const sc of savedSchedules()) {
+    const option = document.createElement('option');
+    option.value = sc.id;
+    const blocks = (sc.items || []).length;
+    option.textContent = `${sc.name} · ${blocks} block${blocks === 1 ? '' : 's'}`;
+    select.append(option);
+  }
+
+  select.value = marathonShow ? '__marathon__' : (running ? running.id : '');
+  select.disabled = shows.length === 0;
+  field.dataset.on = String(Boolean(running) && !marathonShow);
+  field.dataset.muted = String(Boolean(marathonShow));
+
+  /**
+   * Shuffle is stood down rather than disabled while a fixed order runs.
+   *
+   * It still does something — it turns the schedule off and goes back to a
+   * rotation — so a control that could not be pressed would be a lie. Dimmed
+   * says "not what is in force"; disabled would say "unavailable".
+   */
+  el('btnShuffle').dataset.standdown = String(Boolean(running) || Boolean(marathonShow));
 }
 
 function renderSettings() {
@@ -646,34 +703,23 @@ function renderSettings() {
 
   renderLockSummary();
 
-  // Rebuilt from `shows` each time so a rescan cannot leave the picker offering
-  // a show that is no longer in the folder.
-  const select = el('marathonSelect');
-  select.textContent = '';
-  const off = document.createElement('option');
-  off.value = '';
-  off.textContent = shows.length ? 'Off — play everything' : 'No shows yet';
-  select.append(off);
-  for (const show of shows) {
-    const option = document.createElement('option');
-    option.value = show.id;
-    option.textContent = show.name;
-    select.append(option);
-  }
-  select.value = marathonShow ? marathonShow.id : '';
-  select.disabled = shows.length === 0;
-  el('marathonField').dataset.on = String(Boolean(marathonShow));
-
-  // Rotation governs which show comes next, which is exactly what a marathon
-  // takes over — so the buttons are dimmed rather than left looking broken.
-  el('modeGroup').dataset.muted = String(Boolean(marathonShow));
+  /**
+   * Rotation governs which show comes next, which is exactly what a marathon
+   * takes over — so the buttons are dimmed rather than left looking broken.
+   * A set schedule takes it over just as completely, and for the same reason.
+   */
+  const scheduleOn = Boolean(activeSchedule(state.settings));
+  el('modeGroup').dataset.muted = String(Boolean(marathonShow) || scheduleOn);
 
   for (const button of document.querySelectorAll('.mode')) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === state.settings.mode));
   }
+  const runningSchedule = activeSchedule(state.settings);
   el('modeNote').textContent = marathonShow
     ? `Paused while the ${marathonShow.name} marathon runs.`
-    : (MODE_NOTES[state.settings.mode] || '');
+    : (runningSchedule
+      ? `Paused while the “${runningSchedule.name}” schedule runs. Shuffle to go back to a rotation.`
+      : (MODE_NOTES[state.settings.mode] || ''));
 
   el('bumperRange').value = String(state.settings.bumperEnabled ? state.settings.bumperSeconds : 0);
   el('bumperOut').textContent = state.settings.bumperEnabled && state.settings.bumperSeconds > 0
@@ -2881,6 +2927,343 @@ function renderLockSummary() {
     : 'Hold a sequel back until the film or series before it has played.';
 }
 
+// ---------------------------------------------------------------------------
+// set schedules
+// ---------------------------------------------------------------------------
+
+/**
+ * The schedule being EDITED, which is not necessarily the one running.
+ *
+ * Kept apart deliberately: opening the window to rearrange next week's running
+ * order must not change what is on screen now. Nothing reaches the channel
+ * until "Save & use".
+ */
+let editingId = null;
+let draft = null;            // { id, name, blockSize, items: [showId] }
+let dragFrom = null;         // { source: 'order'|'pool', index, showId }
+
+const savedSchedules = () => (state.settings.schedules || []);
+
+/** Ids are only ever compared, never parsed — uniqueness is the whole job. */
+function newScheduleId() {
+  return `sched-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+}
+
+function blankSchedule() {
+  return {
+    id: newScheduleId(),
+    name: `Schedule ${savedSchedules().length + 1}`,
+    blockSize: Math.max(1, Number(state.settings.blockSize) || 2),
+    items: [],
+  };
+}
+
+/** Load one saved schedule into the editor, or start a fresh blank one. */
+function loadDraft(id) {
+  const found = savedSchedules().find((sc) => sc.id === id);
+  draft = found
+    ? { ...found, items: [...(found.items || [])] }   // a copy: the editor mutates
+    : blankSchedule();
+  editingId = draft.id;
+}
+
+/**
+ * Write the draft back into settings.
+ *
+ * `activate` is separate from saving because they are different intentions:
+ * editing a schedule you are not currently running must not hijack the channel.
+ * applySettings rebuilds the queue whenever `schedules` changes, so the running
+ * one updates in place either way.
+ */
+function commitDraft({ activate = false } = {}) {
+  if (!draft) return;
+  draft.name = (el('schedName').value || '').trim() || 'Untitled schedule';
+  draft.blockSize = Math.min(12, Math.max(1, Number(el('schedBlock').value) || 1));
+
+  const rest = savedSchedules().filter((sc) => sc.id !== draft.id);
+  const schedules = [...rest, { ...draft, items: [...draft.items] }]
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const patch = { schedules };
+  if (activate) {
+    patch.activeScheduleId = draft.id;
+    // A schedule and a marathon cannot both decide the order. Choosing one is
+    // choosing against the other.
+    patch.marathonShowId = null;
+  }
+  state = applySettings(shows, state, patch, {});
+  persist({ immediate: true });
+  renderSidebar();
+}
+
+function openSchedule() {
+  if (!draft || !savedSchedules().some((sc) => sc.id === editingId)) {
+    // Prefer the one already running, so the window opens on what you can see.
+    const running = activeSchedule(state.settings);
+    if (running) loadDraft(running.id);
+    else if (savedSchedules().length) loadDraft(savedSchedules()[0].id);
+    else loadDraft(null);
+  }
+  el('scheduleModal').hidden = false;
+  renderScheduleEditor();
+}
+
+function closeSchedule() {
+  el('scheduleModal').hidden = true;
+}
+
+function scheduleOpen() {
+  return !el('scheduleModal').hidden;
+}
+
+function renderScheduleEditor() {
+  if (!draft) return;
+
+  const pick = el('schedPick');
+  pick.textContent = '';
+  for (const sc of savedSchedules()) {
+    const option = document.createElement('option');
+    option.value = sc.id;
+    option.textContent = sc.name;
+    pick.append(option);
+  }
+  // An unsaved draft is offered as itself, so the picker never reads as empty
+  // or, worse, as some OTHER schedule while you are editing this one.
+  if (!savedSchedules().some((sc) => sc.id === draft.id)) {
+    const option = document.createElement('option');
+    option.value = draft.id;
+    option.textContent = `${draft.name} (unsaved)`;
+    pick.append(option);
+  }
+  pick.value = draft.id;
+
+  el('schedName').value = draft.name;
+  el('schedBlock').value = String(draft.blockSize);
+  el('schedDelete').disabled = !savedSchedules().some((sc) => sc.id === draft.id);
+
+  renderSchedOrder();
+  renderSchedPool();
+
+  const running = activeSchedule(state.settings);
+  el('schedStatus').textContent = running
+    ? (running.id === draft.id ? 'Running now.' : `Running: ${running.name}`)
+    : 'No schedule running — the channel is shuffling.';
+}
+
+/** One card. `source` decides what dragging it means. */
+function scheduleCard(show, source, index) {
+  const li = document.createElement('li');
+  li.className = 'setsched__card';
+  li.draggable = true;
+  li.tabIndex = 0;
+  li.dataset.source = source;
+  li.dataset.showId = show.id;
+  if (index !== undefined) li.dataset.index = String(index);
+
+  if (source === 'order') {
+    const pos = document.createElement('span');
+    pos.className = 'setsched__pos';
+    pos.textContent = String(index + 1).padStart(2, '0');
+    li.append(pos);
+  }
+
+  const name = document.createElement('span');
+  name.className = 'setsetsched__name';
+  name.textContent = show.name;
+  li.append(name);
+
+  if (source === 'order') {
+    const eps = document.createElement('span');
+    eps.className = 'setsched__eps';
+    eps.textContent = `${draft.blockSize} ep${draft.blockSize === 1 ? '' : 's'}`;
+    li.append(eps);
+
+    const drop = document.createElement('button');
+    drop.className = 'setsched__drop';
+    drop.type = 'button';
+    drop.textContent = '✕';
+    drop.setAttribute('aria-label', `Remove ${show.name} from position ${index + 1}`);
+    drop.addEventListener('click', (event) => {
+      event.stopPropagation();
+      draft.items.splice(index, 1);
+      renderScheduleEditor();
+    });
+    li.append(drop);
+  } else {
+    /**
+     * Click and keyboard both add to the end of the running order.
+     *
+     * Dragging is the point of the two columns, but it cannot be done without a
+     * pointer and it is slow when you want the same show four times. A plain
+     * click doing the obvious thing costs nothing and makes the feature usable
+     * without a mouse at all.
+     */
+    const add = () => {
+      draft.items.push(show.id);
+      renderScheduleEditor();
+    };
+    li.addEventListener('click', add);
+    li.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      add();
+    });
+  }
+
+  wireCardDrag(li, source, index, show.id);
+  return li;
+}
+
+function renderSchedOrder() {
+  const list = el('schedOrder');
+  list.textContent = '';
+  const byId = new Map(shows.map((s) => [s.id, s]));
+
+  // A show can leave the folder while a schedule still names it. Drop those
+  // rather than rendering a card with no title behind it.
+  draft.items = draft.items.filter((id) => byId.has(id));
+
+  draft.items.forEach((id, index) => {
+    list.append(scheduleCard(byId.get(id), 'order', index));
+  });
+
+  el('schedEmpty').hidden = draft.items.length > 0;
+  const blocks = draft.items.length;
+  el('schedCount').textContent = blocks
+    ? `${blocks} block${blocks === 1 ? '' : 's'} · ${blocks * draft.blockSize} episodes`
+    : '';
+}
+
+function renderSchedPool() {
+  const list = el('schedPool');
+  list.textContent = '';
+  for (const show of shows) list.append(scheduleCard(show, 'pool'));
+  el('schedPoolCount').textContent = shows.length ? String(shows.length) : '';
+}
+
+/** Drag handlers shared by both columns. */
+function wireCardDrag(li, source, index, showId) {
+  li.addEventListener('dragstart', (event) => {
+    dragFrom = { source, index, showId };
+    li.dataset.dragging = 'true';
+    event.dataTransfer.effectAllowed = 'move';
+    // Firefox refuses to begin a drag with nothing on the transfer.
+    event.dataTransfer.setData('text/plain', showId);
+  });
+  li.addEventListener('dragend', () => {
+    delete li.dataset.dragging;
+    dragFrom = null;
+    clearDropMarks();
+  });
+
+  if (source !== 'order') return;
+
+  li.addEventListener('dragover', (event) => {
+    if (!dragFrom) return;
+    event.preventDefault();
+    const box = li.getBoundingClientRect();
+    clearDropMarks();
+    li.dataset.drop = event.clientY < box.top + box.height / 2 ? 'before' : 'after';
+  });
+  li.addEventListener('drop', (event) => {
+    if (!dragFrom) return;
+    event.preventDefault();
+    event.stopPropagation();     // the column's own handler must not also fire
+    const box = li.getBoundingClientRect();
+    const before = event.clientY < box.top + box.height / 2;
+    let target = index + (before ? 0 : 1);
+    if (dragFrom.source === 'order') {
+      // Remove FIRST, then correct the target: after the splice every index
+      // above the one removed has shifted down by one, and dropping an item
+      // below its old position would otherwise land one place too far.
+      const [moved] = draft.items.splice(dragFrom.index, 1);
+      if (dragFrom.index < target) target -= 1;
+      draft.items.splice(target, 0, moved);
+    } else {
+      draft.items.splice(target, 0, dragFrom.showId);
+    }
+    dragFrom = null;
+    renderScheduleEditor();
+  });
+}
+
+function clearDropMarks() {
+  for (const node of document.querySelectorAll('.setsched__card[data-drop]')) delete node.dataset.drop;
+}
+
+/** The columns themselves are targets, so an EMPTY list still accepts a drop. */
+function wireColumnDrops() {
+  const order = el('schedOrder');
+  order.addEventListener('dragover', (event) => {
+    if (!dragFrom) return;
+    event.preventDefault();
+    order.dataset.over = 'true';
+  });
+  order.addEventListener('dragleave', () => { delete order.dataset.over; });
+  order.addEventListener('drop', (event) => {
+    delete order.dataset.over;
+    if (!dragFrom) return;
+    event.preventDefault();
+    // Landing on the container rather than on a card means "the end".
+    if (dragFrom.source === 'pool') draft.items.push(dragFrom.showId);
+    else {
+      const [moved] = draft.items.splice(dragFrom.index, 1);
+      draft.items.push(moved);
+    }
+    dragFrom = null;
+    renderScheduleEditor();
+  });
+
+  // Dragging a card back to the pool removes it — the mirror of dragging in.
+  const pool = el('schedPool');
+  pool.addEventListener('dragover', (event) => {
+    if (!dragFrom || dragFrom.source !== 'order') return;
+    event.preventDefault();
+    pool.dataset.over = 'true';
+  });
+  pool.addEventListener('dragleave', () => { delete pool.dataset.over; });
+  pool.addEventListener('drop', (event) => {
+    delete pool.dataset.over;
+    if (!dragFrom || dragFrom.source !== 'order') return;
+    event.preventDefault();
+    draft.items.splice(dragFrom.index, 1);
+    dragFrom = null;
+    renderScheduleEditor();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// marathon picker
+// ---------------------------------------------------------------------------
+
+function openMarathon() {
+  const pick = el('marathonPick');
+  pick.textContent = '';
+  for (const show of shows) {
+    const option = document.createElement('option');
+    option.value = show.id;
+    option.textContent = show.name;
+    pick.append(option);
+  }
+  const running = state.settings.marathonShowId;
+  if (running && shows.some((s) => s.id === running)) pick.value = running;
+
+  el('marathonStatus').textContent = running ? 'A marathon is already running.' : '';
+  el('marathonConfirm').disabled = shows.length === 0;
+  el('marathonModal').hidden = false;
+  pick.focus();
+}
+
+function closeMarathon() {
+  el('marathonModal').hidden = true;
+}
+
+function marathonOpen() {
+  return !el('marathonModal').hidden;
+}
+
+// ---------------------------------------------------------------------------
+
 function openLocks() {
   el('locksModal').hidden = false;
   el('lockSearch').value = '';
@@ -3197,10 +3580,122 @@ function wireEvents() {
     playNext();
   });
 
-  el('marathonSelect').addEventListener('change', (event) => {
+  /**
+   * The sidebar picker. Choosing anything here is a decision about the running
+   * order, so it always ends a marathon — including the "off" entry, which
+   * means "shuffle", not "leave whatever is happening alone".
+   */
+  el('scheduleSelect').addEventListener('change', (event) => {
     const id = event.target.value;
-    if (id) onShowControl(id, 'startMarathon');
-    else onShowControl(null, 'endMarathon');
+    // Re-selecting the status line itself is not a choice; put it back.
+    if (id === '__marathon__') { renderScheduleField(); return; }
+
+    state = applySettings(shows, state, {
+      activeScheduleId: id || null,
+      marathonShowId: null,
+    }, {});
+    persist({ immediate: true });
+    renderSidebar();
+    if (!el('settingsModal').hidden) renderSettings();
+
+    const picked = id ? savedSchedules().find((sc) => sc.id === id) : null;
+    const upcoming = peek(shows, state, 1)[0];
+    toast(picked
+      ? `${picked.name} — ${upcoming ? `${upcoming.showName} is up next.` : 'schedule set.'}`
+      : 'Back to a shuffled rotation.', 3000);
+  });
+
+  // --- set schedules -------------------------------------------------------
+
+  el('btnSchedule').addEventListener('click', openSchedule);
+  el('btnOpenSchedule').addEventListener('click', () => { closeSettings(); openSchedule(); });
+  el('btnCloseSchedule').addEventListener('click', closeSchedule);
+  el('scheduleBackdrop').addEventListener('click', closeSchedule);
+  wireColumnDrops();
+
+  el('schedPick').addEventListener('change', (event) => {
+    // Switching schedules keeps unsaved work out of the way rather than
+    // carrying it across: the draft belongs to the schedule it came from.
+    loadDraft(event.target.value);
+    renderScheduleEditor();
+  });
+
+  el('schedName').addEventListener('input', () => {
+    if (draft) draft.name = el('schedName').value;
+  });
+
+  el('schedBlock').addEventListener('change', () => {
+    if (!draft) return;
+    draft.blockSize = Math.min(12, Math.max(1, Number(el('schedBlock').value) || 1));
+    el('schedBlock').value = String(draft.blockSize);
+    renderScheduleEditor();      // the per-card "N eps" labels follow it
+  });
+
+  el('schedNew').addEventListener('click', () => {
+    loadDraft(null);
+    renderScheduleEditor();
+    el('schedName').focus();
+    el('schedName').select();
+  });
+
+  el('schedDuplicate').addEventListener('click', () => {
+    if (!draft) return;
+    draft = { ...draft, id: newScheduleId(), name: `${draft.name} copy`, items: [...draft.items] };
+    editingId = draft.id;
+    renderScheduleEditor();
+  });
+
+  el('schedDelete').addEventListener('click', () => {
+    if (!draft) return;
+    const gone = draft.id;
+    const patch = { schedules: savedSchedules().filter((sc) => sc.id !== gone) };
+    // Deleting the one that is running has to stop it running, or the channel
+    // keeps following an order nothing can show you any more.
+    if (state.settings.activeScheduleId === gone) patch.activeScheduleId = null;
+    state = applySettings(shows, state, patch, {});
+    persist({ immediate: true });
+    renderSidebar();
+
+    const remaining = savedSchedules();
+    loadDraft(remaining.length ? remaining[0].id : null);
+    renderScheduleEditor();
+    toast('Schedule deleted.', 2400);
+  });
+
+  el('schedClear').addEventListener('click', () => {
+    if (!draft) return;
+    draft.items = [];
+    renderScheduleEditor();
+  });
+
+  el('schedUse').addEventListener('click', () => {
+    if (!draft) return;
+    if (draft.items.length === 0) {
+      toast('Add at least one show before using this schedule.', 3200);
+      return;
+    }
+    commitDraft({ activate: true });
+    renderScheduleEditor();
+    closeSchedule();
+    const upcoming = peek(shows, state, 1)[0];
+    toast(upcoming ? `${draft.name} — ${upcoming.showName} is up next.` : `${draft.name} set.`, 3000);
+  });
+
+  // --- marathon ------------------------------------------------------------
+
+  el('btnMarathon').addEventListener('click', () => {
+    if (!shows.length) { toast('No shows to marathon yet.', 2400); return; }
+    openMarathon();
+  });
+  el('btnCloseMarathon').addEventListener('click', closeMarathon);
+  el('marathonBackdrop').addEventListener('click', closeMarathon);
+  el('marathonCancel').addEventListener('click', closeMarathon);
+
+  el('marathonConfirm').addEventListener('click', () => {
+    const id = el('marathonPick').value;
+    if (!id) { closeMarathon(); return; }
+    closeMarathon();
+    onShowControl(id, 'startMarathon');
   });
 
   el('btnResetAll').addEventListener('click', () => {
@@ -3364,11 +3859,32 @@ function wireEvents() {
   // — it is the running order that changes, not the progress.
   el('btnShuffle').addEventListener('click', () => {
     if (!shows.length) { toast('Nothing to shuffle yet.', 2400); return; }
-    state = reshuffle(shows, state, {});
+
+    /**
+     * Shuffling is a statement that nothing should be dictating the order, so
+     * it turns off whatever was — a set schedule or a marathon — and goes back
+     * to the rotation and block size in Settings.
+     *
+     * Done through applySettings rather than reshuffle so the queue is rebuilt
+     * against the CLEARED settings; reshuffling first would deal a fresh round
+     * of the schedule that is about to be switched off.
+     */
+    const wasSchedule = activeSchedule(state.settings);
+    const wasMarathon = state.settings.marathonShowId;
+
+    if (wasSchedule || wasMarathon) {
+      state = applySettings(shows, state, { activeScheduleId: null, marathonShowId: null }, {});
+    } else {
+      state = reshuffle(shows, state, {});
+    }
+
     persist();
     renderSidebar();
+    if (!el('settingsModal').hidden) renderSettings();
+
     const upcoming = peek(shows, state, 1)[0];
-    toast(upcoming ? `Reshuffled — ${upcoming.showName} is up next.` : 'Reshuffled.', 3000);
+    const what = wasSchedule ? `${wasSchedule.name} off` : (wasMarathon ? 'Marathon off' : 'Reshuffled');
+    toast(upcoming ? `${what} — ${upcoming.showName} is up next.` : `${what}.`, 3000);
   });
 
   el('btnManualSave').addEventListener('click', async () => {
@@ -3793,6 +4309,25 @@ function onGlobalKey(event) {
   // Escape should peel off the sheet in front, not the one behind it.
   if (locksOpen()) {
     if (event.key === 'Escape') { event.preventDefault(); closeLocks(); }
+    return;
+  }
+
+  /**
+   * The schedule and marathon windows swallow keys the same way the others do.
+   *
+   * Marathon is checked FIRST because it can be opened over the schedule
+   * window, and Escape has to close the one actually on top. Returning
+   * unconditionally matters as much as the Escape: without it, space would
+   * pause an episode nobody can see behind the dialog, and typing a schedule
+   * name would fire the player's single-key shortcuts.
+   */
+  if (marathonOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeMarathon(); }
+    return;
+  }
+
+  if (scheduleOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeSchedule(); }
     return;
   }
 

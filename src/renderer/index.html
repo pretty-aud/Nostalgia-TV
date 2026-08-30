@@ -79,17 +79,34 @@
         <span class="filmnext__name" id="scheduleMovieName"></span>
         <span class="filmnext__when mono" id="scheduleMovieWhen"></span>
       </p>
-      <!-- The primary way to start a marathon. The per-show ▶ buttons do the
-           same job, but a control you have to hover a row to discover is not a
-           control most people will ever find. -->
-      <label class="field" id="marathonField">
-        <span class="field__label mono">Marathon</span>
+      <!-- Which running order is in force. Sits exactly where the marathon
+           picker used to, so "Up next" above it is undisturbed.
+
+           It doubles as the marathon's status line: while one is running this
+           goes quiet and reads "<show> — marathon playing", and picking a
+           schedule from it is what ends the marathon. One control for "what
+           decides the order", rather than two that can disagree. -->
+      <label class="field" id="scheduleField">
+        <span class="field__label mono">Schedule</span>
         <span class="field__control">
-          <select class="select" id="marathonSelect" aria-label="Play only one show"></select>
+          <select class="select" id="scheduleSelect" aria-label="Set schedule"></select>
         </span>
       </label>
 
       <div class="footactions">
+        <!-- Marathon is a question, not a toggle: it has to know WHICH show, so
+             it opens a picker rather than acting on the press. -->
+        <button class="settingsbtn" id="btnMarathon" type="button"
+                aria-haspopup="dialog" aria-label="Start a marathon" title="Start a marathon">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M17 2l4 4-4 4" />
+            <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+            <path d="M7 22l-4-4 4-4" />
+            <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+          </svg>
+        </button>
+
         <!-- Hidden without a MOVIES folder: a switch for something the library
              does not contain is a control with nothing behind it. -->
         <button class="settingsbtn" id="btnShuffle" type="button"
@@ -101,6 +118,19 @@
             <path d="M21 16v5h-5" />
             <path d="M15 15l6 6" />
             <path d="M4 4l5 5" />
+          </svg>
+        </button>
+
+        <!-- Between shuffle and library: the two ways of deciding what plays
+             next sit together, and browsing is a different question. -->
+        <button class="settingsbtn" id="btnSchedule" type="button"
+                aria-haspopup="dialog" aria-label="Set schedules" title="Set schedules">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8.5 6h12M8.5 12h12M8.5 18h12" />
+            <circle cx="3.8" cy="6" r="1.3" />
+            <circle cx="3.8" cy="12" r="1.3" />
+            <circle cx="3.8" cy="18" r="1.3" />
           </svg>
         </button>
 
@@ -495,6 +525,10 @@
           </div>
           <p class="modes__note" id="modeNote"></p>
 
+          <!-- The same window the sidebar button opens. A feature reachable
+               only from one small icon is a feature most people never find. -->
+          <button class="btn" id="btnOpenSchedule" type="button">Open set schedules</button>
+
           <!-- Shown always, not just while Blocks is selected: a control that
                appears only once you have already chosen the mode is one most
                people never discover. It dims instead. -->
@@ -637,6 +671,115 @@
       </table>
       <p class="locks__empty" id="lockEmpty" hidden>Nothing matches that search.</p>
     </div>
+  </div>
+</div>
+
+<!-- Set schedules: build a fixed running order by hand.
+
+     Two columns because the job is a comparison — what is ON the schedule
+     against what COULD be. The left column is the running order, top to bottom;
+     the right is every show, and a show may be dragged over more than once to
+     give it several blocks. -->
+<div class="modal modal--wide" id="scheduleModal" hidden>
+  <div class="modal__backdrop" id="scheduleBackdrop"></div>
+
+  <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="scheduleTitle">
+    <header class="modal__head">
+      <h2 class="modal__title" id="scheduleTitle">Set schedules</h2>
+      <button class="modal__close" id="btnCloseSchedule" type="button" aria-label="Close set schedules">✕</button>
+    </header>
+
+    <!-- Save / load bar. Which schedule is being edited, what it is called, and
+         how many episodes each of its blocks runs. -->
+    <div class="setsched__tools">
+      <label class="field field--tight">
+        <span class="field__label mono">Schedule</span>
+        <span class="field__control">
+          <select class="select" id="schedPick" aria-label="Which schedule to edit"></select>
+        </span>
+      </label>
+
+      <label class="field field--tight">
+        <span class="field__label mono">Name</span>
+        <span class="field__control">
+          <input class="input" id="schedName" type="text" maxlength="40"
+                 placeholder="Saturday mornings" aria-label="Schedule name" />
+        </span>
+      </label>
+
+      <label class="field field--tight">
+        <span class="field__label mono">Episodes per block</span>
+        <span class="field__control">
+          <input class="input input--num" id="schedBlock" type="number" min="1" max="12" step="1"
+                 aria-label="Episodes per block for this schedule" />
+        </span>
+      </label>
+
+      <div class="setsched__acts">
+        <button class="btn btn--quiet" id="schedNew" type="button">New</button>
+        <button class="btn btn--quiet" id="schedDuplicate" type="button">Duplicate</button>
+        <button class="btn btn--quiet" id="schedDelete" type="button">Delete</button>
+      </div>
+    </div>
+
+    <div class="modal__body setsched__body">
+      <section class="setsched__col" aria-labelledby="schedOrderHead">
+        <h3 class="setsched__head" id="schedOrderHead">
+          <span>Running order</span>
+          <span class="mono setsched__n" id="schedCount"></span>
+        </h3>
+        <p class="setsched__hint">Top plays first. Drag to reorder, or drag a show back to the right to remove it.</p>
+        <ol class="setsched__list" id="schedOrder" aria-label="The running order"></ol>
+        <p class="setsched__empty" id="schedEmpty">Drag shows here to build a running order.</p>
+      </section>
+
+      <section class="setsched__col" aria-labelledby="schedPoolHead">
+        <h3 class="setsched__head" id="schedPoolHead">
+          <span>Shows</span>
+          <span class="mono setsched__n" id="schedPoolCount"></span>
+        </h3>
+        <p class="setsched__hint">Drag onto the running order. Add a show more than once to give it several blocks.</p>
+        <ul class="setsched__list" id="schedPool" aria-label="Shows to choose from"></ul>
+      </section>
+    </div>
+
+    <footer class="setsched__foot">
+      <p class="setsched__status mono" id="schedStatus"></p>
+      <div class="setsched__acts">
+        <button class="btn btn--quiet" id="schedClear" type="button">Clear</button>
+        <button class="btn" id="schedUse" type="button">Save &amp; use</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<!-- Marathon: one question, one answer, one button. -->
+<div class="modal" id="marathonModal" hidden>
+  <div class="modal__backdrop" id="marathonBackdrop"></div>
+
+  <div class="modal__panel modal__panel--small" role="dialog" aria-modal="true" aria-labelledby="marathonTitle">
+    <header class="modal__head">
+      <h2 class="modal__title" id="marathonTitle">Marathon</h2>
+      <button class="modal__close" id="btnCloseMarathon" type="button" aria-label="Close marathon">✕</button>
+    </header>
+
+    <div class="modal__body">
+      <p class="setsched__hint">Play one show, and only that show, until you stop it.</p>
+      <label class="field">
+        <span class="field__label mono">Show</span>
+        <span class="field__control">
+          <select class="select" id="marathonPick" aria-label="Show to marathon"></select>
+        </span>
+      </label>
+    </div>
+
+    <footer class="setsched__foot">
+      <p class="setsched__status mono" id="marathonStatus"></p>
+      <div class="setsched__acts">
+        <button class="btn btn--quiet" id="marathonCancel" type="button">Cancel</button>
+        <button class="btn" id="marathonConfirm" type="button">Start marathon</button>
+      </div>
+    </footer>
   </div>
 </div>
 

@@ -21,7 +21,7 @@ if (!row) throw new Error('a one-block movie must appear in the list, not only o
 
 const list = document.getElementById('scheduleList');
 const head = list.previousElementSibling;
-const marathon = document.getElementById('marathonField');
+const marathon = document.getElementById("scheduleField");
 const top = (head || list).getBoundingClientRect();
 const bottom = (marathon || list).getBoundingClientRect();
 return { x: top.left, y: top.top - 10, width: top.width, height: (bottom.bottom - top.top) + 16 };

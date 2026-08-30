@@ -39,6 +39,20 @@ const DEFAULT_SETTINGS = {
   loopWhenExhausted: true, // a channel should not die when a show runs out
   disabledShows: [],       // show ids the user has switched off
   marathonShowId: null,    // when set, ONLY this show plays (see isEnabled)
+  /**
+   * Saved set schedules — a fixed running order, as opposed to a shuffle.
+   *
+   * Each entry is { id, name, blockSize, items: [showId, ...] }. `items` is
+   * ORDERED and may repeat a show deliberately: putting the same card in twice
+   * is how you give a show two blocks in one rotation.
+   *
+   * Kept in settings rather than at the top of state because activating one
+   * reshapes the queue exactly the way `mode` does, and applySettings already
+   * knows how to handle that.
+   */
+  schedules: [],
+  activeScheduleId: null,   // when set, the running order is fixed, not shuffled
+
   bumperClipsEnabled: true, // play a clip from the BUMPERS folder between episodes
   promosEnabled: true,      // play a clip from the PROMOS folder after the bumper
   promoEvery: 1,            // gap in episodes: 1 = between every episode
@@ -265,8 +279,42 @@ function isEnabled(show, settings, lockedIds) {
   // Marathon is checked FIRST, which is also what makes it an override: asking
   // for one show by name is an explicit instruction, and a lock is a default.
   if (settings.marathonShowId) return show.id === settings.marathonShowId;
+
+  /**
+   * A set schedule is the same kind of statement, so it overrides the same
+   * things. Naming a show in a schedule you built by hand outranks having
+   * switched it off at some point, and outranks a lock — which is a default
+   * for a rotation nobody has specified, not a veto over one you have.
+   *
+   * It also NARROWS: under a schedule the only shows that play are the ones on
+   * it, so a show left out is out whether or not it is switched on.
+   */
+  const schedule = activeSchedule(settings);
+  if (schedule) return (schedule.items || []).includes(show.id);
+
   if (lockedIds && lockedIds.has(show.id)) return false;
   return !(settings.disabledShows || []).includes(show.id);
+}
+
+/**
+ * The schedule currently selected, or null.
+ *
+ * Resolves the id every time rather than caching a reference, and returns null
+ * for an id that no longer matches anything — deleting the active schedule
+ * must fall back to shuffling rather than emptying the channel.
+ */
+function activeSchedule(settings) {
+  const id = settings && settings.activeScheduleId;
+  if (!id) return null;
+  const found = (settings.schedules || []).find((s) => s && s.id === id);
+  return found || null;
+}
+
+/** Episodes per block for whichever running order is in force. */
+function blockSizeFor(settings) {
+  const schedule = activeSchedule(settings);
+  const raw = schedule ? schedule.blockSize : settings.blockSize;
+  return Math.max(1, Number(raw) || 1);
 }
 
 /**
@@ -313,6 +361,18 @@ function refillQueue(shows, state, options = {}) {
   // is a lock that silently stops working the first time one of them forgets.
   const lockedIds = lockedShowIds(state);
 
+  /**
+   * Resolved once: a set schedule replaces the shuffled deck, overrides the
+   * rotation mode, and supplies its own block size.
+   *
+   * A marathon suppresses it outright rather than layering on top. Without
+   * this the deck refills from the schedule's shows, isEnabled rejects every
+   * one of them because a marathon admits only its own show, the deck comes
+   * back empty and the channel deals NOTHING — a marathon started while a
+   * schedule happened to be selected would simply stop dead.
+   */
+  const schedule = settings.marathonShowId ? null : activeSchedule(settings);
+
   const hasEpisodesLeft = (show) => {
     if (!isEnabled(show, settings, lockedIds)) return false;
     if (show.episodes.length === 0) return false;
@@ -349,7 +409,9 @@ function refillQueue(shows, state, options = {}) {
     guard += 1;
     if (guard > guardLimit) break; // belt and braces against a pathological library
 
-    if (settings.mode === 'random') {
+    // A set schedule outranks the rotation mode entirely: it IS the order, so
+    // 'random' must not get to deal over the top of it.
+    if (settings.mode === 'random' && !schedule) {
       const eligible = shows.filter(hasEpisodesLeft);
       if (eligible.length === 0) break;
       // Avoid a back-to-back repeat unless there is genuinely nothing else.
@@ -362,23 +424,48 @@ function refillQueue(shows, state, options = {}) {
     }
 
     if (deck.length === 0) {
-      const eligible = shows.filter(hasEpisodesLeft);
-      if (eligible.length === 0) break;
-      deck = shuffle(eligible.map((s) => s.id), rng);
+      if (schedule) {
+        /**
+         * The schedule IS the deck, in its own order, and refilling here is
+         * what makes it loop: run off the end and the next pass deals the same
+         * order again, each show picking up where it left off.
+         *
+         * Deliberately NOT shuffled and deliberately NOT head-swapped. Two of
+         * the same show back to back is an instruction in a hand-built
+         * schedule, not the clumping the shuffle exists to break up.
+         */
+        deck = (schedule.items || []).filter((id) => {
+          const show = byId.get(id);
+          return show && hasEpisodesLeft(show);
+        });
+        // Every show on the schedule is gone or exhausted; nothing left to deal.
+        if (deck.length === 0) break;
+      } else {
+        const eligible = shows.filter(hasEpisodesLeft);
+        if (eligible.length === 0) break;
+        deck = shuffle(eligible.map((s) => s.id), rng);
 
-      // Across a deck boundary the same show could land twice in a row. Swap
-      // the head with a random other entry so the channel never stutters.
-      const last = lastQueuedShow();
-      if (deck.length > 1 && deck[0] === last) {
-        const swapWith = 1 + Math.floor(rng() * (deck.length - 1));
-        [deck[0], deck[swapWith]] = [deck[swapWith], deck[0]];
+        // Across a deck boundary the same show could land twice in a row. Swap
+        // the head with a random other entry so the channel never stutters.
+        const last = lastQueuedShow();
+        if (deck.length > 1 && deck[0] === last) {
+          const swapWith = 1 + Math.floor(rng() * (deck.length - 1));
+          [deck[0], deck[swapWith]] = [deck[swapWith], deck[0]];
+        }
       }
     }
 
     const show = byId.get(deck.shift());
     if (!show || !hasEpisodesLeft(show)) continue;
 
-    const take = settings.mode === 'blocks' ? Math.max(1, settings.blockSize) : 1;
+    /**
+     * A schedule always runs in blocks — a card on the column is a block, and
+     * its size comes from the schedule rather than the global setting, so two
+     * saved schedules can run two different block lengths.
+     */
+    const take = schedule
+      ? blockSizeFor(settings)
+      : (settings.mode === 'blocks' ? Math.max(1, settings.blockSize) : 1);
     for (let i = 0; i < take; i += 1) {
       const item = dealFrom(show);
       if (!item) break;
@@ -1001,7 +1088,11 @@ function applySettings(shows, state, patch, options = {}) {
   const settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}), ...patch };
   // marathonShowId belongs here: without it, starting a marathon would keep
   // dealing the old mixed rotation for a dozen episodes before taking effect.
-  const reshapes = ['mode', 'blockSize', 'loopWhenExhausted', 'disabledShows', 'marathonShowId'];
+  // activeScheduleId and schedules both belong here: selecting a schedule, or
+  // editing the one already running, must show up in Up next immediately
+  // rather than a dozen episodes later.
+  const reshapes = ['mode', 'blockSize', 'loopWhenExhausted', 'disabledShows',
+    'marathonShowId', 'activeScheduleId', 'schedules'];
   const changed = reshapes.some((key) => JSON.stringify(settings[key]) !== JSON.stringify((state.settings || {})[key]));
 
   const next = { ...state, settings };
@@ -1018,6 +1109,8 @@ function applySettings(shows, state, patch, options = {}) {
 
 module.exports = {
   DEFAULT_SETTINGS,
+  activeSchedule,
+  blockSizeFor,
   QUEUE_TARGET,
   createState,
   shuffle,

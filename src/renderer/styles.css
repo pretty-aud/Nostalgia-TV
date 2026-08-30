@@ -2717,3 +2717,175 @@ video::cue {
   color: var(--ink-mute);
   line-height: 1.5;
 }
+
+/* ---------------------------------------------------------------------------
+   Set schedules
+
+   Everything here is expressed in tokens, never literal colours, so a theme
+   restyles it for free and no theme can special-case it.
+   --------------------------------------------------------------------------- */
+
+/* Text and number entry. The select already had this shape; nothing else did,
+   because until now nothing in the app asked to be typed into. */
+.input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--grotesque);
+  font-size: var(--t-body);
+  transition: border-color var(--fast), color var(--fast);
+}
+.input:hover { border-color: var(--ink-faint); }
+.input:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.input:disabled { color: var(--ink-faint); }
+.input--num { width: 84px; }
+
+/* The sidebar .field pads itself to sit in the sidebar's gutter; inside a modal
+   that inset is wrong, so the tight variant drops it. */
+.field--tight { padding: 0; }
+.field--tight .field__label { margin-bottom: calc(var(--u) * 0.5); }
+
+.modal__panel--small { width: min(420px, 100%); }
+
+.setsched__tools {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(var(--u) * 2);
+  padding: calc(var(--u) * 2) calc(var(--u) * 3);
+  border-bottom: 1px solid var(--hair);
+  flex-wrap: wrap;
+}
+.setsched__tools .field--tight:first-child { min-width: 200px; }
+.setsched__tools .field--tight:nth-child(2) { flex: 1 1 200px; }
+
+.setsched__acts { display: flex; gap: var(--u); margin-left: auto; }
+
+/* Two columns of equal weight: the job is comparing what IS scheduled against
+   what could be, and a narrow pool makes the second half of that unreadable. */
+.setsched__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--u) * 3);
+  padding: calc(var(--u) * 2) calc(var(--u) * 3);
+  align-items: start;
+}
+@media (max-width: 820px) {
+  .setsched__body { grid-template-columns: 1fr; }
+}
+
+.setsched__col { min-width: 0; display: flex; flex-direction: column; }
+
+.setsched__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--u);
+  font-size: var(--t-meta);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  margin-bottom: calc(var(--u) * 0.5);
+}
+.setsched__n { color: var(--ink-faint); }
+
+.setsched__hint {
+  font-size: var(--t-meta);
+  color: var(--ink-faint);
+  margin: 0 0 var(--u);
+  line-height: 1.5;
+}
+
+.setsched__list {
+  list-style: none;
+  margin: 0;
+  padding: var(--u);
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  min-height: 220px;
+  max-height: 46vh;
+  overflow-y: auto;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: var(--sunk, transparent);
+}
+/* The running order is a drop target even when empty, so it keeps its outline
+   while being dragged over. */
+.setsched__list[data-over="true"] {
+  border-color: var(--signal);
+  background: var(--lift);
+}
+
+.setsched__card {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 1.5);
+  padding: calc(var(--u) * 1.2) calc(var(--u) * 1.5);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  cursor: grab;
+  transition: border-color var(--fast), background var(--fast), opacity var(--fast);
+}
+.setsched__card:hover { border-color: var(--ink-faint); background: var(--lift); }
+.setsched__card:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.setsched__card[data-dragging="true"] { opacity: 0.4; cursor: grabbing; }
+
+/* Where the card would land. A line rather than a gap: a gap moves everything
+   below it and the list appears to jump while you are still deciding. */
+.setsched__card[data-drop="before"] { box-shadow: 0 -2px 0 var(--signal); }
+.setsched__card[data-drop="after"]  { box-shadow: 0 2px 0 var(--signal); }
+
+.setsched__pos {
+  font-family: var(--mono, monospace);
+  font-size: var(--t-meta);
+  color: var(--ink-faint);
+  min-width: 22px;
+}
+.setsetsched__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setsched__eps { font-size: var(--t-meta); color: var(--ink-faint); }
+
+/* --ink-mute, not --ink-faint: at the faintest tint this vanished completely
+   against the card and the only way to remove a block was to know that
+   dragging it back to the pool worked. An affordance you cannot see is not
+   one. Sized explicitly too — a bare <button> inherits the browser's small
+   default, which made an already invisible glyph smaller still. */
+.setsched__drop {
+  border: 0;
+  background: none;
+  color: var(--ink-mute);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+  transition: color var(--fast), background var(--fast);
+}
+.setsched__drop:hover { color: var(--ink); background: var(--lift); }
+.setsched__drop:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+
+.setsched__empty {
+  font-size: var(--t-meta);
+  color: var(--ink-faint);
+  text-align: center;
+  padding: calc(var(--u) * 2) 0 0;
+  margin: 0;
+}
+
+.setsched__foot {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 2);
+  padding: calc(var(--u) * 2) calc(var(--u) * 3);
+  border-top: 1px solid var(--hair);
+}
+.setsched__status { font-size: var(--t-meta); color: var(--ink-mute); margin: 0; }
+
+/* A schedule is running, so shuffling is a different action rather than an
+   unavailable one — it stays pressable and says so by looking stood down. */
+.settingsbtn[data-standdown="true"] { opacity: 0.38; }
+.settingsbtn[data-standdown="true"]:hover { opacity: 1; }
