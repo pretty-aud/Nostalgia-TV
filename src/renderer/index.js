@@ -121,8 +121,24 @@ const MODE_NOTES = {
 // helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Views where the sidebar sits translated off-screen (styles.css hides it for
+ * exactly these two). Rebuilding its DOM there is pure waste — and it happened
+ * on EVERY transition, all session: each episode advance rebuilt a list nobody
+ * could see. The flag remembers that a rebuild is owed, and setView pays the
+ * debt the moment the sidebar comes back.
+ */
+const SIDEBAR_HIDDEN_VIEWS = new Set(['playing', 'bumper']);
+let sidebarDirty = false;
+
+function sidebarVisible() {
+  return !SIDEBAR_HIDDEN_VIEWS.has(app.dataset.view);
+}
+
 function setView(view) {
+  const wasHidden = !sidebarVisible();
   app.dataset.view = view;
+  if (wasHidden && sidebarVisible() && sidebarDirty) renderSidebar();
 }
 
 function formatTime(seconds) {
@@ -382,6 +398,12 @@ function renderMovieToggle() {
 }
 
 function renderSidebar() {
+  // Off-screen means invisible AND untouchable (pointer-events: none), so
+  // deferring loses nothing a person could notice — the rebuild happens once,
+  // when the sidebar next appears, instead of once per transition behind it.
+  if (!sidebarVisible()) { sidebarDirty = true; return; }
+  sidebarDirty = false;
+
   el('rootLabel').textContent = state.rootPath || 'No folder chosen';
 
   const episodeCount = shows.reduce((n, s) => n + s.episodes.length, 0);
@@ -1674,10 +1696,37 @@ async function playClip(clip, onDone, kind = 'Bumper') {
   const token = ++playToken;
   let url = clip.mediaUrl;
   if (clip.absPath && window.tv.ensurePlayable) {
-    const result = await window.tv.ensurePlayable(clip.absPath).catch(() => null);
-    if (token !== playToken) return;            // superseded while preparing
-    if (result && result.ok && result.mediaUrl) url = result.mediaUrl;
-    else { onDone(); return; }                  // not worth stalling the channel
+    /**
+     * Same cache as the episodes — but ONLY for a clip that plays as itself.
+     *
+     * Clips used to bypass the cache entirely, which meant an IPC round-trip
+     * and an ffprobe between EVERY episode, all session. A native clip's URL
+     * points at the original file, which nothing ever evicts, so remembering
+     * it is free. A CONVERTED clip's URL points into the evictable cache, and
+     * remembering it would be a trap twice over: the cache-hit fast path
+     * skips ensurePlayable, which is the only thing that touches the file's
+     * atime — freezing the most-played clips at the bottom of the LRU order —
+     * and once the file IS evicted the remembered URL is dead, the error path
+     * below fires onDone, and that bumper never plays again all session
+     * (episodes recover in onPlaybackError; clips deliberately return early
+     * there). So converted clips keep paying the ensurePlayable call, which
+     * is what re-converts them transparently after an eviction — and with the
+     * probe memo it costs a stat, not a spawn. The write is generation-gated
+     * like every other async cache write here.
+     */
+    if (playableUrls.has(clip.absPath)) {
+      url = playableUrls.get(clip.absPath);
+    } else {
+      const generation = prefGeneration;
+      const result = await window.tv.ensurePlayable(clip.absPath).catch(() => null);
+      if (token !== playToken) return;          // superseded while preparing
+      if (result && result.ok && result.mediaUrl) {
+        url = result.mediaUrl;
+        if (result.playablePath === clip.absPath && generation === prefGeneration) {
+          playableUrls.set(clip.absPath, result.mediaUrl);
+        }
+      } else { onDone(); return; }              // not worth stalling the channel
+    }
   }
 
   let done = false;
@@ -1686,7 +1735,7 @@ async function playClip(clip, onDone, kind = 'Bumper') {
   const teardown = () => {
     clearTimeout(watchdog);
     player.removeEventListener('ended', finish);
-    player.removeEventListener('error', finish);
+    player.removeEventListener('error', failed);
     player.removeEventListener('loadedmetadata', armFullWatchdog);
     bumperClipCleanup = null;
     // Cleared LAST: the permanent `ended`/`error` listeners were registered
@@ -1701,6 +1750,16 @@ async function playClip(clip, onDone, kind = 'Bumper') {
     // ending and the next thing starting — which is dead black on screen,
     // because the clip is over and the card has not begun.
     onDone();
+  };
+
+  /**
+   * An erroring clip forgets its remembered URL before finishing, so the next
+   * deal re-resolves instead of replaying the same dead source forever. Cheap
+   * even when the error was transient: forgetting costs one re-ensure.
+   */
+  const failed = () => {
+    if (clip.absPath) playableUrls.delete(clip.absPath);
+    finish();
   };
 
   /**
@@ -1747,10 +1806,10 @@ async function playClip(clip, onDone, kind = 'Bumper') {
   applyPicture(true);
 
   player.addEventListener('ended', finish, { once: true });
-  player.addEventListener('error', finish, { once: true });
+  player.addEventListener('error', failed, { once: true });
   player.src = url;
   player.load();
-  player.play().catch(finish);
+  player.play().catch(failed);
 
   /**
    * Convert the next episodes now the clip is actually rolling.
@@ -2546,22 +2605,47 @@ function applyPicture(isInterstitial) {
 }
 
 /**
+ * How long a fresh crop detection waits after an episode starts.
+ *
+ * The same courtesy prepare-ahead pays (its own 2 s delay a few lines from its
+ * call site): detection is one ffprobe plus four ffmpeg sampling passes, and
+ * firing those at the exact moment an episode starts contends with the
+ * episode's own startup reads on the same disk. A KNOWN crop skips the wait
+ * entirely — it comes from the cache and touches no tools.
+ */
+const CROP_DETECT_DELAY_MS = 2000;
+
+/**
  * Ask for the crop of the episode on screen and apply it.
  *
- * Detection needs ffmpeg and takes under a second, so it runs after playback
- * has already started — the picture snaps to full size a moment in rather than
- * delaying the episode, and the result is cached for next time.
+ * Two-step on purpose. The cached answer is asked for immediately and applies
+ * the moment metadata arrives — a file measured before must not play its first
+ * two seconds letterboxed. Only a file we have never measured waits out the
+ * startup window before ffmpeg goes anywhere near the disk.
+ *
+ * `immediate` skips the wait: the settings toggle is a person asking now.
  */
-async function loadCropForCurrent() {
+async function loadCropForCurrent(immediate = false) {
   currentCrop = null;
   applyPicture(false);
 
   const absPath = current && current.episode ? current.episode.absPath : null;
   if (!absPath || !window.tv.detectCrop || state.settings.autoCrop === false) return;
 
-  const crop = await window.tv.detectCrop(absPath).catch(() => null);
-  // The episode may have moved on while ffmpeg looked.
+  let crop = await window.tv.detectCrop(absPath, { cachedOnly: true }).catch(() => null);
+  // The episode may have moved on while we asked.
   if (!current || current.episode.absPath !== absPath) return;
+
+  if (!crop) {
+    if (!immediate) {
+      await new Promise((resolve) => setTimeout(resolve, CROP_DETECT_DELAY_MS));
+      if (!current || current.episode.absPath !== absPath) return;
+    }
+    crop = await window.tv.detectCrop(absPath).catch(() => null);
+    // The episode may have moved on while ffmpeg looked.
+    if (!current || current.episode.absPath !== absPath) return;
+  }
+
   currentCrop = crop;
   applyPicture(playingBumperClip);
 }
@@ -4556,8 +4640,9 @@ The channel keeps its own place.`)) return;
 
   el('autoCropToggle').addEventListener('change', (event) => {
     setSetting({ autoCrop: event.target.checked });
-    // Switching it on mid-episode should crop THIS episode, not the next one.
-    if (event.target.checked && !currentCrop) loadCropForCurrent();
+    // Switching it on mid-episode should crop THIS episode, not the next one —
+    // and a person at the toggle is asking now, so skip the startup courtesy.
+    if (event.target.checked && !currentCrop) loadCropForCurrent(true);
     else applyPicture(playingBumperClip);
   });
 
@@ -5397,8 +5482,24 @@ async function paintArt(art, candidates, artKey) {
 
   for (const candidate of list) {
     if (!candidate.absPath) continue;
+    /**
+     * The in-memory cache sits right beside this loop and used to be ignored:
+     * every gallery open re-fetched every visible tile over IPC as fresh
+     * base64. A remembered frame paints instantly; a remembered null means the
+     * file already failed to decode this session, so neither the IPC nor the
+     * decode queue will produce anything for it.
+     */
+    const known = thumbCache.get(candidate.absPath);
+    if (known === null) continue;
+    if (known) {
+      if (show(known)) return;
+      continue; // a remembered frame that would not paint will not paint from IPC either
+    }
     const cached = await window.tv.getThumb(candidate.absPath).catch(() => null);
-    if (cached && show(cached)) return;
+    if (cached) {
+      thumbCache.set(candidate.absPath, cached);
+      if (show(cached)) return;
+    }
   }
 
   queueDecode(list[0], show);

@@ -274,6 +274,58 @@ function findFfprobe() {
 // ---------------------------------------------------------------------------
 
 /**
+ * One probe per file, not one per question.
+ *
+ * A first play asks about the same file three to five times — inspect for the
+ * plan, listTracks for the menu, detectCrop for the bars — and each ask was a
+ * fresh ffprobe spawn. The streams in a file do not change between those
+ * questions, so the answer is remembered, validated by the file's size and
+ * mtime: swap a file in place and the stamp changes, so the stale answer can
+ * never be served (the same rule the conversion cache key lives by).
+ *
+ * Failures are never remembered. A probe fails for reasons that have nothing
+ * to do with the file — the external drive dropping off being the usual one —
+ * and a cached failure would hold long after the drive came back.
+ */
+const PROBE_MEMO_LIMIT = 64;
+
+/**
+ * A small stamp-validated LRU. Split out because the eviction and validation
+ * rules are the part worth pinning, and they cannot be tested through a
+ * function whose other half spawns ffprobe.
+ */
+function createStampMemo(limit) {
+  const entries = new Map();
+  return {
+    get(key, stamp) {
+      const hit = entries.get(key);
+      if (!hit || hit.stamp !== stamp) return undefined;
+      // Re-insert so Map order stays least-recently-USED, not least-recently-set.
+      entries.delete(key);
+      entries.set(key, hit);
+      return hit.value;
+    },
+    set(key, stamp, value) {
+      entries.delete(key);
+      entries.set(key, { stamp, value });
+      while (entries.size > limit) entries.delete(entries.keys().next().value);
+    },
+    size: () => entries.size,
+  };
+}
+
+const probeMemo = createStampMemo(PROBE_MEMO_LIMIT);
+
+async function statStamp(absPath) {
+  try {
+    const stat = await fsp.stat(absPath);
+    return `${stat.size}:${Math.floor(stat.mtimeMs)}`;
+  } catch {
+    return null; // unreadable: the probe will fail on its own and say so
+  }
+}
+
+/**
  * Read every stream in a file, in any container.
  *
  * The hand-written Matroska parser only understands .mkv, but a dual-audio
@@ -283,6 +335,19 @@ function findFfprobe() {
  * the no-ffmpeg fallback.
  */
 async function probeWithFfprobe(absPath) {
+  const stamp = await statStamp(absPath);
+  if (stamp) {
+    const remembered = probeMemo.get(absPath, stamp);
+    if (remembered !== undefined) return remembered;
+  }
+  const probe = await probeWithFfprobeUncached(absPath);
+  // Callers treat the result as read-only (nothing in this codebase mutates a
+  // probe), which is what makes handing the same object back safe.
+  if (stamp && probe && probe.ok) probeMemo.set(absPath, stamp, probe);
+  return probe;
+}
+
+async function probeWithFfprobeUncached(absPath) {
   const ffprobe = findFfprobe();
   if (!ffprobe) return null;
 
@@ -545,17 +610,31 @@ async function cacheEntries() {
  * Never evicts a pinned file. Deleting the episode currently on screen would
  * kill playback mid-scene, and deleting the next one would waste the work we
  * did precisely so the transition would be seamless.
+ *
+ * `minAgeMs` protects anything touched more recently than that, and exists
+ * for the one caller with NO pins: the boot sweep. At boot the pin set is
+ * empty (it died with the last process, and the renderer's first pin arrives
+ * seconds after playback starts) — and the resume episode's conversion has
+ * the OLDEST atime of the last session's working set, because it was touched
+ * when its play STARTED while the prepare-ahead conversions were written
+ * during it. A floorless boot pass would therefore evict exactly the file
+ * the Resume button is about to ask for, in favour of episodes further out.
+ * The floor keeps the whole last session's working set; genuinely stale bulk
+ * still drains, and the mid-session passes — which do have real pins — hold
+ * the budget from there. The total is reported honestly either way.
  */
-async function enforceBudget(budget = DEFAULT_CACHE_BUDGET) {
+async function enforceBudget(budget = DEFAULT_CACHE_BUDGET, { minAgeMs = 0 } = {}) {
   const entries = await cacheEntries();
   let total = entries.reduce((n, e) => n + e.size, 0);
   if (total <= budget) return { evicted: 0, total };
 
+  const now = Date.now();
   entries.sort((a, b) => a.atime - b.atime); // oldest touched first
   let evicted = 0;
   for (const entry of entries) {
     if (total <= budget) break;
     if (pinned.has(entry.path)) continue;
+    if (minAgeMs > 0 && now - entry.atime < minAgeMs) continue;
     try {
       await fsp.unlink(entry.path);
       total -= entry.size;
@@ -589,7 +668,7 @@ function unpinAllExcept(keep = []) {
  * is one. The jobs map cannot be consulted for paths (it does not record the
  * output), and does not need to be.
  */
-async function cleanupCache(budget = DEFAULT_CACHE_BUDGET) {
+async function cleanupCache(budget = DEFAULT_CACHE_BUDGET, { minAgeMs = 0 } = {}) {
   let removedParts = 0;
   let reclaimedBytes = 0;
   try {
@@ -608,7 +687,7 @@ async function cleanupCache(budget = DEFAULT_CACHE_BUDGET) {
     }
   } catch { /* cache dir missing: nothing to clean */ }
 
-  const { evicted, total } = await enforceBudget(budget);
+  const { evicted, total } = await enforceBudget(budget, { minAgeMs });
   return { removedParts, reclaimedBytes, evicted, totalBytes: total };
 }
 
@@ -871,15 +950,21 @@ function runCaptureErr(exe, args, timeoutMs = 60000) {
  * Returns fractions of the frame, so the caller never has to think about
  * anamorphic pixels — 852x480 tagged 16:9 is the exact case this exists for.
  */
-async function detectCrop(absPath) {
-  const ffmpeg = findFfmpeg();
-  if (!ffmpeg) return null;
-
+async function detectCrop(absPath, options = {}) {
+  // Cache first, ffmpeg second: a remembered crop needs no tools at all, and
+  // the caller asking `cachedOnly` is asking exactly "do we already know?" —
+  // detection for a file we have never measured waits for a politer moment.
   const key = await cacheKeyFor(absPath, 'crop');
   const cacheFile = path.join(cacheDir, `${key}.crop.json`);
   try {
     return JSON.parse(await fsp.readFile(cacheFile, 'utf8'));
   } catch { /* not detected yet */ }
+
+  if (options.cachedOnly) return null;
+
+
+  const ffmpeg = findFfmpeg();
+  if (!ffmpeg) return null;
 
   const probe = await probeWithFfprobe(absPath);
   const video = (probe && probe.tracks || []).find((t) => t.type === 'video');
@@ -1053,8 +1138,19 @@ module.exports = {
   activeJobs,
   DEFAULT_CACHE_BUDGET,
   // Exported for tests: the candidate ORDER and the .part redirect are the
-  // parts that cannot be checked by running them. Consumers import TIER from
-  // src/shared/playability.js directly.
+  // parts that cannot be checked by running them, and the memo's validation
+  // and eviction rules cannot be checked through a function that spawns.
+  // probeWithFfprobe + probeMemoSize let a test prove the memo is actually
+  // consulted and that a FAILED probe is never remembered — the rule whose
+  // violation pins a wrong language for a whole session.
+  // Consumers import TIER from src/shared/playability.js directly.
   ffmpegCandidates,
   partArgsFor,
+  createStampMemo,
+  probeWithFfprobe,
+  probeMemoSize: () => probeMemo.size(),
+  // ffprobe can be absent on a machine that HAS ffmpeg (a lone copied
+  // ffmpeg.exe); tests that genuinely need probing must gate on this, not on
+  // findFfmpeg, or they fail red where they should skip.
+  findFfprobe,
 };

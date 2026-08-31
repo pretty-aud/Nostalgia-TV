@@ -931,10 +931,17 @@ function registerIpc() {
     }
   });
 
-  /** The real picture inside a frame with bars baked in. */
-  ipcMain.handle('prepare:crop', async (_event, absPath) => {
+  /**
+   * The real picture inside a frame with bars baked in.
+   *
+   * `cachedOnly` answers from the crop cache without ever spawning ffmpeg —
+   * the renderer applies a known crop the instant an episode starts, and only
+   * measures unknown files after the startup contention window has passed.
+   */
+  ipcMain.handle('prepare:crop', async (_event, absPath, options) => {
     if (!isInsideAllowedRoot(absPath)) return null;
-    try { return await prepare.detectCrop(absPath); } catch { return null; }
+    const cachedOnly = Boolean(options && options.cachedOnly);
+    try { return await prepare.detectCrop(absPath, { cachedOnly }); } catch { return null; }
   });
 
   ipcMain.handle('prepare:cancel', async (_event, absPath) => ({ cancelled: prepare.cancel(absPath) }));
@@ -988,6 +995,21 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     prepareCacheRoot = path.join(app.getPath('userData'), 'prepared');
     prepare.setCacheDir(prepareCacheRoot);
+    /**
+     * The cache polices itself at every launch, not only when the Settings
+     * button is pressed. Orphaned .part fragments once grew to 69 GB precisely
+     * because nothing ran this automatically, and the budget was only enforced
+     * after a conversion FINISHED — a cache pushed over budget stayed there
+     * across sessions. The single-instance lock means no other process is
+     * writing here and no jobs exist yet — but NOTHING IS PINNED either, and
+     * bare LRU order at boot picks the resume episode's conversion first (its
+     * atime dates from when its play STARTED; the prepare-ahead files were
+     * written after it). Hence the age floor: the last session's working set
+     * is left alone, stale bulk drains, and the mid-session passes — which
+     * have real pins — hold the budget from there. Fire-and-forget so a large
+     * sweep never delays the window.
+     */
+    prepare.cleanupCache(undefined, { minAgeMs: 48 * 60 * 60 * 1000 }).catch(() => {});
     artwork.init({ dir: path.join(app.getPath('userData'), 'artwork'), findFfmpeg: prepare.findFfmpeg });
     ingest.init({ file: path.join(app.getPath('userData'), 'ingest.json') });
 

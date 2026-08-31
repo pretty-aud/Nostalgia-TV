@@ -63,7 +63,7 @@ contextBridge.exposeInMainWorld('tv', {
   savePlaybackVerdict: (absPath, verdict) => ipcRenderer.invoke('prepare:saveVerdict', absPath, verdict),
   inspect: (absPath, options) => ipcRenderer.invoke('prepare:inspect', absPath, options),
   ensurePlayable: (absPath, forceTier, audioIndex, preferLanguage) => ipcRenderer.invoke('prepare:ensure', absPath, forceTier, audioIndex, preferLanguage),
-  detectCrop: (absPath) => ipcRenderer.invoke('prepare:crop', absPath),
+  detectCrop: (absPath, options) => ipcRenderer.invoke('prepare:crop', absPath, options),
   listTracks: (absPath, options) => ipcRenderer.invoke('prepare:tracks', absPath, options),
   subtitleText: (absPath, index) => ipcRenderer.invoke('prepare:subtitle', absPath, index),
   cancelPrepare: (absPath) => ipcRenderer.invoke('prepare:cancel', absPath),
