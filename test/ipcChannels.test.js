@@ -22,11 +22,21 @@ const read = (f) => fs.readFileSync(path.join(here, '..', 'electron', f), 'utf8'
 
 const preload = read('preload.js');
 const main = read('main.js');
+const mpvHost = read('mpvHost.js');
 
+// mpvHost declares its channels as object keys and registers them in a loop,
+// so its half of the contract is the KEY literal, not an ipcMain.handle call.
+// Its pushes go through an injected `send`, scanned the same way.
 const invoked = [...preload.matchAll(/ipcRenderer\.invoke\(\s*'([^']+)'/g)].map((m) => m[1]);
-const handled = [...main.matchAll(/ipcMain\.handle\(\s*'([^']+)'/g)].map((m) => m[1]);
+const handled = [
+  ...[...main.matchAll(/ipcMain\.handle\(\s*'([^']+)'/g)].map((m) => m[1]),
+  ...[...mpvHost.matchAll(/'(mpv:[^']+)':/g)].map((m) => m[1]),
+];
 
-const sent = [...main.matchAll(/webContents\.send\(\s*'([^']+)'/g)].map((m) => m[1]);
+const sent = [
+  ...[...main.matchAll(/webContents\.send\(\s*'([^']+)'/g)].map((m) => m[1]),
+  ...[...mpvHost.matchAll(/send\(\s*'(mpv:[^']+)'/g)].map((m) => m[1]),
+];
 const listened = [...preload.matchAll(/ipcRenderer\.on\(\s*'([^']+)'/g)].map((m) => m[1]);
 
 describe('ipc channels', () => {
@@ -39,6 +49,22 @@ describe('ipc channels', () => {
 
   it('has a handler for everything the renderer invokes', () => {
     expect(invoked.filter((channel) => !handled.includes(channel))).toEqual([]);
+  });
+
+  it('knows exactly which declared channels main.js does not register yet', () => {
+    // Honesty pin for the mpv-player branch's half-built state: mpvHost.js
+    // DECLARES the mpv:* handlers (scanned into `handled` above) but main.js
+    // does not attach them until the boot switchover. Naming the unwired set
+    // exactly keeps the sweep honest twice over — any OTHER unregistered
+    // channel still fails the test above, and when the switchover lands,
+    // main.js gains a `host.handlers` registration and THIS list must go
+    // empty or the pin turns red.
+    const registeredByMain = [...main.matchAll(/ipcMain\.handle\(\s*'([^']+)'/g)].map((m) => m[1]);
+    const registersHostLoop = /host\.handlers/.test(main);
+    const unwired = invoked.filter(
+      (channel) => !registeredByMain.includes(channel) && !registersHostLoop,
+    );
+    expect(unwired).toEqual(invoked.filter((c) => c.startsWith('mpv:')));
   });
 
   it('has a listener for everything main pushes', () => {

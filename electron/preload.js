@@ -80,4 +80,43 @@ contextBridge.exposeInMainWorld('tv', {
     ipcRenderer.on('prepare:progress', listener);
     return () => ipcRenderer.removeListener('prepare:progress', listener);
   },
+
+  // --- the mpv player (mpv-player branch) ----------------------------------
+  // Typed verbs, not a raw command pipe: each one is validated in
+  // electron/mpvHost.js the way every prepare:* handler validates its own.
+  mpvOpen: (absPath, options) => ipcRenderer.invoke('mpv:open', absPath, options),
+  mpvStop: () => ipcRenderer.invoke('mpv:stop'),
+  mpvSetPause: (value) => ipcRenderer.invoke('mpv:setPause', value),
+  mpvSeek: (seconds) => ipcRenderer.invoke('mpv:seek', seconds),
+  mpvSetVolume: (level) => ipcRenderer.invoke('mpv:setVolume', level),
+  mpvSetMute: (value) => ipcRenderer.invoke('mpv:setMute', value),
+  mpvSetAudioTrack: (id) => ipcRenderer.invoke('mpv:setAudioTrack', id),
+  mpvSetSubTrack: (id) => ipcRenderer.invoke('mpv:setSubTrack', id),
+  mpvTrackList: () => ipcRenderer.invoke('mpv:trackList'),
+
+  onMpvProp: (handler) => {
+    const listener = (_event, name, value) => handler(name, value);
+    ipcRenderer.on('mpv:prop', listener);
+    return () => ipcRenderer.removeListener('mpv:prop', listener);
+  },
+  onMpvEvent: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('mpv:event', listener);
+    return () => ipcRenderer.removeListener('mpv:event', listener);
+  },
+  onMpvDied: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on('mpv:died', listener);
+    return () => ipcRenderer.removeListener('mpv:died', listener);
+  },
+  onMpvRestarted: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on('mpv:restarted', listener);
+    return () => ipcRenderer.removeListener('mpv:restarted', listener);
+  },
+  onMpvDown: (handler) => {
+    const listener = (_event, info) => handler(info);
+    ipcRenderer.on('mpv:down', listener);
+    return () => ipcRenderer.removeListener('mpv:down', listener);
+  },
 });

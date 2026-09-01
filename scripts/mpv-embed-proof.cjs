@@ -31,7 +31,7 @@ const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { app, screen } = require('electron');
+const { app, screen, ipcMain } = require('electron');
 
 const root = path.join(__dirname, '..');
 const work = path.join(os.tmpdir(), 'ntv-mpv-proof');
@@ -43,6 +43,7 @@ app.setPath('userData', path.join(work, 'profile'));
 // vitest run can do.
 const { startMpvPlayer } = require(path.join(root, 'electron', 'mpvPlayer.js'));
 const { createPlanes } = require(path.join(root, 'electron', 'planeManager.js'));
+const { createMpvHost } = require(path.join(root, 'electron', 'mpvHost.js'));
 
 const FFMPEG = path.join(root, 'vendor', 'ffmpeg', 'ffmpeg.exe');
 const CLIP = path.join(work, 'solid-red.mp4');
@@ -88,12 +89,19 @@ function screenPixel(x, y) {
   return { r: +match[1], g: +match[2], b: +match[3] };
 }
 
-/** A real click through the OS input queue — not a DOM event we invented. */
+/**
+ * A real click through the OS input queue — not a DOM event we invented.
+ *
+ * The warp and the click are two calls, and a HAND on the mouse between them
+ * moves the click somewhere else entirely — this machine is in daily use, so
+ * that is a real flake, observed once. The window is kept as small as the
+ * input queue allows, and the caller retries.
+ */
 function osClick(x, y) {
   const script = [
     'Add-Type -MemberDefinition \'[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y); [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint data, System.UIntPtr extra);\' -Name U -Namespace W',
     `[W.U]::SetCursorPos(${Math.round(x)}, ${Math.round(y)}) | Out-Null`,
-    'Start-Sleep -Milliseconds 120',
+    'Start-Sleep -Milliseconds 25',
     '[W.U]::mouse_event(2, 0, 0, 0, [System.UIntPtr]::Zero)',   // left down
     '[W.U]::mouse_event(4, 0, 0, 0, [System.UIntPtr]::Zero)',   // left up
   ].join('; ');
@@ -145,6 +153,9 @@ async function main() {
       // see THESE windows, not whatever is behind them.
       alwaysOnTop: true,
     },
+    // The REAL preload: the typed-chain checks below drive playback the way
+    // the actual renderer will — window.tv, not a backstage handle.
+    overlayWebPreferences: { preload: path.join(root, 'electron', 'preload.js') },
   });
 
   overlay.loadURL('data:text/html,' + encodeURIComponent(`
@@ -161,7 +172,27 @@ async function main() {
     logFile: path.join(work, 'mpv-internal.log'),
   });
   await player.command('set_property', 'mute', true);
-  await player.command('loadfile', CLIP);
+
+  // --- the host: typed IPC between the page and the player ------------------
+  // Allowed root = the work dir the red clip lives in, so the guard has a
+  // real boundary to enforce (and a check below proves it does).
+  const host = createMpvHost({
+    player,
+    send: (...args) => { if (!overlay.isDestroyed()) overlay.webContents.send(...args); },
+    isInsideAllowedRoot: (p) => String(p).toLowerCase().startsWith(work.toLowerCase()),
+  });
+  for (const [channel, handler] of Object.entries(host.handlers)) ipcMain.handle(channel, handler);
+  await host.ready;
+
+  // The page records the property stream like the real facade will.
+  await overlay.webContents.executeJavaScript(
+    'window.__props = []; window.tv.onMpvProp((n, v) => window.__props.push([n, v])); true');
+
+  // Open THROUGH THE CHAIN — page → preload → ipc → host → player → mpv —
+  // with a start offset, which also proves the loadfile arity against the
+  // real binary (a wrong argument count errors instead of starting at 5s).
+  await overlay.webContents.executeJavaScript(
+    `window.tv.mpvOpen(${JSON.stringify(CLIP)}, { startSeconds: 5, paused: false })`);
 
   // Wait until mpv says it is genuinely rendering and time is moving.
   let time = 0;
@@ -170,10 +201,20 @@ async function main() {
     await sleep(100);
     time = await player.command('get_property', 'playback-time').catch(() => 0) || 0;
     vo = await player.command('get_property', 'vo-configured').catch(() => false);
-    if (vo && time > 0.4) break;
+    if (vo && time > 5.4) break;
   }
-  verdict('mpv renders into the given window', Boolean(vo) && time > 0.4,
-    `vo-configured=${vo}, playback-time=${Number(time).toFixed(2)}s`);
+  verdict('the typed chain opens the file at its start offset',
+    Boolean(vo) && time > 5.4 && time < 11,
+    `vo-configured=${vo}, playback-time=${Number(time).toFixed(2)}s (asked for 5)`);
+
+  const sawTime = await overlay.webContents.executeJavaScript(
+    'window.__props.filter(([n]) => n === "time-pos").length');
+  verdict('the property stream reaches the page', sawTime > 0, `${sawTime} time-pos updates seen`);
+
+  const refusal = await overlay.webContents.executeJavaScript(
+    `window.tv.mpvOpen('C:/Windows/notepad.exe').then(() => 'OPENED', (e) => String(e))`);
+  verdict('the path guard refuses a file outside the allowed root',
+    /Forbidden/.test(refusal), refusal.slice(0, 60));
 
   console.log('children of the video window, topmost first (mpv must lead):');
   for (const line of childWindowsOf(hwndOf(video))) console.log(`  ${line}`);
@@ -198,9 +239,12 @@ async function main() {
     green ? `rgb(${green.r},${green.g},${green.b}) at badge` : 'screenshot failed');
 
   // --- input evidence ------------------------------------------------------
-  osClick(badgePoint.x, badgePoint.y);
-  await sleep(400);
-  const clicks = await overlay.webContents.executeJavaScript('window.__clicks || 0');
+  let clicks = 0;
+  for (let attempt = 0; attempt < 3 && clicks === 0; attempt += 1) {
+    osClick(badgePoint.x, badgePoint.y);
+    await sleep(400);
+    clicks = await overlay.webContents.executeJavaScript('window.__clicks || 0');
+  }
   verdict('a real OS click lands on the interface plane', clicks >= 1, `clicks=${clicks}`);
 
   // A failing control for the click check: a point with no button under it

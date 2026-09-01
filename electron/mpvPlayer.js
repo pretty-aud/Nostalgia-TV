@@ -172,10 +172,9 @@ async function startMpvPlayer({ hwnd, logFile, exePath }) {
       windowsHide: true, stdio: 'ignore',
     });
     const client = await connectMpv(pipeName);
-    current = { child, client, pipeName };
 
     child.on('exit', (code) => {
-      if (closed || current.child !== child) return;
+      if (closed || !current || current.child !== child) return;
       client.close();
       onUnrequestedExit(code);
     });
@@ -185,10 +184,29 @@ async function startMpvPlayer({ hwnd, logFile, exePath }) {
     // symptom that costs a day.
     const raised = await raiseMpvChild(hwnd);
     if (!raised) emit('raise-failed', {});
+
+    // A child that died DURING its own spawn no longer matches `current` in
+    // the exit handler (deliberately — see the swap below), so it is caught
+    // here instead and surfaces as a failed spawn for the restart policy.
+    if (client.isClosed()) throw new Error('mpv died during startup');
+
+    /**
+     * The swap is LAST, after every await. From the moment `current` points
+     * at the new client, commands from the renderer succeed — so nothing may
+     * succeed before the 'restarted' consumers have had their synchronous
+     * chance to re-attach event handlers. Swapping mid-respawn opened a
+     * window where a loadfile went through while its start-file event had
+     * no listener, which jammed the renderer's staleness gate for good.
+     */
+    current = { child, client, pipeName };
     return client;
   }
 
   function onUnrequestedExit(code) {
+    // The renderer's bridge suspends its property mirrors the moment this
+    // fires — the fresh process's default-state reports must never read as
+    // the viewer's choices.
+    emit('died', { code });
     const now = Date.now();
     exits.push(now);
     const delay = nextRestartDelay(exits, now);
@@ -201,8 +219,9 @@ async function startMpvPlayer({ hwnd, logFile, exePath }) {
       try {
         await spawnOnce();
         emit('restarted', { afterCode: code });
-      } catch (error) {
-        emit('down', { code, error: String(error && error.message) });
+      } catch {
+        // Died during its own spawn: the next rung decides, same policy.
+        onUnrequestedExit(code);
       }
     }, delay);
   }
