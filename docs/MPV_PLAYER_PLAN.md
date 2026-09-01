@@ -71,11 +71,26 @@ Still to build, in order:
    screen. ⚠️ The harness's crash check uses `taskkill /IM mpv.exe` — it
    would kill any unrelated mpv on the machine; fine for a dev proof, do not
    copy the pattern.
-2. **S-mpv-3: the player facade.** `src/renderer/mpvBridge.js` exposing the
-   `<video>`-shaped surface the renderer already leans on (`play/pause/
-   currentTime/duration/volume/muted`, `ended`/`error`/`timeupdate`-equivalent
-   events via `time-pos`/`end-file` observers) so `index.js` diffs stay small.
-   The permanent-listeners-plus-`playingBumperClip` architecture maps 1:1.
+2. **S-mpv-3: the player facade.** ✅ **COMPLETE (`0f6b5cf`).**
+   `src/renderer/mpvBridge.js` (the `<video>` face) + `electron/mpvHost.js`
+   (typed IPC, path-guarded open, observer registry) + the preload surface.
+   Two review rounds, 30 confirmed findings folded in. **Contracts the next
+   steps build on:**
+   - 🚨 **The staleness gate**: the prop stream and command channel are not
+     synchronised; `open()` increments `pendingLoads`, mpv's `start-file`
+     event (exactly one per loadfile, FIFO) decrements, and per-file
+     messages are dropped while a load is pending. **Its failure paths are
+     load-bearing**: mpv:restarted RESETS the gate, a refused open unwinds
+     its increment, `mpv:died` suspends all mirrors until the restore.
+   - `intended` (pause/volume/mute) = what the viewer chose; observed props
+     never write it; crash restores read it.
+   - The player swaps its live client LAST during respawn; the host attaches
+     event handlers synchronously FIRST — no command may reach a process
+     whose start-file has no listener.
+   - 'ended' = `eof-reached` rising edge (keep-open); 'error' = end-file
+     reason error, gated; loadedmetadata once per open; timeupdate ~4 Hz.
+   - The channel-contract suite pins EXACTLY which mpv:* channels main.js
+     does not register yet — the S-mpv-5 switchover must turn that pin empty.
 3. **S-mpv-4: features onto mpv properties.**
    - Audio language: per-show pref → `matchesLanguage` over mpv `track-list` →
      set `aid`. INSTANT, mid-episode. The label reads `track-list`'s selected
