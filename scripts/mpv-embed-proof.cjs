@@ -30,19 +30,21 @@
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
-const { spawn, spawnSync } = require('node:child_process');
-const { app, BrowserWindow, screen } = require('electron');
+const { spawnSync } = require('node:child_process');
+const { app, screen } = require('electron');
 
 const root = path.join(__dirname, '..');
 const work = path.join(os.tmpdir(), 'ntv-mpv-proof');
 fs.mkdirSync(work, { recursive: true });
 app.setPath('userData', path.join(work, 'profile'));
 
-const { connectMpv } = require(path.join(root, 'electron', 'mpvClient.js'));
+// The PRODUCTION modules, not inline plumbing: this harness is how the
+// player and plane manager get exercised against a real desktop, which no
+// vitest run can do.
+const { startMpvPlayer } = require(path.join(root, 'electron', 'mpvPlayer.js'));
+const { createPlanes } = require(path.join(root, 'electron', 'planeManager.js'));
 
-const MPV = path.join(root, 'vendor', 'mpv', 'mpv.exe');
 const FFMPEG = path.join(root, 'vendor', 'ffmpeg', 'ffmpeg.exe');
-const PIPE = `\\\\.\\pipe\\ntv-proof-${process.pid}`;
 const CLIP = path.join(work, 'solid-red.mp4');
 
 const results = [];
@@ -131,106 +133,51 @@ function childWindowsOf(hwnd) {
   return (out.stdout || '').trim().split('\n').filter(Boolean);
 }
 
-/**
- * Raise mpv's child window above Chromium's compositor child.
- *
- * Chromium hosts the page in its own child windows of the BrowserWindow, and
- * they arrive ABOVE the child mpv creates for --wid — so the page's opaque
- * background paints over the video, which mpv itself never notices (it keeps
- * reporting vo-configured and advancing time, rendering underneath). One
- * SetWindowPos to the top of the sibling stack is the whole fix; the video
- * window's DOM is deliberately unused, so nothing of value is covered.
- */
-function raiseMpvChild(parentHwnd) {
-  const script = [
-    `Add-Type -MemberDefinition '${USER32}' -Name U -Namespace W3`,
-    `$mpv = [W3.U]::FindWindowEx([System.IntPtr]${parentHwnd}, [System.IntPtr]::Zero, 'mpv', [NullString]::Value)`,
-    'if ($mpv -eq [System.IntPtr]::Zero) { Write-Output "NOTFOUND"; exit }',
-    // HWND_TOP = 0; SWP_NOMOVE(2) | SWP_NOSIZE(1) | SWP_NOACTIVATE(0x10)
-    '[W3.U]::SetWindowPos($mpv, [System.IntPtr]::Zero, 0, 0, 0, 0, 0x13) | Out-Null',
-    'Write-Output "RAISED $mpv"',
-  ].join('\n');
-  const out = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
-    { encoding: 'utf8', windowsHide: true, timeout: 20000 });
-  return (out.stdout || '').trim();
-}
-
 async function main() {
   makeClip();
 
-  // --- the video plane -----------------------------------------------------
-  const video = new BrowserWindow({
-    x: 80, y: 80, useContentSize: true, width: 800, height: 450,
-    backgroundColor: '#0000c8', frame: true, show: true,
-    // Above her real app if it is running fullscreen — the screenshot must
-    // see THESE windows, not whatever is behind them.
-    alwaysOnTop: true,
+  // --- both planes, through the production module --------------------------
+  const { video, overlay, showBoth } = createPlanes({
+    videoOptions: {
+      x: 80, y: 80, useContentSize: true, width: 800, height: 450,
+      frame: true,
+      // Above her real app if it is running fullscreen — the screenshot must
+      // see THESE windows, not whatever is behind them.
+      alwaysOnTop: true,
+    },
   });
-  // BLUE on purpose, unlike anything else on stage: a blue pixel where the
-  // clip should be says "Chromium's own surface is covering mpv's window",
-  // black says the capture saw neither, red says the planes composite.
-  video.loadURL('data:text/html,<body style="background:%230000c8;margin:0"></body>');
 
-  // --- mpv into it ---------------------------------------------------------
-  const mpvLog = fs.openSync(path.join(work, 'mpv.log'), 'w');
-  const mpv = spawn(MPV, [
-    `--wid=${hwndOf(video)}`,
-    `--input-ipc-server=${PIPE}`,
-    '--no-config', '--no-osc', '--no-input-default-bindings', '--input-vo-keyboard=no',
-    '--mute=yes', '--keep-open=yes', '--idle=yes',
-    `--log-file=${path.join(work, 'mpv-internal.log')}`, '--msg-level=all=v',
-  ], { windowsHide: true, stdio: ['ignore', mpvLog, mpvLog] });
-  const mpvExit = new Promise((resolve) => mpv.on('exit', resolve));
-
-  const client = await connectMpv(PIPE, { connectTimeoutMs: 10000 });
-  await client.command('loadfile', CLIP);
-
-  // Wait until mpv says it is genuinely rendering and time is moving.
-  let time = 0;
-  let vo = false;
-  for (let i = 0; i < 50; i += 1) {
-    await sleep(100);
-    time = await client.command('get_property', 'playback-time').catch(() => 0) || 0;
-    vo = await client.command('get_property', 'vo-configured').catch(() => false);
-    if (vo && time > 0.4) break;
-  }
-  verdict('mpv renders into the given window', Boolean(vo) && time > 0.4,
-    `vo-configured=${vo}, playback-time=${Number(time).toFixed(2)}s`);
-
-  // Diagnostics: prove the HWND we handed mpv is the window we think it is,
-  // and ask the OS where mpv's windows actually went.
-  video.setTitle('NTV-VIDEO-PLANE');
-  const probe = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', [
-    `Add-Type -MemberDefinition '${USER32}' -Name U -Namespace W4 -UsingNamespace System.Text`,
-    '$find = [W4.U]::FindWindowEx([System.IntPtr]::Zero, [System.IntPtr]::Zero, [NullString]::Value, "NTV-VIDEO-PLANE")',
-    'Write-Output ("findwindow=" + $find)',
-    `$p = Get-Process -Id ${mpv.pid} -ErrorAction SilentlyContinue`,
-    'Write-Output ("mpv-mainwindow=" + $p.MainWindowHandle + " title=" + $p.MainWindowTitle)',
-  ].join('\n')], { encoding: 'utf8', windowsHide: true, timeout: 20000 });
-  console.log(`our hwnd=${hwndOf(video)}`);
-  console.log((probe.stdout || '').trim());
-  if (probe.stderr && probe.stderr.trim()) console.log(`probe stderr: ${probe.stderr.trim().slice(0, 300)}`);
-
-  console.log('children of the video window, topmost first, BEFORE the raise:');
-  for (const line of childWindowsOf(hwndOf(video))) console.log(`  ${line}`);
-  console.log(`raise: ${raiseMpvChild(hwndOf(video))}`);
-  console.log('children AFTER the raise:');
-  for (const line of childWindowsOf(hwndOf(video))) console.log(`  ${line}`);
-  await sleep(600);   // let the reordered stack actually present a frame
-
-  // --- the interface plane -------------------------------------------------
-  const overlay = new BrowserWindow({
-    parent: video, transparent: true, frame: false, resizable: false,
-    hasShadow: false, show: true,
-  });
-  overlay.setBounds(video.getContentBounds());
   overlay.loadURL('data:text/html,' + encodeURIComponent(`
     <body style="background:transparent;margin:0;overflow:hidden">
       <button id="badge" style="position:absolute;top:24px;right:24px;width:150px;height:60px;
         background:#00c800;border:0;color:#000;font:700 14px sans-serif"
         onclick="window.__clicks=(window.__clicks||0)+1">INTERFACE</button>
     </body>`));
-  await sleep(1200);   // let both planes actually paint
+  showBoth();
+
+  // --- mpv, through the production module ----------------------------------
+  const player = await startMpvPlayer({
+    hwnd: hwndOf(video),
+    logFile: path.join(work, 'mpv-internal.log'),
+  });
+  await player.command('set_property', 'mute', true);
+  await player.command('loadfile', CLIP);
+
+  // Wait until mpv says it is genuinely rendering and time is moving.
+  let time = 0;
+  let vo = false;
+  for (let i = 0; i < 50; i += 1) {
+    await sleep(100);
+    time = await player.command('get_property', 'playback-time').catch(() => 0) || 0;
+    vo = await player.command('get_property', 'vo-configured').catch(() => false);
+    if (vo && time > 0.4) break;
+  }
+  verdict('mpv renders into the given window', Boolean(vo) && time > 0.4,
+    `vo-configured=${vo}, playback-time=${Number(time).toFixed(2)}s`);
+
+  console.log('children of the video window, topmost first (mpv must lead):');
+  for (const line of childWindowsOf(hwndOf(video))) console.log(`  ${line}`);
+  await sleep(600);   // let the raised stack actually present a frame
 
   // --- pixel evidence, in physical coordinates -----------------------------
   const scale = screen.getPrimaryDisplay().scaleFactor;
@@ -263,11 +210,28 @@ async function main() {
   const after = await overlay.webContents.executeJavaScript('window.__clicks || 0');
   verdict('control: a click off the button does not count', after === clicks, `clicks=${after}`);
 
+  // --- crash recovery, through the production module ------------------------
+  // Kill mpv from OUTSIDE (as a crash would), and require the player to come
+  // back on its own: restarted fires, commands answer again, the raise is
+  // re-applied, and the picture is BACK on screen — the pixel is the proof
+  // that recovery is real, not just a reconnected pipe.
+  const restarted = new Promise((resolve) => player.on('restarted', resolve));
+  spawnSync('taskkill', ['/F', '/IM', 'mpv.exe'], { windowsHide: true, timeout: 15000 });
+  await Promise.race([restarted, sleep(15000).then(() => { throw new Error('no restart within 15s'); })]);
+  await player.command('set_property', 'mute', true);
+  await player.command('loadfile', CLIP);
+  let back = null;
+  for (let i = 0; i < 50; i += 1) {
+    await sleep(150);
+    back = screenPixel(videoPoint.x, videoPoint.y);
+    if (back && back.r > 150 && back.g < 90) break;
+  }
+  verdict('after a crash, mpv restarts and the picture returns',
+    Boolean(back) && back.r > 150 && back.g < 90 && player.isAlive(),
+    back ? `rgb(${back.r},${back.g},${back.b}) post-restart` : 'screenshot failed');
+
   // --- teardown ------------------------------------------------------------
-  client.close();
-  mpv.kill();
-  await Promise.race([mpvExit, sleep(2000)]);
-  fs.closeSync(mpvLog);
+  player.close();
 
   const failed = results.filter((r) => !r.pass).length;
   console.log(failed === 0 ? 'ALL CHECKS PASSED' : `${failed} CHECK(S) FAILED — see ${work}\\mpv.log`);
