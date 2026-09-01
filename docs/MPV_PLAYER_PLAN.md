@@ -61,9 +61,16 @@ Still to build, in order:
    - The harness pins userData to a scratch profile FIRST — the package name
      is shuffle-tv, so a default-profile harness would collide with her
      RUNNING app.
-   Remaining in this step: the production `electron/mpvPlayer.js` (spawn +
-   raise + restart-on-crash with backoff) and the overlay bounds glue
-   (move/resize/fullscreen/minimize, DPI).
+   ✅ **S-mpv-2 COMPLETE (`bef76f6`):** `electron/mpvPlayer.js` (vendored-only
+   binary discovery, the argument contract, raise-after-every-spawn, restart
+   policy — pure + 11 tests) and `electron/planeManager.js` (window pair,
+   bounds glue on every content-moving event + trailing settle pass, focus
+   forwarded to the interface plane, one taskbar entry). The proof harness
+   now runs THROUGH the production modules — six checks green, including
+   kill-mpv-externally → auto-restart → the red pixel physically back on
+   screen. ⚠️ The harness's crash check uses `taskkill /IM mpv.exe` — it
+   would kill any unrelated mpv on the machine; fine for a dev proof, do not
+   copy the pattern.
 2. **S-mpv-3: the player facade.** `src/renderer/mpvBridge.js` exposing the
    `<video>`-shaped surface the renderer already leans on (`play/pause/
    currentTime/duration/volume/muted`, `ended`/`error`/`timeupdate`-equivalent
