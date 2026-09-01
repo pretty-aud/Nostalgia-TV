@@ -35,11 +35,35 @@ tested against a fake mpv speaking the real wire protocol
 
 Still to build, in order:
 
-1. **S-mpv-2: process + window plumbing.** Bundle mpv.exe as an extraResource
-   (like ffmpeg); spawn with `--wid --input-ipc-server --no-osc --no-input-default-bindings
-   --keep-open=no --force-window=yes`; restart-on-crash with backoff; the
-   overlay window creation + bounds glue (move/resize/fullscreen/minimize,
-   DPI); prove input + compositing on a real file. **Needs the mpv binary.**
+1. **S-mpv-2: process + window plumbing.** ✅ **The embedding is PROVEN**
+   (`scripts/mpv-embed-proof.cjs`, all five checks green: mpv renders, video
+   visible through the transparent plane, interface paints above it, a real
+   OS click lands on the interface, and a control click off the button does
+   not count). mpv v0.41.0 vendored via `scripts/vendor-mpv.mjs` (release-API
+   asset discovery, proof-by-running, `--ensure` wired into `npm run dist`,
+   extraResource `vendor/mpv` → `resources/mpv`).
+   **Findings the production module MUST honour:**
+   - 🚨 **Chromium's compositor children (`Chrome_RenderWidgetHostHWND`,
+     `Intermediate D3D Window`) sit ABOVE mpv's `--wid` child and paint over
+     it** — mpv keeps reporting vo-configured and advancing time, invisibly.
+     **After spawning mpv, raise its child** (class `mpv`) with
+     `SetWindowPos(HWND_TOP)`; a one-shot hidden PowerShell call does it with
+     zero native deps. Covers the whole client area — the video window's DOM
+     is deliberately unused.
+   - 🚨 **PowerShell marshals `$null` to an EMPTY STRING for string P/Invoke
+     parameters** — every FindWindowEx "wildcard" silently matches nothing.
+     Use `[NullString]::Value`.
+   - `getNativeWindowHandle().readBigUInt64LE(0)` round-trips correctly
+     (verified against FindWindowEx by title).
+   - Her desktop is multi-monitor (mpv landed on `\\.\DISPLAY2`, 3440x1440
+     ultrawide) — any screen-coordinate work must use per-display scale
+     factors, not the primary's.
+   - The harness pins userData to a scratch profile FIRST — the package name
+     is shuffle-tv, so a default-profile harness would collide with her
+     RUNNING app.
+   Remaining in this step: the production `electron/mpvPlayer.js` (spawn +
+   raise + restart-on-crash with backoff) and the overlay bounds glue
+   (move/resize/fullscreen/minimize, DPI).
 2. **S-mpv-3: the player facade.** `src/renderer/mpvBridge.js` exposing the
    `<video>`-shaped surface the renderer already leans on (`play/pause/
    currentTime/duration/volume/muted`, `ended`/`error`/`timeupdate`-equivalent
