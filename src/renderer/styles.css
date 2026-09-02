@@ -133,8 +133,21 @@
 
 html, body, #app { height: 100%; }
 
+/**
+ * THE INTERFACE PLANE IS A PANE OF GLASS.
+ *
+ * This document floats in a transparent window OVER the video plane, so
+ * anything it paints hides the picture. It used to paint --paper across the
+ * whole window, which was right when the <video> element lived in the page
+ * and drew over it — and which, after the switchover, meant a perfect black
+ * rectangle over a perfectly playing episode: sound, clock, no picture.
+ *
+ * So the plane paints nothing, and every SURFACE paints itself: .sidebar,
+ * .browse, .bumper and the modals already carry their own backgrounds, and
+ * the two view backdrops that relied on the body get them below.
+ */
 body {
-  background: var(--paper);
+  background: transparent;
   color: var(--ink);
   font-family: var(--grotesque);
   font-size: var(--t-body);
@@ -258,7 +271,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   position: absolute;
   inset: 0;
   min-width: 0;
-  background: #000;
+  /* Transparent: the picture is behind this window, not inside it. */
+  background: transparent;
   overflow: hidden;
 }
 
@@ -660,9 +674,13 @@ input[type="range"]::-webkit-slider-thumb {
 .eyebrow--signal { color: var(--signal); }
 
 .welcome, .scanning, .bumper { position: absolute; inset: 0; display: none; }
-.app[data-view="welcome"]  .welcome  { display: grid; place-items: center; }
+/* The two views with NO picture behind them paint their own paper — with a
+   transparent plane they would otherwise show the empty video plane, which
+   is black in every theme including the light ones. Ready is deliberately
+   NOT in this list: its scrim over the paused picture is the design. */
+.app[data-view="welcome"]  .welcome  { display: grid; place-items: center; background: var(--paper); }
 .app[data-view="ready"]    .welcome  { display: grid; place-items: center; }
-.app[data-view="scanning"] .scanning { display: grid; place-content: center; justify-items: center; gap: var(--u); }
+.app[data-view="scanning"] .scanning { display: grid; place-content: center; justify-items: center; gap: var(--u); background: var(--paper); }
 .app[data-view="bumper"]   .bumper   { display: block; }
 
 /* A scrim behind the words. The library now sits over a PAUSED PICTURE, and
@@ -708,10 +726,16 @@ input[type="range"]::-webkit-slider-thumb {
    resize. This is the whole aspect-ratio policy: no fit/fill switch, no zoom.
    Both existed here briefly and were the wrong answer, because every variant
    either hides part of the frame or lets it be set wrong. */
+/**
+ * Not the picture any more — the transparent region you see it THROUGH, and
+ * the click/hover target the <video> element used to be. It keeps its size
+ * and its display rules so every view-scoped rule below still applies; it
+ * loses `object-fit` (meaningless on a div — mpv fits the frame itself) and
+ * its black fill, which would hide the very picture it stands in front of.
+ */
 .player {
   width: 100%; height: 100%;
-  object-fit: contain;
-  background: #000;
+  background: transparent;
   display: none;
 }
 .app[data-view="playing"] .player { display: block; }

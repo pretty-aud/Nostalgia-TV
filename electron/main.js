@@ -681,6 +681,25 @@ async function createWindow() {
   });
   mpvPlayerHandle = player;
   watchMpvActivity(player);
+
+  /**
+   * Keep mpv on top of Chromium's compositor child, for the life of the
+   * window. Every one of these events makes Chromium re-create or re-assert
+   * that child, and each time it lands ABOVE mpv — which looks exactly like
+   * a broken player: audio, a running clock and a black rectangle.
+   */
+  for (const event of ['resize', 'move', 'restore', 'maximize', 'unmaximize', 'focus',
+    'enter-full-screen', 'leave-full-screen', 'show']) {
+    video.on(event, player.raise);
+  }
+  overlay.webContents.on('did-finish-load', player.raise);
+  /**
+   * The paint that re-asserts Chromium's child lands AFTER did-finish-load,
+   * so one raise at load time is a raise too early. A short ladder covers
+   * the first seconds without polling forever — every later re-assert has a
+   * window event behind it, and those are wired above.
+   */
+  for (const delay of [500, 1200, 2500, 5000]) setTimeout(player.raise, delay);
   const host = createMpvHost({
     player,
     send: (...args) => {

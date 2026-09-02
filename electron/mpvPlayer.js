@@ -139,6 +139,59 @@ async function raiseMpvChild(parentHwnd, { attempts = 25, intervalMs = 200 } = {
   return false;
 }
 
+/**
+ * A raise that HOLDS.
+ *
+ * Raising once at spawn is not enough: Chromium re-creates and re-asserts
+ * its compositor child whenever the window is resized, restored, focused or
+ * repainted, and each time it lands back above mpv — sound, clock, black
+ * rectangle. Probed live on a running build, `Chrome_RenderWidgetHostHWND`
+ * sat above `mpv` again minutes after a successful spawn-time raise.
+ *
+ * So callers re-raise on every event that can trigger that, and this
+ * throttles the calls: each one costs a hidden PowerShell (~200ms), a
+ * resize drag emits dozens, and they must not queue up behind each other.
+ * Trailing-edge, one in flight at a time.
+ */
+function makeRaiser(parentHwnd, { minIntervalMs = 400 } = {}) {
+  let inFlight = false;
+  let pendingTimer = null;
+  let requestedWhileBusy = false;
+
+  /**
+   * ALWAYS TRAILING. A first draft dropped every request that arrived while
+   * a raise was in flight, which quietly threw away the only ones that
+   * mattered: at boot the events arrive in a burst (window shown, renderer
+   * loaded, first file opened), the first raise runs BEFORE Chromium's
+   * first paint re-asserts its child, and the later requests — the ones
+   * after the paint — were the ones discarded. Result: black picture until
+   * something resized the window minutes later.
+   */
+  const schedule = () => {
+    if (pendingTimer) return;
+    pendingTimer = setTimeout(() => {
+      pendingTimer = null;
+      run();
+    }, minIntervalMs);
+  };
+
+  const run = () => {
+    if (inFlight) { requestedWhileBusy = true; return; }
+    inFlight = true;
+    // Deliberately not awaited: the caller is an event handler, and a raise
+    // that lands a beat late is invisible where a blocked handler is not.
+    Promise.resolve()
+      .then(() => raiseOnce(parentHwnd))
+      .catch(() => false)
+      .finally(() => {
+        inFlight = false;
+        if (requestedWhileBusy) { requestedWhileBusy = false; schedule(); }
+      });
+  };
+
+  return schedule;
+}
+
 let pipeCounter = 0;
 
 /**
@@ -218,6 +271,7 @@ async function startMpvPlayer({ hwnd, logFile, exePath }) {
       if (closed) return;
       try {
         await spawnOnce();
+        armFileRaise();
         emit('restarted', { afterCode: code });
       } catch {
         // Died during its own spawn: the next rung decides, same policy.
@@ -228,7 +282,18 @@ async function startMpvPlayer({ hwnd, logFile, exePath }) {
 
   await spawnOnce();
 
+  /**
+   * A new file is a new surface: mpv re-creates its swapchain on load, and
+   * Chromium takes the opportunity to re-assert. Re-raise on every one.
+   */
+  const raise = makeRaiser(hwnd);
+  const armFileRaise = () => {
+    if (current) current.client.on('start-file', raise);
+  };
+  armFileRaise();
+
   return {
+    raise,
     command: (...args) => {
       if (!current || current.client.isClosed()) return Promise.reject(new Error('mpv is not running'));
       return current.client.command(...args);
