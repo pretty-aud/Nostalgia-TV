@@ -174,6 +174,71 @@ describe('mpv host', () => {
     expect(send).toHaveBeenCalledWith('mpv:died');
   });
 
+  it('setSubStyle validates the WHOLE batch before applying anything', async () => {
+    // Half-applied style is worse than refused style: the box colour landing
+    // without its border change leaves unreadable text — validate all, then
+    // apply all.
+    const player = fakePlayer();
+    const host = createMpvHost({ player, send: vi.fn(), isInsideAllowedRoot: () => true });
+    await host.ready;
+
+    await expect(host.handlers['mpv:setSubStyle'](null, {
+      'sub-color': '#ffffffff',
+      'sub-font-size': 9000,               // out of range: the batch dies here
+    })).rejects.toThrow('Bad sub style');
+    expect(player.commands.length).toBe(0); // NOTHING applied
+
+    await host.handlers['mpv:setSubStyle'](null, {
+      'sub-color': '#ffffe066', 'sub-back-color': '#bf000000',
+      'sub-border-style': 'background-box', 'sub-outline-color': '#ff000000',
+      'sub-font': 'Segoe UI', 'sub-font-size': 38, 'sub-outline-size': 0, 'sub-pos': 100,
+    });
+    expect(player.commands).toContainEqual(['set_property', 'sub-color', '#ffffe066']);
+    expect(player.commands).toContainEqual(['set_property', 'sub-border-style', 'background-box']);
+    expect(player.commands).toContainEqual(['set_property', 'sub-pos', 100]);
+
+    // Unknown property names are refused outright — this is a typed surface,
+    // not a property pipe with a style-shaped hole in it.
+    await expect(host.handlers['mpv:setSubStyle'](null, { 'osd-msg1': 'pwn' }))
+      .rejects.toThrow('Bad sub style');
+
+    // A one-element ARRAY survives structured-clone IPC and RegExp.test
+    // coerces it to its element — without a typeof guard ['#bf000000']
+    // "validates", then half-applies the batch when mpv refuses the array.
+    player.commands.length = 0;
+    await expect(host.handlers['mpv:setSubStyle'](null, {
+      'sub-border-style': 'background-box',
+      'sub-back-color': ['#bf000000'],
+    })).rejects.toThrow('Bad sub style');
+    expect(player.commands.length).toBe(0);   // nothing applied, not half
+
+    // Including the names every object INHERITS: a bare allowed[name] lookup
+    // finds Object.prototype.toString and calls it as a "validator", which
+    // returns a truthy string — an allowlist with a prototype-shaped hole.
+    player.commands.length = 0;
+    for (const name of ['toString', 'constructor', 'valueOf', 'hasOwnProperty']) {
+      await expect(host.handlers['mpv:setSubStyle'](null, { [name]: 'x' }))
+        .rejects.toThrow('Bad sub style');
+    }
+    expect(player.commands.length).toBe(0);
+  });
+
+  it('setVideoCrop takes a pixel-box spec, clears on null, refuses garbage', async () => {
+    const player = fakePlayer();
+    const host = createMpvHost({ player, send: vi.fn(), isInsideAllowedRoot: () => true });
+    await host.ready;
+
+    await host.handlers['mpv:setVideoCrop'](null, '640x480+106+0');
+    expect(player.commands).toContainEqual(['set_property', 'video-crop', '640x480+106+0']);
+
+    await host.handlers['mpv:setVideoCrop'](null, null);
+    expect(player.commands).toContainEqual(['set_property', 'video-crop', '']);
+
+    for (const bad of ['640x480', '640x480+106', 'no', '1e3x480+0+0', { w: 640 }]) {
+      await expect(host.handlers['mpv:setVideoCrop'](null, bad)).rejects.toThrow('Bad crop');
+    }
+  });
+
   it('open carries the start threshold correctly at its edges', async () => {
     const player = fakePlayer();
     const host = createMpvHost({ player, send: vi.fn(), isInsideAllowedRoot: () => true });

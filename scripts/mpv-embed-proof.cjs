@@ -274,6 +274,147 @@ async function main() {
     Boolean(back) && back.r > 150 && back.g < 90 && player.isAlive(),
     back ? `rgb(${back.r},${back.g},${back.b}) post-restart` : 'screenshot failed');
 
+  // ==========================================================================
+  // THE FEATURES ACT (S-mpv-4): tracks, subtitle style, the crop — against
+  // generated files whose right answers are known in advance.
+  // ==========================================================================
+  const { pickAudioTrackId, pickSubtitleTrackId } = require(path.join(root, 'src', 'shared', 'mpvTracks.js'));
+  const { subStyleProperties } = require(path.join(root, 'src', 'shared', 'mpvSubStyle.js'));
+  const { cropSpecFor } = require(path.join(root, 'src', 'shared', 'mpvCrop.js'));
+
+  // A dual-audio mkv (eng 440Hz, jpn 880Hz) with an embedded English srt.
+  const TRACKS = path.join(work, 'dual-audio.mkv');
+  if (!fs.existsSync(TRACKS)) {
+    const srt = path.join(work, 'subs.srt');
+    fs.writeFileSync(srt, '1\n00:00:00,000 --> 00:00:08,000\nHELLO SUBS\n');
+    const made = spawnSync(FFMPEG, [
+      '-y',
+      '-f', 'lavfi', '-i', 'color=c=blue:s=320x180:d=8:r=30',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=8',
+      '-f', 'lavfi', '-i', 'sine=frequency=880:duration=8',
+      '-i', srt,
+      '-map', '0:v', '-map', '1:a', '-map', '2:a', '-map', '3:s',
+      '-metadata:s:a:0', 'language=eng', '-metadata:s:a:1', 'language=jpn',
+      '-metadata:s:s:0', 'language=eng',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-c:s', 'srt',
+      TRACKS,
+    ], { windowsHide: true, timeout: 60000 });
+    if (made.error || made.status !== 0) throw new Error('could not generate the dual-audio file');
+  }
+
+  await player.command('loadfile', TRACKS);
+  let trackList = [];
+  for (let i = 0; i < 50; i += 1) {
+    await sleep(100);
+    trackList = await player.command('get_property', 'track-list').catch(() => []);
+    if (Array.isArray(trackList) && trackList.filter((t) => t.type === 'audio').length >= 2) break;
+  }
+
+  // The policy module against mpv's REAL track-list shape — the fixture the
+  // unit tests assume, verified against the thing itself.
+  const engPick = pickAudioTrackId(trackList, { preferLanguage: 'eng' });
+  const jpnPick = pickAudioTrackId(trackList, { preferLanguage: 'jpn' });
+  const subPick = pickSubtitleTrackId(trackList, { preferLanguage: 'eng' });
+  const langOf = (id) => (trackList.find((t) => t.id === id && t.type === 'audio') || {}).lang;
+  verdict('track policy agrees with mpv\'s real track-list shape',
+    langOf(engPick) === 'eng' && langOf(jpnPick) === 'jpn' && Number.isInteger(subPick),
+    `eng->id${engPick}(${langOf(engPick)}), jpn->id${jpnPick}(${langOf(jpnPick)}), sub->id${subPick}`);
+
+  // Audio switches INSTANTLY — the whole reason this branch exists. The
+  // selected flag in track-list is the same source the sound comes from.
+  await player.command('set_property', 'aid', jpnPick);
+  await sleep(300);
+  const aid = await player.command('get_property', 'aid');
+  const flags = await player.command('get_property', 'track-list');
+  const selectedLang = (flags.find((t) => t.type === 'audio' && t.selected) || {}).lang;
+  verdict('audio track switches live, and mpv reports the switch',
+    aid === jpnPick && selectedLang === 'jpn', `aid=${aid}, selected=${selectedLang}`);
+
+  // Subtitle selection + her style settings, read back from the renderer
+  // that will actually draw them.
+  await player.command('set_property', 'sid', subPick);
+  const style = subStyleProperties({
+    color: '#ffe066', font: 'mono', size: 150,
+    background: true, backgroundOpacity: 75, position: 'middle',
+  });
+  await host.handlers['mpv:setSubStyle'](null, style);
+  const readBack = {};
+  for (const name of Object.keys(style)) {
+    readBack[name] = await player.command('get_property', name).catch(() => null);
+  }
+  const styleOk = String(readBack['sub-color']).toLowerCase() === '#ffffe066'
+    && readBack['sub-font-size'] === 57
+    && readBack['sub-pos'] === 50
+    && readBack['sub-font'] === 'Consolas'
+    && readBack['sub-border-style'] === 'background-box';
+  verdict('subtitle style lands on mpv\'s renderer and reads back',
+    styleOk, JSON.stringify(readBack));
+
+  // The BOX must be SEEN, not just read back: on this mpv line the colours
+  // draw nothing without the border-style mode — the exact invisible-subs
+  // blocker the review caught. The box sits mid-frame (sub-pos 50) over the
+  // solid-blue clip; a pixel just above the midline must be box-dark, not
+  // blue. (75% black over rgb(0,0,200) composites to roughly rgb(0,0,50).)
+  await player.command('set_property', 'sub-visibility', true);
+  // Loop the clip so the 0-8s subtitle window cannot expire under the check.
+  await player.command('set_property', 'loop-file', 'inf');
+  // The box's exact row depends on font metrics and margins (a column scan
+  // located it at ~0.40 of the frame for sub-pos 50), so the check sweeps
+  // the plausible band rather than betting one row. 75% black over the pure
+  // blue clip composites to ~rgb(0,0,64) — unmistakable against 0,0,255.
+  let boxPixel = null;
+  let subText = '';
+  for (let attempt = 0; attempt < 10 && !boxPixel; attempt += 1) {
+    await sleep(250);
+    subText = await player.command('get_property', 'sub-text').catch(() => '');
+    const cb = video.getContentBounds();
+    for (let fy = 0.32; fy <= 0.52; fy += 0.02) {
+      const px = screenPixel((cb.x + cb.width * 0.5) * scale, (cb.y + cb.height * fy) * scale);
+      if (px && px.b < 130 && px.r < 60 && px.g < 60) { boxPixel = px; break; }
+    }
+  }
+  await player.command('set_property', 'loop-file', 'no');
+  verdict('the subtitle box actually draws (pixel-proven)',
+    Boolean(boxPixel),
+    `box pixel=${boxPixel ? `rgb(${boxPixel.r},${boxPixel.g},${boxPixel.b})` : 'not found in band'} `
+    + `sub-text=${JSON.stringify(subText)}`);
+
+  // The crop, pixel-proven. A window at the CONTENT's aspect shows the baked
+  // bars before the crop and pure picture after — the geometry her 4:3-in-
+  // 16:9 files actually have.
+  const PILLAR = path.join(work, 'pillarboxed.mp4');
+  if (!fs.existsSync(PILLAR)) {
+    const made = spawnSync(FFMPEG, [
+      '-y', '-f', 'lavfi', '-i', 'color=c=red:s=600x450:d=8:r=30',
+      '-vf', 'pad=800:450:100:0:black', '-pix_fmt', 'yuv420p', PILLAR,
+    ], { windowsHide: true, timeout: 30000 });
+    if (made.error || made.status !== 0) throw new Error('could not generate the pillarboxed file');
+  }
+  video.setContentSize(600, 450);
+  await sleep(300);   // let the plane glue resize the overlay too
+  await player.command('loadfile', PILLAR);
+  await sleep(1200);
+
+  const cbox = video.getContentBounds();
+  const barPoint = { x: (cbox.x + cbox.width * 0.06) * scale, y: (cbox.y + cbox.height * 0.5) * scale };
+  const before2 = screenPixel(barPoint.x, barPoint.y);
+  const barsVisible = Boolean(before2) && before2.r < 60 && before2.g < 60 && before2.b < 60;
+
+  const spec = cropSpecFor({ fx: 0.125, fy: 0, fw: 0.75, fh: 1, worthCropping: true }, 800, 450);
+  await host.handlers['mpv:setVideoCrop'](null, spec);
+  await sleep(700);
+  const after2 = screenPixel(barPoint.x, barPoint.y);
+  verdict('video-crop removes the baked-in bars (pixel-proven)',
+    barsVisible && Boolean(after2) && after2.r > 150 && after2.g < 90,
+    `spec=${spec}; bar pixel before=rgb(${before2 && `${before2.r},${before2.g},${before2.b}`}) after=rgb(${after2 && `${after2.r},${after2.g},${after2.b}`})`);
+
+  await host.handlers['mpv:setVideoCrop'](null, null);
+  await sleep(700);
+  const cleared = screenPixel(barPoint.x, barPoint.y);
+  verdict('clearing the crop brings the full frame back',
+    Boolean(cleared) && cleared.r < 60 && cleared.g < 60,
+    `bar pixel=rgb(${cleared && `${cleared.r},${cleared.g},${cleared.b}`})`);
+
   // --- teardown ------------------------------------------------------------
   player.close();
 
@@ -283,7 +424,7 @@ async function main() {
 }
 
 // A proof that hangs is a proof that failed.
-setTimeout(() => { console.error('TIMEOUT'); app.exit(2); }, 90000);
+setTimeout(() => { console.error('TIMEOUT'); app.exit(2); }, 150000);
 
 app.whenReady().then(() => main().catch((error) => {
   console.error(`ERROR: ${error && error.stack ? error.stack : error}`);

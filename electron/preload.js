@@ -93,6 +93,9 @@ contextBridge.exposeInMainWorld('tv', {
   mpvSetAudioTrack: (id) => ipcRenderer.invoke('mpv:setAudioTrack', id),
   mpvSetSubTrack: (id) => ipcRenderer.invoke('mpv:setSubTrack', id),
   mpvTrackList: () => ipcRenderer.invoke('mpv:trackList'),
+  mpvSetSubStyle: (properties) => ipcRenderer.invoke('mpv:setSubStyle', properties),
+  mpvSetSubVisibility: (visible) => ipcRenderer.invoke('mpv:setSubVisibility', visible),
+  mpvSetVideoCrop: (spec) => ipcRenderer.invoke('mpv:setVideoCrop', spec),
 
   onMpvProp: (handler) => {
     const listener = (_event, name, value) => handler(name, value);

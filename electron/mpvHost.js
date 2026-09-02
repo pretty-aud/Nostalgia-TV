@@ -116,6 +116,55 @@ function createMpvHost({ player, send, isInsideAllowedRoot }) {
       return player.command('set_property', 'sid', sid);
     },
     'mpv:trackList': () => player.command('get_property', 'track-list'),
+    /**
+     * Subtitle appearance, whole set at a time. The names are allowlisted
+     * here rather than trusted from the renderer — this stays a typed
+     * surface, not a property pipe with a style-shaped hole in it.
+     */
+    'mpv:setSubStyle': async (_event, properties) => {
+      // typeof BEFORE the regexes: RegExp.test coerces, and a one-element
+      // array survives structured-clone IPC — ['#bf000000'] would "validate"
+      // and then half-apply the batch when mpv refuses the array.
+      const allowed = {
+        'sub-color': (v) => typeof v === 'string' && /^#[0-9a-f]{8}$/.test(v),
+        'sub-back-color': (v) => typeof v === 'string' && /^#[0-9a-f]{8}$/.test(v),
+        'sub-outline-color': (v) => typeof v === 'string' && /^#[0-9a-f]{8}$/.test(v),
+        'sub-font': (v) => typeof v === 'string' && v.length > 0 && v.length < 64,
+        'sub-font-size': (v) => Number.isInteger(v) && v >= 8 && v <= 200,
+        'sub-border-style': (v) => v === 'background-box' || v === 'outline-and-shadow',
+        'sub-outline-size': (v) => Number.isFinite(v) && v >= 0 && v <= 10,
+        'sub-pos': (v) => Number.isInteger(v) && v >= 0 && v <= 150,
+      };
+      const entries = Object.entries(properties || {});
+      for (const [name, value] of entries) {
+        // hasOwn, not a bare lookup: a plain object literal inherits
+        // toString/constructor from Object.prototype, and `allowed[name]`
+        // alone would let those "validate" as functions — an allowlist with
+        // a prototype-shaped hole in it.
+        if (!Object.hasOwn(allowed, name) || !allowed[name](value)) {
+          return Promise.reject(new Error(`Bad sub style: ${name}`));
+        }
+      }
+      for (const [name, value] of entries) {
+        await player.command('set_property', name, value);
+      }
+      return { ok: true };
+    },
+    'mpv:setSubVisibility': (_event, visible) => (
+      player.command('set_property', 'sub-visibility', Boolean(visible))
+    ),
+    /**
+     * The auto-crop: mpv's video-crop names the real picture's pixel box
+     * and mpv re-fits it at every window size. Null clears it — the reset
+     * between an interstitial and an episode, and vice versa.
+     */
+    'mpv:setVideoCrop': (_event, spec) => {
+      if (spec === null || spec === '') return player.command('set_property', 'video-crop', '');
+      if (typeof spec !== 'string' || !/^\d{1,5}x\d{1,5}\+\d{1,5}\+\d{1,5}$/.test(spec)) {
+        return Promise.reject(new Error('Bad crop'));
+      }
+      return player.command('set_property', 'video-crop', spec);
+    },
   };
 
   return {
