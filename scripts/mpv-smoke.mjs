@@ -134,15 +134,22 @@ async function main() {
   await makeLibrary();
   await seedProfile();
 
+  // NTV_SMOKE_BINARY runs the smoke against a PACKAGED build (the portable's
+  // win-unpacked exe) instead of the dev tree — resourcesPath, the bundled
+  // mpv and the asar all differ, and the artifact she tests is the one that
+  // must be proven.
+  const binary = process.env.NTV_SMOKE_BINARY;
   const child = spawn(
-    path.join(root, 'node_modules', '.bin', 'electron.cmd'),
-    ['.', `--remote-debugging-port=${CDP_PORT}`],
+    binary || path.join(root, 'node_modules', '.bin', 'electron.cmd'),
+    binary ? [`--remote-debugging-port=${CDP_PORT}`] : ['.', `--remote-debugging-port=${CDP_PORT}`],
     {
       cwd: root,
       env: { ...process.env, NTV_PROFILE: profile },
       stdio: ['ignore', fs.openSync(path.join(work, 'app.out.log'), 'w'), fs.openSync(path.join(work, 'app.err.log'), 'w')],
       windowsHide: true,
-      shell: true,
+      // The .cmd shim needs a shell; a real .exe must NOT get one — its path
+      // has a space, and an unquoted shell line splits at "Nostalgia".
+      shell: !binary,
     },
   );
   const childGone = new Promise((resolve) => child.on('exit', resolve));
