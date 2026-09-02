@@ -91,15 +91,25 @@ Still to build, in order:
      reason error, gated; loadedmetadata once per open; timeupdate ~4 Hz.
    - The channel-contract suite pins EXACTLY which mpv:* channels main.js
      does not register yet — the S-mpv-5 switchover must turn that pin empty.
-3. **S-mpv-4: features onto mpv properties.**
-   - Audio language: per-show pref → `matchesLanguage` over mpv `track-list` →
-     set `aid`. INSTANT, mid-episode. The label reads `track-list`'s selected
-     flag — the same source the sound comes from (kills the lying-label class).
-   - Subtitles: settings map to `sub-color/sub-font-size/sub-back-color/
-     sub-pos/sub-font`; live preview stays; `sid`/`sub-visibility` for on/off.
-   - Auto-crop: keep `detectCrop`'s cached, unioned fractions; apply via
-     `video-zoom`/`video-pan-x/y` instead of a CSS transform.
-   - Volume/mute/seek/fullscreen: direct property maps.
+3. **S-mpv-4: features onto mpv properties.** ✅ **COMPLETE (`be21a9b`).**
+   `src/shared/mpvTracks.js` (playability's ladder mirrored; SHARED
+   isCommentary + mpv's `visual-impaired` flag; menus read mpv's own
+   `selected`), `src/shared/mpvSubStyle.js`, `src/shared/mpvCrop.js`, host
+   verbs (`mpv:setSubStyle` allowlist w/ hasOwn + typeof-before-regex,
+   `mpv:setSubVisibility`, `mpv:setVideoCrop`). **Contracts learned:**
+   - 🚨 **mpv 0.39+ subtitle model: the box only draws in
+     `sub-border-style=background-box`** — colours alone render NOTHING on
+     the default mode (invisible-subs blocker, pixel-proven fixed:
+     rgb(0,0,64) over the blue clip). Box-off = outline-and-shadow +
+     outline 3. **ASS tracks keep their authored look — deliberate.**
+   - 🚨 **Crop is `video-crop` (pixel box), NOT zoom/pan** — the CSS zoom
+     came from the window aspect, which static properties cannot know;
+     video-crop re-fits at every window size. Rounding keeps picture in
+     every direction: origins floor, sizes grow FROM THE FAR EXTENT.
+   - Sub style: sizes are % of mpv's default 38; colours are `#AARRGGBB`;
+     positions top/middle/bottom → sub-pos 10/50/100; one real font family
+     per role.
+   14-check harness; suite 512.
 4. **S-mpv-5: retire the conversion world (branch-only).** prepare-ahead,
    playableUrls, the preparing overlay, filler promos, tier planning,
    measured verdicts, the prepared cache + cleanup + budget, `media://` for
