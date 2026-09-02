@@ -214,7 +214,9 @@
   <!-- ── stage ──────────────────────────────────────────────────────────── -->
   <main class="stage" id="stage">
 
-    <video id="player" class="player" preload="auto" crossorigin="anonymous"></video>
+    <!-- The picture is the video PLANE behind this window; this div is the
+         transparent click/hover surface standing where <video> stood. -->
+    <div id="playerSurface" class="player"></div>
 
     <!-- first run -->
     <section class="welcome">
@@ -244,8 +246,7 @@
       </div>
 
       <footer class="bumper__foot">
-        <span class="mono bumper__skip" id="bumperSkip">Any key to start now</span>
-        <span class="mono bumper__prep" id="bumperPrep" hidden></span>
+        <span class="mono bumper__skip">Any key to start now</span>
         <span class="mono bumper__count" id="bumperCount"></span>
       </footer>
       <div class="timer" aria-hidden="true"><i id="bumperTimerFill"></i></div>
@@ -258,15 +259,9 @@
          minutes to rebuild. The toast that used to announce this expired
          after sixty seconds and left thirty-nine minutes of silence, which
          reads as the app having given up. -->
-    <section class="prepping" id="prepping" hidden aria-live="polite">
-      <div class="prepping__inner">
-        <p class="eyebrow mono">Preparing</p>
-        <h2 class="prepping__title" id="preppingTitle"></h2>
-        <div class="prepping__bar"><i id="preppingFill"></i></div>
-        <p class="prepping__count mono" id="preppingCount"></p>
-        <p class="prepping__note" id="preppingNote"></p>
-      </div>
-    </section>
+    <!-- The preparing panel stood here: the honest wait screen for a
+         conversion running in front of the viewer. mpv plays the library
+         directly, so there is nothing to wait for and nothing to explain. -->
 
     <!-- player chrome -->
     <div class="chrome">
@@ -907,7 +902,6 @@
 </div>
 
 <!-- Rewritten whenever subtitle settings change; ::cue cannot be styled inline. -->
-<style id="cueStyle"></style>
 
 <script src="bundle.js"></script>
 </body>

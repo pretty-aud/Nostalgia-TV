@@ -52,6 +52,8 @@ export function createMpvFacade(tv, { now = () => Date.now() } = {}) {
     error: null,
     videoWidth: 0,
     videoHeight: 0,
+    codedWidth: 0,
+    codedHeight: 0,
   };
 
   /** What the viewer asked for; observed properties never write this. */
@@ -128,7 +130,11 @@ export function createMpvFacade(tv, { now = () => Date.now() } = {}) {
       return;
     }
     if (name === 'dwidth' && typeof value === 'number') { state.videoWidth = value; return; }
-    if (name === 'dheight' && typeof value === 'number') { state.videoHeight = value; }
+    if (name === 'dheight' && typeof value === 'number') { state.videoHeight = value; return; }
+    // The CODED frame, which video-crop's pixel box addresses; the display
+    // pair above serves layout, and on anamorphic files the two DIFFER.
+    if (name === 'width' && typeof value === 'number') { state.codedWidth = value; return; }
+    if (name === 'height' && typeof value === 'number') { state.codedHeight = value; }
   }
 
   function onMpvEvent(event) {
@@ -157,6 +163,8 @@ export function createMpvFacade(tv, { now = () => Date.now() } = {}) {
     state.currentTime = startSeconds;
     state.videoWidth = 0;
     state.videoHeight = 0;
+    state.codedWidth = 0;
+    state.codedHeight = 0;
     metadataAnnounced = false;
     setPausedMirror(Boolean(paused));
     return tv.mpvOpen(absPath, { startSeconds, paused }).catch((error) => {
@@ -267,9 +275,13 @@ export function createMpvFacade(tv, { now = () => Date.now() } = {}) {
 
     get currentTime() { return state.currentTime; },
     set currentTime(seconds) {
-      if (!Number.isFinite(seconds) || seconds < 0) return;
-      state.currentTime = seconds;   // reads-after-seek see the target, like the element
-      tv.mpvSeek(seconds).catch(() => {});
+      if (!Number.isFinite(seconds)) return;   // garbage ignored, as the element did
+      // CLAMPED, not refused: `currentTime -= 10` four seconds in must land
+      // on zero, exactly as the element clamped it — refusing negatives made
+      // back-seek silently dead for an episode's first ten seconds.
+      const target = Math.max(0, seconds);
+      state.currentTime = target;   // reads-after-seek see the target, like the element
+      tv.mpvSeek(target).catch(() => {});
     },
 
     get duration() { return state.duration; },
@@ -278,6 +290,8 @@ export function createMpvFacade(tv, { now = () => Date.now() } = {}) {
     get error() { return state.error; },
     get videoWidth() { return state.videoWidth; },
     get videoHeight() { return state.videoHeight; },
+    get codedWidth() { return state.codedWidth; },
+    get codedHeight() { return state.codedHeight; },
     /** The element reported its URL; the facade reports its file. */
     get src() { return state.absPath || ''; },
 

@@ -53,13 +53,44 @@ function createPlanes({ videoOptions = {}, overlayWebPreferences = {} } = {}) {
     webPreferences: overlayWebPreferences,
   });
 
+  let syncing = false;
+
+  const boundsEqual = (a, b) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+
   const sync = () => {
     if (video.isDestroyed() || overlay.isDestroyed()) return;
     if (video.isMinimized()) return;   // owned windows hide with their owner
-    overlay.setBounds(video.getContentBounds());
+    const target = video.getContentBounds();
+    if (boundsEqual(overlay.getBounds(), target)) return;   // already there: no event chatter
+    syncing = true;
+    overlay.setBounds(target);
+    syncing = false;
   };
 
   for (const event of RESYNC_EVENTS) video.on(event, sync);
+
+  /**
+   * The REVERSE glue: the drag strip lives in the interface plane's DOM
+   * (-webkit-app-region: drag), and dragging it moves the OVERLAY — its own
+   * window — not the pair. So an overlay move that we did not cause is the
+   * user dragging, and the video plane follows underneath, keeping its
+   * frame offset. The `syncing` flag stops the two moves chasing each other.
+   */
+  overlay.on('move', () => {
+    if (syncing || video.isDestroyed() || overlay.isDestroyed()) return;
+    // A maximized or fullscreen window must not be dragged out of that state
+    // sideways — the OS would report it still maximized at the new position.
+    if (video.isMaximized() || video.isFullScreen()) { sync(); return; }
+    const content = video.getContentBounds();
+    const frame = video.getBounds();
+    const target = overlay.getBounds();
+    const wantX = target.x - (content.x - frame.x);
+    const wantY = target.y - (content.y - frame.y);
+    if (wantX === frame.x && wantY === frame.y) return;   // converged
+    syncing = true;
+    video.setPosition(wantX, wantY);
+    syncing = false;
+  });
   // Some of those events fire BEFORE the OS settles the final bounds
   // (fullscreen transitions especially); a trailing pass catches the rest.
   const settle = () => setTimeout(sync, 120);
@@ -76,8 +107,21 @@ function createPlanes({ videoOptions = {}, overlayWebPreferences = {} } = {}) {
     if (!overlay.isDestroyed()) overlay.focus();
   });
 
+  /**
+   * The pair closes as ONE, from either side. The video window is the OS
+   * window (its X, the taskbar close), but Alt+F4 and friends act on the
+   * FOCUSED window — the overlay — and an overlay closed alone would orphan
+   * a playing video window with no interface over it, no way to control it
+   * and no way to close it short of the task manager.
+   *
+   * The overlay closes via close(), not destroy(): its renderer holds the
+   * beforeunload final-save, and destroy() would skip it.
+   */
   video.on('closed', () => {
-    if (!overlay.isDestroyed()) overlay.destroy();
+    if (!overlay.isDestroyed()) overlay.close();
+  });
+  overlay.on('closed', () => {
+    if (!video.isDestroyed()) video.close();
   });
 
   const showBoth = () => {

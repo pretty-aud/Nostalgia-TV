@@ -96,6 +96,7 @@ contextBridge.exposeInMainWorld('tv', {
   mpvSetSubStyle: (properties) => ipcRenderer.invoke('mpv:setSubStyle', properties),
   mpvSetSubVisibility: (visible) => ipcRenderer.invoke('mpv:setSubVisibility', visible),
   mpvSetVideoCrop: (spec) => ipcRenderer.invoke('mpv:setVideoCrop', spec),
+  mpvSetVideoZoom: (zoom) => ipcRenderer.invoke('mpv:setVideoZoom', zoom),
 
   onMpvProp: (handler) => {
     const listener = (_event, name, value) => handler(name, value);

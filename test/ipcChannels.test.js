@@ -51,20 +51,17 @@ describe('ipc channels', () => {
     expect(invoked.filter((channel) => !handled.includes(channel))).toEqual([]);
   });
 
-  it('knows exactly which declared channels main.js does not register yet', () => {
-    // Honesty pin for the mpv-player branch's half-built state: mpvHost.js
-    // DECLARES the mpv:* handlers (scanned into `handled` above) but main.js
-    // does not attach them until the boot switchover. Naming the unwired set
-    // exactly keeps the sweep honest twice over — any OTHER unregistered
-    // channel still fails the test above, and when the switchover lands,
-    // main.js gains a `host.handlers` registration and THIS list must go
-    // empty or the pin turns red.
-    const registeredByMain = [...main.matchAll(/ipcMain\.handle\(\s*'([^']+)'/g)].map((m) => m[1]);
-    const registersHostLoop = /host\.handlers/.test(main);
-    const unwired = invoked.filter(
-      (channel) => !registeredByMain.includes(channel) && !registersHostLoop,
-    );
-    expect(unwired).toEqual(invoked.filter((c) => c.startsWith('mpv:')));
+  it('registers every mpv channel through the host loop', () => {
+    // The switchover's registration is a LOOP over host.handlers, invisible
+    // to the literal scan above — so this pin holds the two halves of that
+    // contract explicitly: the loop must exist in main.js, and every mpv:*
+    // channel the preload invokes must be a key mpvHost.js declares. Any
+    // non-mpv channel still needs its literal ipcMain.handle in main.js.
+    expect(/host\.handlers/.test(main)).toBe(true);
+    const declaredByHost = [...mpvHost.matchAll(/'(mpv:[^']+)':/g)].map((m) => m[1]);
+    const mpvInvoked = invoked.filter((c) => c.startsWith('mpv:'));
+    expect(mpvInvoked.length).toBeGreaterThan(5);   // the extraction found them
+    expect(mpvInvoked.filter((c) => !declaredByHost.includes(c))).toEqual([]);
   });
 
   it('has a listener for everything main pushes', () => {

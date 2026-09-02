@@ -22,7 +22,9 @@
  */
 
 /** The properties the renderer's facade mirrors. */
-const OBSERVED_PROPS = ['time-pos', 'duration', 'pause', 'eof-reached', 'dwidth', 'dheight'];
+// width/height are the CODED frame — what video-crop's pixel box addresses;
+// dwidth/dheight are display-corrected and would mis-crop anamorphic files.
+const OBSERVED_PROPS = ['time-pos', 'duration', 'pause', 'eof-reached', 'dwidth', 'dheight', 'width', 'height'];
 
 /**
  * mpv events the facade interprets. `start-file` is load-bearing: exactly
@@ -153,6 +155,11 @@ function createMpvHost({ player, send, isInsideAllowedRoot }) {
     'mpv:setSubVisibility': (_event, visible) => (
       player.command('set_property', 'sub-visibility', Boolean(visible))
     ),
+    /** Her interstitial zoom, log2 like mpv's own video-zoom; enlarge-only. */
+    'mpv:setVideoZoom': (_event, zoom) => {
+      if (!Number.isFinite(zoom) || zoom < 0 || zoom > 2) return Promise.reject(new Error('Bad zoom'));
+      return player.command('set_property', 'video-zoom', zoom);
+    },
     /**
      * The auto-crop: mpv's video-crop names the real picture's pixel box
      * and mpv re-fits it at every window size. Null clears it — the reset

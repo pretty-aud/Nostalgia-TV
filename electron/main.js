@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, protocol, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -10,6 +10,9 @@ const { Readable } = require('node:stream');
 const { buildLibrary, isVideoFile } = require('../src/shared/parseEpisode.js');
 const { digestCursors, describeChange } = require('../src/shared/progressJournal.js');
 const prepare = require('./prepare.js');
+const { createPlanes } = require('./planeManager.js');
+const { startMpvPlayer } = require('./mpvPlayer.js');
+const { createMpvHost } = require('./mpvHost.js');
 const artwork = require('./artwork.js');
 const ingest = require('./ingest.js');
 
@@ -32,7 +35,15 @@ const MAX_FILES = 20000;
  *
  * Must run before anything calls getPath('userData').
  */
-app.setPath('userData', path.join(app.getPath('appData'), 'shuffle-tv'));
+/**
+ * NTV_PROFILE points the WHOLE profile somewhere else — state, caches,
+ * single-instance lock and all. Test-only: it is how a smoke run boots a
+ * scratch copy of the app on the same machine as a live one without the two
+ * sharing a lock or, far worse, a state file. Never set it for real use.
+ */
+app.setPath('userData', process.env.NTV_PROFILE
+  ? process.env.NTV_PROFILE
+  : path.join(app.getPath('appData'), 'shuffle-tv'));
 
 let mainWindow = null;
 /** Roots the user has actually chosen. Media requests outside these are refused. */
@@ -357,7 +368,7 @@ async function scanLibrary(rootPath) {
     // A conversion owns the disk, and so does the VIEWER: on a drive that has
     // dropped off the bus under sustained reads, background frame-grabs while
     // an episode streams are how the picture stutters and the drive dies.
-    shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive(),
+    shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive() || !mpvIdleActive,
   }).catch(() => { /* art is best-effort; the library works without it */ });
 
   return {
@@ -595,69 +606,123 @@ function thumbPathFor(absPath) {
 // window
 // ---------------------------------------------------------------------------
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 720,
-    minHeight: 480,
-    backgroundColor: '#08070c',
-    show: false,
-    autoHideMenuBar: true,
-    title: 'Nostalgia TV',
-    /**
-     * No system title bar. The window buttons are drawn by the renderer and
-     * float over the picture instead, which buys back the ~32px strip a title
-     * bar costs — on a player, that strip is the picture.
-     *
-     * Two things now have to come from the renderer that the frame used to
-     * provide for free, and both are easy to lose: somewhere to DRAG the window
-     * (a -webkit-app-region: drag strip) and the buttons themselves. Lose them
-     * and the window cannot be moved or closed at all.
-     */
-    frame: false,
-    webPreferences: {
+/**
+ * The two planes. `videoWindow` is the OS window — mpv renders into it, and
+ * every window VERB (minimise, maximise, fullscreen, close, drag) acts on
+ * it. `mainWindow` is the transparent interface plane glued exactly over it,
+ * carrying the ENTIRE renderer — every webContents.send and dialog parent in
+ * this file keeps working against it unchanged, which is why it keeps the
+ * name. The design and its traps are proven end to end by
+ * scripts/mpv-embed-proof.cjs; the plumbing lives in planeManager.js.
+ */
+let videoWindow = null;
+let mpvPlayerHandle = null;
+/**
+ * Is mpv sitting idle? Background work (the artwork sweep, ingest) stands
+ * down during playback, and playback no longer flows through media:// — the
+ * open-stream count that used to answer "is somebody watching" is silent
+ * under mpv. mpv's own idle-active property is the honest replacement.
+ * True until told otherwise: at boot, nothing is playing.
+ */
+let mpvIdleActive = true;
+
+function watchMpvActivity(player) {
+  const subscribe = () => player.observe('idle-active', (value) => {
+    mpvIdleActive = Boolean(value);
+  }).catch(() => {});
+  subscribe();
+  // Observers die with a crashed process; re-arm with each replacement.
+  player.on('restarted', subscribe);
+}
+
+async function createWindow() {
+  if (videoWindow) return;   // 'activate' re-entry: the pair already exists
+  const { video, overlay, showBoth } = createPlanes({
+    videoOptions: {
+      width: 1280,
+      height: 800,
+      minWidth: 720,
+      minHeight: 480,
+      backgroundColor: '#08070c',
+      autoHideMenuBar: true,
+      title: 'Nostalgia TV',
+      /**
+       * No system title bar. The window buttons are drawn by the renderer
+       * and float over the picture — on a player, that strip is the picture.
+       * The drag strip and the buttons live in the INTERFACE plane; the
+       * planeManager's reverse glue makes dragging the strip carry the video
+       * window along underneath.
+       */
+      frame: false,
+    },
+    overlayWebPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
     },
   });
+  videoWindow = video;
+  mainWindow = overlay;
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
-  mainWindow.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'));
+  video.on('closed', () => { videoWindow = null; mainWindow = null; });
 
-  mainWindow.on('closed', () => { mainWindow = null; });
+  /**
+   * mpv and its typed handlers come up BEFORE the renderer does. The boot
+   * sequence writes volume and subtitle style within its first frames, and
+   * an invoke on an unregistered channel rejects — harmless to the facade,
+   * but a boot that races its own player is exactly the ordering debt the
+   * bridge work paid off elsewhere. Loading the page last removes the race
+   * instead of tolerating it.
+   */
+  const player = await startMpvPlayer({
+    hwnd: video.getNativeWindowHandle().readBigUInt64LE(0).toString(),
+    logFile: path.join(app.getPath('userData'), 'mpv.log'),
+  });
+  mpvPlayerHandle = player;
+  watchMpvActivity(player);
+  const host = createMpvHost({
+    player,
+    send: (...args) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(...args);
+    },
+    isInsideAllowedRoot,
+  });
+  for (const [channel, handler] of Object.entries(host.handlers)) ipcMain.handle(channel, handler);
+  await host.ready;
+
+  overlay.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'));
+  overlay.webContents.once('did-finish-load', showBoth);
 
   /**
    * Tell the renderer what the window is doing.
    *
    * The maximise button has to show a different glyph once maximised, and the
-   * window can be maximised without the button — a double-click on the drag
-   * strip, Win+Up, or a snap — so asking once at startup would leave the glyph
-   * lying for the rest of the session. Fullscreen rides along because the
-   * buttons hide in it: there is no window to restore, and drawing a close
-   * button over a fullscreen picture is just something to hit by accident.
+   * window can be maximised without the button — Win+Up, or a snap — so asking
+   * once at startup would leave the glyph lying for the rest of the session.
+   * Fullscreen rides along because the buttons hide in it. The events come
+   * from the VIDEO window (the OS window); the report goes to the interface.
    */
   const reportWindowState = () => {
+    if (!videoWindow || videoWindow.isDestroyed()) return;
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.send('window:state', {
-      maximized: mainWindow.isMaximized(),
-      fullscreen: mainWindow.isFullScreen(),
+      maximized: videoWindow.isMaximized(),
+      fullscreen: videoWindow.isFullScreen(),
     });
   };
   for (const event of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) {
-    mainWindow.on(event, reportWindowState);
+    video.on(event, reportWindowState);
   }
-  mainWindow.webContents.on('did-finish-load', reportWindowState);
+  overlay.webContents.on('did-finish-load', reportWindowState);
 
   // Anything trying to open a new window or navigate away is not part of this
   // app; send external links to the real browser instead.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  overlay.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
   });
-  mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  overlay.webContents.on('will-navigate', (event) => event.preventDefault());
 }
 
 // ---------------------------------------------------------------------------
@@ -740,7 +805,7 @@ function registerIpc() {
       return await ingest.run(Array.isArray(items) ? items : [], {
         artwork,
         inspect: (absPath, options) => prepare.inspect(absPath, options),
-        shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive(),
+        shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive() || !mpvIdleActive,
         onProgress: (progress) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('ingest:progress', progress);
@@ -815,8 +880,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('window:setFullscreen', (_event, value) => {
-    if (mainWindow) mainWindow.setFullScreen(Boolean(value));
-    return Boolean(mainWindow && mainWindow.isFullScreen());
+    if (videoWindow) videoWindow.setFullScreen(Boolean(value));
+    return Boolean(videoWindow && videoWindow.isFullScreen());
   });
 
   // The window buttons. With no system frame these are the ONLY way to minimise
@@ -824,14 +889,14 @@ function registerIpc() {
   // — a click landing during teardown would otherwise throw on a destroyed
   // window and leave the app unclosable.
   ipcMain.handle('window:minimize', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+    if (videoWindow && !videoWindow.isDestroyed()) videoWindow.minimize();
   });
 
   ipcMain.handle('window:toggleMaximize', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return false;
-    if (mainWindow.isMaximized()) mainWindow.unmaximize();
-    else mainWindow.maximize();
-    return mainWindow.isMaximized();
+    if (!videoWindow || videoWindow.isDestroyed()) return false;
+    if (videoWindow.isMaximized()) videoWindow.unmaximize();
+    else videoWindow.maximize();
+    return videoWindow.isMaximized();
   });
 
   ipcMain.handle('window:close', () => {
@@ -839,6 +904,9 @@ function registerIpc() {
     // ran — 'window-all-closed' and 'before-quit', which is where saveStateSync
     // lives. destroy() tears the window down without either, so every episode
     // watched since the last rolling save would be lost on the way out.
+    // Through the OVERLAY, not the video window: the renderer's
+    // beforeunload final-save lives there, and the plane manager cascades
+    // the close to the pair either way.
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
   });
 
@@ -986,13 +1054,14 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+    if (videoWindow) {
+      if (videoWindow.isMinimized()) videoWindow.restore();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus();
     }
   });
 
   app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
     prepareCacheRoot = path.join(app.getPath('userData'), 'prepared');
     prepare.setCacheDir(prepareCacheRoot);
     /**
@@ -1015,7 +1084,13 @@ if (!app.requestSingleInstanceLock()) {
 
     protocol.handle('media', serveMedia);
     registerIpc();
-    createWindow();
+    createWindow().catch((error) => {
+      // Without this an mpv that cannot start leaves a windowless process:
+      // nothing on screen, nothing on the taskbar, no way to quit.
+      dialog.showErrorBox('Nostalgia TV could not start its player',
+        String(error && error.message ? error.message : error));
+      app.quit();
+    });
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1028,11 +1103,12 @@ if (!app.requestSingleInstanceLock()) {
   // Closing the window is the most common way this app ends, and the renderer's
   // last debounced save has usually not landed yet — so flush synchronously on
   // every shutdown path rather than trusting one of them to fire.
-  app.on('before-quit', () => { saveStateSync(); prepare.cancelAll(); });
+  app.on('before-quit', () => { saveStateSync(); prepare.cancelAll(); if (mpvPlayerHandle) mpvPlayerHandle.close(); });
 
   app.on('window-all-closed', () => {
     saveStateSync();
     prepare.cancelAll();
+    if (mpvPlayerHandle) mpvPlayerHandle.close();
     if (process.platform !== 'darwin') app.quit();
   });
 }

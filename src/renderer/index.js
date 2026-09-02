@@ -29,8 +29,6 @@ import {
   formatEpisodeLabel,
   activeSchedule,
 } from '../shared/scheduler.js';
-import { TIER, needsFallback, audioIndexFromInspect, matchesLanguage } from '../shared/playability.js';
-import { preparingCopy } from '../shared/prepProgress.js';
 import {
   summarizeShow,
   movieVerdict,
@@ -62,6 +60,10 @@ import {
   setLock,
   resetUnlocks,
 } from '../shared/locks.js';
+import { createMpvFacade } from './mpvBridge.js';
+import { pickAudioTrackId, pickSubtitleTrackId, audioMenuFrom, subtitleMenuFrom } from '../shared/mpvTracks.js';
+import { subStyleProperties } from '../shared/mpvSubStyle.js';
+import { cropSpecFor } from '../shared/mpvCrop.js';
 
 // ---------------------------------------------------------------------------
 // module state
@@ -69,7 +71,21 @@ import {
 
 const el = (id) => document.getElementById(id);
 const app = el('app');
-const player = el('player');
+
+/**
+ * THE PLAYER IS MPV, WEARING THE ELEMENT'S FACE.
+ *
+ * Every permanent listener, every currentTime read for a save, every paused
+ * check in the transport keeps working against the same surface — the
+ * facade mirrors mpv's property stream and translates writes into the typed
+ * IPC. What used to be <video id="player"> in the markup is now the video
+ * PLANE behind this whole window: a separate native window mpv renders
+ * into, with this entire document floating transparently above it
+ * (electron/planeManager.js). `el('playerSurface')` is the transparent
+ * region you see the picture through — the click-and-hover target the
+ * element used to be.
+ */
+const player = createMpvFacade(window.tv);
 
 let state = createState(null);
 let shows = [];
@@ -924,47 +940,12 @@ async function showBumper(onDone, leadOverride) {
   });
 
   /**
-   * Start converting the episode this card is announcing, and hold the card up
-   * until it is ready.
-   *
-   * This is the point of having an interstitial at all: the countdown is dead
-   * time we were spending anyway, so any conversion that has not finished gets
-   * to finish HERE, in front of something worth looking at, instead of after
-   * the countdown against a black screen that reads as the app having frozen.
+   * A pure countdown. The card used to start the next episode's conversion
+   * here and HOLD past its own timer until the file was ready — sometimes
+   * minutes, with progress copy and promo filler to spend the wait on. mpv
+   * plays the library directly, so the card is back to being what it looks
+   * like: a breath between programmes, skippable by any key.
    */
-  let leadReady = false;
-  let waitingShown = false;
-  prepareItem(lead).then(() => { leadReady = true; });
-
-  // Everything behind it keeps warming too, so a burst of skipping later does
-  // not land straight back on a wait.
-  prepareAhead();
-
-  const prepLabel = el('bumperPrep');
-  prepLabel.hidden = true;
-  let convertedMs = 0;
-  const stopProgress = window.tv.onPrepareProgress
-    ? window.tv.onPrepareProgress((payload) => {
-      if (payload && payload.absPath === lead.episode.absPath) convertedMs = payload.outMs || 0;
-    })
-    : null;
-
-  /** When the card actually started waiting, as opposed to counting down. */
-  let waitingSince = 0;
-
-  /** Swap the "any key" hint for honest progress once we are actually waiting. */
-  const showWaiting = () => {
-    if (waitingShown) return;
-    waitingShown = true;
-    waitingSince = performance.now();
-    el('bumperSkip').hidden = true;
-    prepLabel.hidden = false;
-  };
-
-  // A conversion that has gone wrong must not strand the channel on this card.
-  const HOLD_LIMIT_MS = 240000;
-  const holdStartedAt = performance.now();
-
   const seconds = Math.max(1, state.settings.bumperSeconds);
   const startedAt = performance.now();
   const fill = el('bumperTimerFill');
@@ -980,10 +961,6 @@ async function showBumper(onDone, leadOverride) {
     bumperCleanup = null;
     document.removeEventListener('keydown', onKey, true);
     el('bumper').removeEventListener('click', onClick);
-    if (stopProgress) stopProgress();
-    // Restore the card's resting state, or the next one opens mid-wait.
-    el('bumperSkip').hidden = false;
-    prepLabel.hidden = true;
   };
   bumperCleanup = teardown;
 
@@ -1010,35 +987,7 @@ async function showBumper(onDone, leadOverride) {
     const remaining = Math.max(0, seconds - elapsed);
     fill.style.transform = `scaleX(${remaining / seconds})`;
     countLabel.textContent = `${Math.ceil(remaining)}`;
-    if (remaining > 0) return;
-
-    if (leadReady) { finish(); return; }
-
-    // Countdown is spent but the episode is not ready. Hold, and say why —
-    // a card that visibly waits is honest; a black screen is a bug report.
-    showWaiting();
-    prepLabel.textContent = convertedMs > 0
-      ? `Preparing — ${formatTime(convertedMs / 1000)} converted`
-      : 'Preparing the next episode…';
-    countLabel.textContent = '';
-    fill.style.transform = 'scaleX(1)';
-
-    /**
-     * Hand the wait to a promo rather than sitting on a static card.
-     *
-     * Closing the card is safe: fillUntilReady runs immediately after it and
-     * puts a promo up while the conversion carries on. If there is no promo to
-     * spend, this does nothing and the card keeps holding as before, which is
-     * still better than a black screen.
-     */
-    if (performance.now() - waitingSince > FILLER_HANDOFF_MS && fillerPromoAvailable()) {
-      finish();
-      return;
-    }
-
-    // Give up eventually rather than sit here forever; loadAndPlay will report
-    // the real failure and move on.
-    if (performance.now() - holdStartedAt > HOLD_LIMIT_MS) finish();
+    if (remaining <= 0) finish();
   };
   tick();
   bumperTimer = setInterval(tick, 100);
@@ -1057,418 +1006,22 @@ function renderNowPlaying(item) {
 }
 
 /**
- * absPath -> media:// URL that actually plays.
+ * THE CONVERSION WORLD IS GONE.
  *
- * For most files this is the original URL. For an .mkv it is usually a prepared
- * MP4 sitting in the cache, put there while the previous episode was playing.
- */
-const playableUrls = new Map();
-
-/**
- * Guards against a slow conversion finishing after the user has moved on.
- * Without it, skipping during a two-minute re-encode starts the episode you
- * skipped, on top of the one you skipped to.
+ * This region used to hold ~500 lines of choreography that existed because
+ * Chromium could not play the library: the playable-URL cache and its
+ * generation gating, the measured decode verdicts, the wanted-audio ffprobe
+ * cache, prepare-ahead and its disk-yielding priority dance, the preparing
+ * panel. mpv decodes everything the library holds and switches tracks live,
+ * so playing an episode is now: open the file, from the resume point, and
+ * apply the show's preferences when metadata lands. The planner, the cache,
+ * the tiers — all of it main-process machinery the player simply no longer
+ * asks for.
+ *
+ * `playToken` SURVIVES: opens are near-instant but still async, and a rapid
+ * Next during one must discard the stragglers of the one it replaced.
  */
 let playToken = 0;
-
-/**
- * Get a URL that will actually play, converting first if the file needs it.
- * Returns null when the file cannot be made playable at all.
- */
-/**
- * Can the player decode this file as it stands?
- *
- * Measured, not looked up. The codec tables read stream ids and guess; this
- * plays a few seconds and reads webkitVideoDecodedByteCount and
- * webkitAudioDecodedByteCount, which count bytes that came out of a DECODER.
- * Loading metadata proves only that the container parsed.
- *
- * The gap between the two is not academic. Measured against a real library of
- * 4K remuxes, the tables called eleven of fourteen files unplayable; the
- * player decoded video in all fourteen, and audio in nine. Two of the files
- * being converted were 58GB and 44GB, and each would have taken about an hour
- * to copy before it could start.
- *
- * Seeks in first, because the opening seconds of a remux are often black and
- * silent, and "nothing decoded" there is true and meaningless.
- */
-const nativeVerdicts = new Map();
-
-async function canPlayNatively(item) {
-  const absPath = item.episode.absPath;
-  const url = item.episode.mediaUrl;
-  if (!absPath || !url || !window.tv.playbackVerdict) return null;
-  if (nativeVerdicts.has(absPath)) return nativeVerdicts.get(absPath);
-
-  const saved = await window.tv.playbackVerdict(absPath).catch(() => null);
-  if (saved) { nativeVerdicts.set(absPath, saved); return saved; }
-
-  const probe = document.createElement('video');
-  probe.muted = true;
-  probe.preload = 'auto';
-  probe.crossOrigin = 'anonymous';
-  let verdict = { video: false, audio: false };
-  try {
-    probe.src = url;
-    await waitFor(probe, 'loadedmetadata', 15000);
-    if (Number.isFinite(probe.duration) && probe.duration > 120) {
-      probe.currentTime = 60;
-      await waitFor(probe, 'seeked', 15000).catch(() => {});
-    }
-    await probe.play().catch(() => {});
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    verdict = {
-      video: (probe.webkitVideoDecodedByteCount || 0) > 0,
-      audio: (probe.webkitAudioDecodedByteCount || 0) > 0,
-    };
-  } catch {
-    verdict = { video: false, audio: false };
-  } finally {
-    probe.pause();
-    probe.removeAttribute('src');
-    probe.load();
-  }
-
-  nativeVerdicts.set(absPath, verdict);
-  if (window.tv.savePlaybackVerdict) window.tv.savePlaybackVerdict(absPath, verdict);
-  return verdict;
-}
-
-/**
- * Which audio track this file should be played with, per the plan.
- *
- * 0 means the first one, which is the only track the player can reach without
- * a conversion. Anything else means the file has to be rebuilt around the
- * right track, however large it is — a wrong-language episode is not a
- * cheaper version of the right one.
- *
- * Cached because it costs an ffprobe and is asked before every play.
- */
-const wantedAudio = new Map();
-
-/** This show's saved playback preferences, or an empty object. */
-function prefFor(showId) {
-  return (state.settings.showPrefs || {})[showId] || {};
-}
-
-/**
- * Bumped whenever any show's preference changes.
- *
- * The purge in saveShowPref clears the caches, but a conversion already IN
- * FLIGHT under the old preference finishes afterwards and writes its result
- * back — re-poisoning playableUrls with the old language for the rest of the
- * session. Every async path that caches a playable URL captures this counter
- * before its await and declines to cache when it moved.
- */
-let prefGeneration = 0;
-
-async function wantedAudioIndex(absPath, preferLanguage) {
-  // The preference is part of the QUESTION: "which track for Evangelion in
-  // Japanese" and "in English" are different answers about the same file.
-  const cacheKey = `${absPath}
-${preferLanguage || ''}`;
-  if (wantedAudio.has(cacheKey)) return wantedAudio.get(cacheKey);
-  if (!window.tv.inspect) return 0;
-
-  /**
-   * inspect() answers with an ENVELOPE — { ok, plan } — and the plan is one
-   * level down. Reading audioIndex off the envelope gives undefined for every
-   * file ever inspected, which collapses to 0, which means "track one is fine",
-   * which is how a Japanese first track came to be played under an English
-   * label. The guard in resolvePlayable exists to stop precisely that, and
-   * could never fire, because its input was a constant.
-   *
-   * The other call site (the ffmpeg-missing count) unwraps this correctly, so
-   * the shape was never in doubt — only this line was wrong.
-   */
-  const index = audioIndexFromInspect(await window.tv.inspect(
-    absPath,
-    preferLanguage ? { preferLanguage } : undefined,
-  ).catch(() => null));
-
-  /**
-   * No answer means no evidence, and a guess must not be remembered. A probe
-   * fails for reasons that have nothing to do with the file — an external
-   * drive dropping off mid-scan being the obvious one — and caching 0 would
-   * hold the wrong language for the rest of the session, long after the drive
-   * came back.
-   */
-  if (index === null) return 0;
-
-  wantedAudio.set(cacheKey, index);
-  return index;
-}
-
-async function resolvePlayable(item, token, forceTier) {
-  const episode = item.episode;
-  const absPath = episode.absPath;
-  if (!absPath || !window.tv.ensurePlayable) return episode.mediaUrl;
-
-  // Captured before any await: a preference change mid-flight means whatever
-  // this call produces is the OLD language and must not be remembered.
-  const generation = prefGeneration;
-
-  if (!forceTier && playableUrls.has(absPath)) {
-    /**
-     * The cache hit is the NORMAL path — prepare-ahead means almost every
-     * episode arrives here — and it used to skip every line that records
-     * which track is playing, leaving the menu to fall back to a default
-     * computed without the preference. That is the confidently-wrong-label
-     * bug wearing a new coat. The cached URL plays the track the plan chose,
-     * so ask the plan (cached after its first answer) and say so.
-     */
-    const url = playableUrls.get(absPath);
-    if (audioOverride !== null) {
-      playingAudioIndex = audioOverride;
-    } else {
-      /**
-       * Resolved WITHOUT blocking: this is the hottest path in the app — the
-       * prepared-ahead episode about to hit the screen — and an ffprobe here
-       * is seconds of black on a slow drive. The label lands moments later,
-       * token-guarded so a rapid Next cannot be stamped by a stale answer.
-       */
-      wantedAudioIndex(absPath, prefFor(item.showId).audio || undefined)
-        .then((heard) => { if (token === playToken) playingAudioIndex = heard; })
-        .catch(() => {});
-    }
-    return url;
-  }
-
-  /**
-   * Ask the player before asking ffmpeg — but only when the track we want is
-   * the FIRST one.
-   *
-   * Playing the original file means playing audio track 1, because Chromium
-   * has no way to switch. On a release with Japanese first and English fourth
-   * that is the wrong language, and the app went on labelling it English,
-   * which is worse than being slow: it was confidently wrong about what you
-   * were listening to.
-   *
-   * So the measurement decides whether the file CAN be played, and the plan
-   * decides whether it MAY be. Both have to agree.
-   *
-   * forceTier means somebody already overruled this from the audio menu, so
-   * the measurement is not worth repeating.
-   */
-  let wanted = null;
-  if (!forceTier) {
-    wanted = audioOverride === null
-      ? await wantedAudioIndex(absPath, prefFor(item.showId).audio || undefined)
-      : audioOverride;
-    if (token !== playToken) return null;
-
-    if (wanted === 0) {
-      const native = await canPlayNatively(item);
-      if (token !== playToken) return null;
-      if (native && native.video && native.audio) {
-        // Playing the file untouched means playing audio track one, whatever
-        // language that turns out to be. Record it, so the menu names the track
-        // actually being heard rather than the one the planner would prefer.
-        playingAudioIndex = 0;
-        if (generation === prefGeneration) playableUrls.set(absPath, episode.mediaUrl);
-        return episode.mediaUrl;
-      }
-    }
-  }
-
-  // Anything needing real work says so, because a silent gap before an
-  // episode starts reads as the app having frozen. Delayed slightly: most
-  // conversions are quick, and a panel that flashes up for half a second on
-  // every episode is its own kind of noise.
-  const slowNotice = setTimeout(() => {
-    if (token === playToken) showPreparing(item);
-  }, 600);
-
-  // From here the viewer is waiting. Everything else converting gets out of the
-  // way, and prepare-ahead stops starting new work until this is done.
-  foregroundPath = absPath;
-  foregroundSince = Date.now();
-  await yieldDiskTo(absPath);
-
-  let result;
-  try {
-    // Carry any audio override through, so a re-prepare (say, after a decode
-    // failure) does not quietly revert the language the viewer picked.
-    result = await window.tv.ensurePlayable(
-      absPath,
-      forceTier,
-      audioOverride === null ? undefined : audioOverride,
-      // The preference re-plans in the main process, so a forced tier or an
-      // explicit override still wins — the language only fills the default.
-      prefFor(item.showId).audio || undefined,
-    );
-  } catch (error) {
-    result = { ok: false, error: String(error) };
-  } finally {
-    clearTimeout(slowNotice);
-    hidePreparing();
-    if (foregroundPath === absPath) foregroundPath = null;
-  }
-
-  if (token !== playToken) return null; // superseded; caller discards this
-
-  if (result && result.ok && result.mediaUrl) {
-    // A prepared file has the chosen track mapped to position one, so what plays
-    // is what was asked for. Null when nothing decided it (a forced tier), which
-    // leaves the menu on the planner's preference as before.
-    playingAudioIndex = audioOverride !== null
-      ? audioOverride
-      : (Number.isInteger(wanted) ? wanted : null);
-    if (result.prepared) toast(`Ready — ${item.showName} ${item.label}`, 1800);
-    else clearToast();
-    if (generation === prefGeneration) playableUrls.set(absPath, result.mediaUrl);
-    return result.mediaUrl;
-  }
-
-  clearToast();
-  if (result && result.needsFfmpeg) {
-    toast(`${item.showName} ${item.label} needs converting, but ffmpeg is not installed.`, 6000);
-  } else if (result && result.lowDisk) {
-    toast('Not enough free disk space to prepare this episode.', 6000);
-  } else if (result && result.reason !== 'cancelled') {
-    toast(`Could not prepare ${item.showName} ${item.label}.`, 4500);
-  }
-  return null;
-}
-
-/** How many episodes ahead to keep converted. */
-const PREPARE_DEPTH = 3;
-
-/** In-flight preparations, so two callers never start the same job twice. */
-const preparing = new Map();
-
-/**
- * Ensure one item is converted, returning the playable URL (or null).
- *
- * Safe to call repeatedly for the same episode from anywhere — the promise is
- * shared, so the bumper waiting on it and the prepare-ahead loop starting it
- * are the same job rather than two.
- */
-function prepareItem(item) {
-  const absPath = item && item.episode ? item.episode.absPath : null;
-  if (!absPath || !window.tv.ensurePlayable) {
-    return Promise.resolve(item ? item.episode.mediaUrl : null);
-  }
-  if (playableUrls.has(absPath)) return Promise.resolve(playableUrls.get(absPath));
-  if (preparing.has(absPath)) return preparing.get(absPath);
-
-  const generation = prefGeneration;
-  const job = window.tv.ensurePlayable(
-    absPath, undefined, undefined,
-    prefFor(item.showId).audio || undefined,
-  )
-    .then((result) => {
-      preparing.delete(absPath);
-      if (result && result.ok && result.mediaUrl) {
-        // A preference change mid-conversion makes this the OLD language;
-        // deliver it to whoever is already waiting, but do not remember it.
-        if (generation === prefGeneration) playableUrls.set(absPath, result.mediaUrl);
-        return result.mediaUrl;
-      }
-      return null;
-    })
-    .catch(() => { preparing.delete(absPath); return null; });
-
-  preparing.set(absPath, job);
-  return job;
-}
-
-/**
- * Convert the next few episodes while this one plays.
- *
- * This is the whole reason the scheduler commits its queue in advance: we know
- * what is coming, so the work happens against a complete file with time to
- * spare instead of racing playback.
- *
- * Depth matters more than it looks. Preparing only ONE ahead is enough for
- * someone watching straight through, but anyone pressing Next outruns it
- * immediately and lands on the wait this exists to remove. Three deep survives
- * a burst of skipping.
- *
- * Jobs are started in order and NOT awaited together: converting three files at
- * once would have them contend for the same disk while an episode is playing
- * off it, making all three slower than doing them in turn.
- */
-/**
- * The file the viewer is actually waiting on, if any.
- *
- * There is no concurrency limit in the main process, so a background
- * conversion and the one being waited on run at the same time and halve each
- * other's throughput — which is exactly the "a show and a movie both sitting
- * there converting" case. While this is set, prepare-ahead stands down.
- */
-let foregroundPath = null;
-let foregroundSince = 0;
-
-/**
- * Is someone waiting on a conversion right now?
- *
- * Treated as stale after ten minutes rather than trusted indefinitely. A flag
- * that leaked would stop prepare-ahead for the rest of the session — turning a
- * fix for waiting into a much better generator of it — and no single
- * conversion this app performs runs that long.
- */
-function foregroundBusy() {
-  if (!foregroundPath) return false;
-  if (Date.now() - foregroundSince > 600000) { foregroundPath = null; return false; }
-  return true;
-}
-
-/**
- * Give the whole disk to one file, cancelling anything else mid-conversion.
- *
- * Cancelled work is discarded rather than resumed, which sounds wasteful — but
- * the alternative is the viewer waiting twice as long for the thing on screen
- * so that a file they will not see for twenty minutes can finish early. The
- * cancelled item is picked up again by the next prepare-ahead pass.
- */
-async function yieldDiskTo(absPath) {
-  if (!window.tv.cacheInfo || !window.tv.cancelPrepare) return;
-  const info = await window.tv.cacheInfo().catch(() => null);
-  for (const job of (info && info.jobs) || []) {
-    if (job.absPath && job.absPath !== absPath) {
-      preparing.delete(job.absPath);
-      await window.tv.cancelPrepare(job.absPath).catch(() => {});
-    }
-  }
-}
-
-async function prepareAhead(depth = PREPARE_DEPTH) {
-  // Whatever is on screen comes first; this can wait for the next call.
-  if (foregroundBusy()) return;
-
-  const upcoming = peek(shows, state, depth);
-
-  /**
-   * The movie goes SECOND, not last.
-   *
-   * It is the longest conversion this app ever performs, and it is the one
-   * with a hard deadline a few blocks out — but the episode immediately next
-   * is the one someone is about to sit and wait for, so that still goes first.
-   */
-  const movie = state.pendingMovie ? movieItem(state.pendingMovie) : null;
-  const order = movie
-    ? [upcoming[0], movie, ...upcoming.slice(1)].filter(Boolean)
-    : upcoming;
-  if (order.length === 0) return;
-
-  // Protect what is playing and what is queued from cache eviction.
-  const keep = [current, ...order]
-    .filter(Boolean)
-    .map((entry) => playableUrls.get(entry.episode && entry.episode.absPath))
-    .filter(Boolean)
-    .map((url) => decodeURIComponent(String(url).replace(/^media:\/\/local\//, '')));
-  if (window.tv.pinPrepared) window.tv.pinPrepared(keep);
-
-  for (const item of order) {
-    // Re-checked each time round: the viewer may have started waiting on
-    // something while the previous conversion was running.
-    if (foregroundBusy()) return;
-    // Not token-guarded: the result goes to the on-disk cache, so work is never
-    // wasted even if the user skips past this episode before it comes round.
-    await prepareItem(item);
-  }
-}
 
 async function loadAndPlay(item, seekTo = 0) {
   // Tear down a clip still on screen (the user pressed Next through it) without
@@ -1478,30 +1031,28 @@ async function loadAndPlay(item, seekTo = 0) {
   const token = ++playToken;
   current = item;
   setView('playing');
-  // NOT renderNowPlaying yet. Resolving a playable URL can take a while for a
-  // file that genuinely needs converting, and the previous episode is still
-  // on screen throughout — so naming the new one here put a movie title over
-  // a show that was still playing, sometimes for half an hour. The title
-  // changes when the picture does, further down.
-
-  // Every episode starts fresh: English audio, subtitles off. An override is a
-  // decision about the episode you are watching, not a setting that follows you
-  // into the next show.
-  audioOverride = null;
-  playingAudioIndex = null;
-  activeSubIndex = null;
-  clearSubtitles();
   toggleTrackMenu(false);
-  // Episodes are never zoomed — only the interstitials are.
-  applyPicture(false);
 
-  const url = await resolvePlayable(item, token);
-  if (token !== playToken) return;      // the user moved on while we prepared
+  /**
+   * The episode opens with NO interface over it. This used to call
+   * showChrome(), so every episode began with the transport fading in and
+   * out across the first couple of seconds of the picture — chrome is one
+   * hover or one press away, and the title is on the card that just played.
+   * (The old flow delayed the title too, because a conversion could hold the
+   * previous picture on screen for minutes; nothing holds anything any more.)
+   */
+  renderNowPlaying(item);
+  clearTimeout(chromeTimer);
+  app.dataset.chrome = 'off';
+  renderSidebar();
+  persist();
 
-  if (!url) {
-    // Skipping to the next episode is right for ONE bad file. But this path
-    // re-enters loadAndPlay, so a run of them recurses with nothing to stop it
-    // and locks the window solid. Give up after a few and say so.
+  try {
+    await player.open(item.episode.absPath, { startSeconds: seekTo > 0 ? seekTo : 0 });
+  } catch {
+    // Refused outright — mpv mid-restart, or a path outside the roots. The
+    // decode-failure path is onPlaybackError; this one never started.
+    if (token !== playToken) return;
     failedInARow += 1;
     if (failedInARow >= MAX_FAILURES_IN_A_ROW) {
       failedInARow = 0;
@@ -1514,58 +1065,30 @@ async function loadAndPlay(item, seekTo = 0) {
     playNext();
     return;
   }
-  failedInARow = 0;
+  if (token !== playToken) return;      // the user moved on while we opened
+  player.play();
 
-  renderNowPlaying(item);
-  player.src = url;
-  player.load();
-
-  const start = () => {
-    if (seekTo > 0 && Number.isFinite(player.duration)) {
-      player.currentTime = Math.min(seekTo, Math.max(0, player.duration - 5));
-    }
-    // The crop transform is computed from videoWidth/videoHeight, which are 0
-    // until metadata arrives. A cached crop resolves instantly — well before
-    // that — so applying it only when it arrives would silently do nothing.
-    // Re-applying here means whichever lands last is the one that counts.
-    applyPicture(false);
-    player.play().catch(() => {
-      toast('Could not start playback. Press space to try again.');
-    });
-  };
-  player.addEventListener('loadedmetadata', start, { once: true });
-
-  /**
-   * The episode opens with NO interface over it.
-   *
-   * This used to call showChrome(), so every episode began with the transport
-   * fading in and out across the first couple of seconds of the picture. The
-   * controls are one hover or one press away and the title is on the card that
-   * just played, so nothing here needs announcing over the opening shot.
-   */
-  clearTimeout(chromeTimer);
-  app.dataset.chrome = 'off';
-  renderSidebar();
-  persist();
-
-  // Read this episode's tracks so the menu is populated before it is opened —
-  // and then honour the show's subtitle preference, which can only be applied
-  // once the track list actually exists.
-  loadTracksForCurrent().then(() => {
+  // Preferences and the crop want the track list and the coded frame size,
+  // which exist once metadata lands. Token-guarded: a rapid Next must not
+  // land the old show's language on the new file.
+  player.addEventListener('loadedmetadata', () => {
     if (token !== playToken) return;
-    applySubtitlePref(item);
-  });
-  loadCropForCurrent();
+    /**
+     * REAL progress is what resets the failure breaker — not the open call,
+     * which resolves even for a missing file (mpv accepts the command and
+     * reports the failure later as an error event). Resetting on open made
+     * an unplugged drive an infinite skip loop that churned every cursor in
+     * the library at one episode per one-and-a-half seconds.
+     */
+    failedInARow = 0;
+    applyTrackPrefs(item);
+    loadCropForCurrent();
+  }, { once: true });
 
   // Warm the next bumper's thumbnail while this episode plays, so the
   // interstitial has a picture the moment it appears.
   const upcoming = peek(shows, state, 1)[0];
   if (upcoming) setTimeout(() => ensureThumb(upcoming.episode), 4000);
-
-  // Start converting the next episodes shortly in — long enough not to fight
-  // this episode's own startup for disk bandwidth, short enough that a 22
-  // minute episode leaves an enormous margin.
-  setTimeout(() => { if (token === playToken) prepareAhead(); }, 2000);
 }
 
 /**
@@ -1691,43 +1214,14 @@ const FADE_MS = 340;
 async function playClip(clip, onDone, kind = 'Bumper') {
   if (!clip) { onDone(); return; }
 
-  // Clips get the same codec treatment as episodes — an AC3 .mkv bumper is
-  // exactly as unplayable as an AC3 .mkv episode.
+  // A clip is a file like any other now: mpv opens it directly — no cache,
+  // no conversion, no language question. The OPEN happens at the very END of
+  // this function, after the flag and the listeners stand: the permanent
+  // ended/timeupdate handlers read `playingBumperClip` to stand down, and an
+  // open that runs before the flag is set lets the clip's first moments save
+  // a resume point for the FINISHED episode at the clip's timestamp — the
+  // exact bug the flag was built for.
   const token = ++playToken;
-  let url = clip.mediaUrl;
-  if (clip.absPath && window.tv.ensurePlayable) {
-    /**
-     * Same cache as the episodes — but ONLY for a clip that plays as itself.
-     *
-     * Clips used to bypass the cache entirely, which meant an IPC round-trip
-     * and an ffprobe between EVERY episode, all session. A native clip's URL
-     * points at the original file, which nothing ever evicts, so remembering
-     * it is free. A CONVERTED clip's URL points into the evictable cache, and
-     * remembering it would be a trap twice over: the cache-hit fast path
-     * skips ensurePlayable, which is the only thing that touches the file's
-     * atime — freezing the most-played clips at the bottom of the LRU order —
-     * and once the file IS evicted the remembered URL is dead, the error path
-     * below fires onDone, and that bumper never plays again all session
-     * (episodes recover in onPlaybackError; clips deliberately return early
-     * there). So converted clips keep paying the ensurePlayable call, which
-     * is what re-converts them transparently after an eviction — and with the
-     * probe memo it costs a stat, not a spawn. The write is generation-gated
-     * like every other async cache write here.
-     */
-    if (playableUrls.has(clip.absPath)) {
-      url = playableUrls.get(clip.absPath);
-    } else {
-      const generation = prefGeneration;
-      const result = await window.tv.ensurePlayable(clip.absPath).catch(() => null);
-      if (token !== playToken) return;          // superseded while preparing
-      if (result && result.ok && result.mediaUrl) {
-        url = result.mediaUrl;
-        if (result.playablePath === clip.absPath && generation === prefGeneration) {
-          playableUrls.set(clip.absPath, result.mediaUrl);
-        }
-      } else { onDone(); return; }              // not worth stalling the channel
-    }
-  }
 
   let done = false;
   let watchdog = null;
@@ -1752,15 +1246,7 @@ async function playClip(clip, onDone, kind = 'Bumper') {
     onDone();
   };
 
-  /**
-   * An erroring clip forgets its remembered URL before finishing, so the next
-   * deal re-resolves instead of replaying the same dead source forever. Cheap
-   * even when the error was transient: forgetting costs one re-ensure.
-   */
-  const failed = () => {
-    if (clip.absPath) playableUrls.delete(clip.absPath);
-    finish();
-  };
+  const failed = () => finish();   // a clip that errors just moves the channel on
 
   /**
    * Once the clip says how long it is, give it that long plus a margin.
@@ -1807,21 +1293,16 @@ async function playClip(clip, onDone, kind = 'Bumper') {
 
   player.addEventListener('ended', finish, { once: true });
   player.addEventListener('error', failed, { once: true });
-  player.src = url;
-  player.load();
-  player.play().catch(failed);
 
-  /**
-   * Convert the next episodes now the clip is actually rolling.
-   *
-   * Deliberately AFTER the clip's own preparation, not before it. Hoisting this
-   * above the await looks like it starts the work sooner, and does not:
-   * onEpisodeEnded already calls prepareAhead() before the first interstitial,
-   * so by here the job is running. All hoisting it achieved was running the
-   * episode's conversion CONCURRENTLY with the clip's own, which contends for
-   * the same disk — the thing prepareAhead's own sequencing exists to avoid.
-   */
-  prepareAhead();
+  // LAST, with everything above already standing (see the note at the top).
+  try {
+    await player.open(clip.absPath);
+  } catch {
+    failed();                       // refused outright: move the channel on
+    return;
+  }
+  if (token !== playToken) return;  // superseded while opening; cleanup ran
+  player.play();
 }
 
 /** Deal and play a bumper, or pass straight through when there is none. */
@@ -1860,80 +1341,11 @@ function playPromoClip(onDone) {
   playClip(picked.promo, onDone, 'Promo');
 }
 
-/**
- * How many promos may be spent covering a conversion that has run long.
- *
- * Bounded, because what a promo displaces is the episode. Three covers a slow
- * remux comfortably without turning the channel into a promo reel when
- * something is genuinely stuck — loadAndPlay still has its own preparing panel
- * for that case, and it reports real failures.
+/*
+ * The filler-promo machinery lived here: promos spent covering a conversion
+ * that outran the up-next card. Nothing converts any more, so the card's
+ * countdown is the whole wait and the machinery went with the pipeline.
  */
-const MAX_FILLER_PROMOS = 3;
-
-/**
- * How long the up-next card waits before handing off to a promo.
- *
- * Most conversions land within a second or two of the countdown ending, and
- * cutting to a promo for those would replace a short wait with a longer one.
- */
-const FILLER_HANDOFF_MS = 2500;
-
-/** Is there a promo available to spend on a wait? */
-function fillerPromoAvailable() {
-  const settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
-  return Boolean(settings.promosEnabled) && promoClips.length > 0;
-}
-
-/** Is this item playable this instant, with nothing left to wait for? */
-function readyToPlay(item) {
-  const absPath = item && item.episode ? item.episode.absPath : null;
-  if (!absPath) return true;              // nothing to prepare; let it through
-  return playableUrls.has(absPath);
-}
-
-/**
- * Is a conversion for this item actually RUNNING?
- *
- * "Not ready" is not the same as "worth waiting for". A preparation that has
- * already finished and failed leaves no job and no URL, and filling that with
- * promos would spend three of them delaying a failure the player is about to
- * report properly. Only an in-flight job is worth covering.
- */
-function stillPreparing(item) {
-  const absPath = item && item.episode ? item.episode.absPath : null;
-  return Boolean(absPath) && preparing.has(absPath);
-}
-
-/**
- * Cover a conversion that outlasted the transition, with promos.
- *
- * The transition already spends its bumper, promo and card on the conversion,
- * which is enough for almost everything — but a big remux on a slow disk can
- * outlast all three, and what the viewer got then was a static card reading
- * "Preparing…". Honest, and still someone sitting watching a progress line.
- *
- * A promo costs the wait nothing: the same seconds pass, the conversion keeps
- * running behind it, and there is something on screen instead. Deliberately
- * NOT counted against the promo schedule — this is covering a gap, not a promo
- * that was due, and letting it advance the counter would suppress a real one
- * later.
- *
- * Falls straight through when the episode is ready, when promos are off or
- * absent, or when the budget is spent.
- */
-function fillUntilReady(item, done, spent = 0) {
-  if (readyToPlay(item) || !stillPreparing(item)
-    || spent >= MAX_FILLER_PROMOS || !fillerPromoAvailable()) {
-    done();
-    return;
-  }
-
-  const picked = nextPromo(promoClips, state, {});
-  state = picked.state;
-  if (!picked.promo) { done(); return; }
-
-  playClip(picked.promo, () => fillUntilReady(item, done, spent + 1), 'Promo');
-}
 
 /**
  * Dress a movie up as something loadAndPlay understands.
@@ -2011,11 +1423,6 @@ function onEpisodeEnded() {
 
   state.resume = null;
 
-  // FIRST, before any of the interstitials. The whole transition — sting,
-  // promo, card — is time we are spending anyway, and the conversion for what
-  // comes next should be using all of it rather than starting part way in.
-  prepareAhead();
-
   // The seam between this show and the next drives both the promo rule and the
   // movie's lead, so it is computed once here.
   const upcoming = peek(shows, state, 1)[0];
@@ -2032,7 +1439,7 @@ function onEpisodeEnded() {
   if (!state.pendingMovie && shouldPlayMovie(state, movieFiles, {})) {
     const picked = scheduleMovie(movieFiles, state, {});
     state = picked.state;
-    if (picked.movie) { renderSidebar(); prepareAhead(); }
+    if (picked.movie) renderSidebar();
   }
 
   /**
@@ -2055,17 +1462,11 @@ function onEpisodeEnded() {
     playPromoClip(() => {
       const movieNow = movieIsDue(state);
       const leadOverride = movieNow ? movieItem(state.pendingMovie) : null;
-      // The same item the card headlines and prepareAhead converts first, so
-      // "is it ready" is asked about the thing that is actually next.
-      const lead = leadOverride || peek(shows, state, 1)[0];
       const after = () => (movieNow ? startMovie() : playNext());
-      // Anything still converting when the card closes is covered by promos
-      // rather than by a static card or a black screen.
-      const then = () => fillUntilReady(lead, after);
       if (state.settings.bumperEnabled && state.settings.bumperSeconds > 0) {
-        showBumper(then, leadOverride);
+        showBumper(after, leadOverride);
       } else {
-        then();
+        after();
       }
     });
   });
@@ -2356,48 +1757,6 @@ async function loadLibrary(rootPath) {
     skippedCount ? `${count(skippedCount, 'file', 'files')} ignored` : null,
   ].filter(Boolean).join(' · '), 4200);
 
-  // Warm the front of the queue now, while the user is still reading the ready
-  // screen. Without this the very first episode of a session is the one that
-  // always waits, which is the worst possible first impression.
-  prepareAhead();
-
-  reportConversionNeeds();
-}
-
-/**
- * Say up front what this library will and will not be able to play.
- *
- * Without ffmpeg an AC3-audio episode fails at the moment it tries to start,
- * which reads as the app being broken rather than as a missing dependency. One
- * honest message after the scan is worth more than a skipped episode an hour
- * later, so this counts the files that would need converting and says so once.
- */
-async function reportConversionNeeds() {
-  if (!window.tv.capabilities) return;
-  const caps = await window.tv.capabilities();
-  if (caps.ffmpeg) return; // everything is convertible; nothing to warn about
-
-  // Only sample what is actually coming up — inspecting a 2000-episode library
-  // would read thousands of file headers to produce one sentence.
-  const upcoming = peek(shows, state, 12);
-  const seen = new Set();
-  let blocked = 0;
-
-  for (const item of upcoming) {
-    const absPath = item.episode && item.episode.absPath;
-    if (!absPath || seen.has(absPath)) continue;
-    seen.add(absPath);
-    const result = await window.tv.inspect(absPath).catch(() => null);
-    // remux is survivable without ffmpeg — the player is given a chance anyway.
-    if (result && result.ok && result.plan.needsWork && result.plan.tier !== TIER.REMUX) blocked += 1;
-  }
-
-  if (blocked > 0) {
-    toast(
-      `${blocked} of the next ${seen.size} episodes need converting (usually AC3 audio). Install ffmpeg to play them.`,
-      9000,
-    );
-  }
 }
 
 async function pickFolder() {
@@ -2450,55 +1809,18 @@ function rgba(hex, alpha) {
 }
 
 /**
- * Push subtitle appearance into the page.
+ * Push subtitle appearance onto the RENDERER THAT DRAWS THEM — mpv.
  *
- * ::cue is a pseudo-element, so it cannot be styled inline on the track — the
- * only way to reach it is a real stylesheet, rewritten whenever the settings
- * change.
+ * The settings object is unchanged; the ::cue stylesheet it used to rewrite
+ * is gone with the <video> element. mpv's model is an upgrade underneath:
+ * the box is a real border-style mode, image subs render, and ASS tracks
+ * deliberately keep their authored look (subStyleProperties documents the
+ * mapping and its earned traps). Fire-and-forget: a failed style write must
+ * not break playback, and the next settings change re-asserts everything.
  */
 function applySubtitleStyle() {
-  const cue = cueSettings();
-  const background = cue.background ? rgba('#000000', cue.backgroundOpacity / 100) : 'transparent';
-  // With no box behind it, text needs its own edge or it vanishes over a light
-  // scene. The shadow is only paid for when the box is off.
-  const shadow = cue.background
-    ? 'none'
-    : '0 2px 4px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,1)';
-
-  el('cueStyle').textContent = [
-    'video::cue {',
-    `  color: ${cue.color};`,
-    `  background-color: ${background};`,
-    `  font-family: ${CUE_FONTS[cue.font] || CUE_FONTS.sans};`,
-    `  font-size: ${cue.size}%;`,
-    `  text-shadow: ${shadow};`,
-    '}',
-  ].join('\n');
-
-  applyCuePlacement();
-}
-
-/**
- * Move the cues up or down the frame.
- *
- * Placement is not a CSS property — ::cue cannot be positioned. It is a
- * property of each CUE, so it has to be written onto every cue of every loaded
- * track, and again whenever a new track loads.
- */
-function applyCuePlacement() {
-  const position = cueSettings().position;
-  const line = position === 'top' ? 8 : position === 'middle' ? 48 : 88;
-  for (const track of player.textTracks) {
-    if (!track.cues) continue;
-    for (const cue of track.cues) {
-      try {
-        cue.snapToLines = false;   // makes `line` a percentage of the frame
-        cue.line = line;
-        cue.position = 50;
-        cue.align = 'center';
-      } catch { /* some cues refuse; leave them where they are */ }
-    }
-  }
+  if (!window.tv.mpvSetSubStyle) return;   // preview harness has no player
+  window.tv.mpvSetSubStyle(subStyleProperties(cueSettings())).catch(() => {});
 }
 
 /** The sample line in settings, styled the same way the real cues will be. */
@@ -2556,84 +1878,53 @@ function patchSubtitles(patch) {
 }
 
 /**
- * Scale bumpers and promos only, to crop bars baked INTO those files.
+ * Picture geometry, spoken to mpv.
  *
- * Episodes are never touched. Their shape is handled entirely by CSS
- * `object-fit: contain`, which already does the right thing: largest size that
- * fits, aspect intact, leftover space black on whichever axis has it, and
- * recomputed on every resize. A file with bars encoded into the picture is a
- * different problem — object-fit cannot see them as bars — so those get scaled
- * off the edge, and only there.
+ * Episodes: the auto-crop. detectCrop's cached, unioned fractions become a
+ * video-crop PIXEL BOX against the coded frame, and mpv re-fits the real
+ * picture at every window size — the CSS transform this replaces had to
+ * re-derive scale and translation from the window on every resize, which is
+ * why a resize listener no longer exists here.
+ *
+ * Interstitials: never cropped (detection belongs to episodes), but they
+ * keep her interstitial ZOOM — bars baked into a bumper are not detected,
+ * they are zoomed past by hand, and that setting predates the crop.
  */
 function applyPicture(isInterstitial) {
+  if (!window.tv.mpvSetVideoCrop) return;   // preview harness has no player
   const settings = state.settings || {};
-  const zoom = Math.max(100, Number(settings.interstitialZoom) || 100);
-  const crop = (!isInterstitial && settings.autoCrop !== false) ? currentCrop : null;
 
-  if (!crop || !crop.worthCropping) {
-    player.style.transform = isInterstitial && zoom > 100 ? `scale(${zoom / 100})` : '';
+  if (isInterstitial) {
+    const zoom = Math.max(100, Number(settings.interstitialZoom) || 100);
+    window.tv.mpvSetVideoCrop(null).catch(() => {});
+    window.tv.mpvSetVideoZoom(zoom > 100 ? Math.log2(zoom / 100) : 0).catch(() => {});
     return;
   }
 
-  const box = player.getBoundingClientRect();
-  const vw = player.videoWidth;
-  const vh = player.videoHeight;
-  if (!vw || !vh || !box.width || !box.height) { player.style.transform = ''; return; }
-
-  // The size object-fit: contain actually draws the frame at. Everything below
-  // is measured against that rather than the element, because the frame does
-  // not fill the element on the axis that has bars.
-  const fit = Math.min(box.width / vw, box.height / vh);
-  const drawnW = vw * fit;
-  const drawnH = vh * fit;
-
-  // The real picture inside that frame, and how far its centre sits from the
-  // frame's centre (zero for ordinary symmetrical pillarboxing).
-  const contentW = crop.fw * drawnW;
-  const contentH = crop.fh * drawnH;
-  const offsetX = ((crop.fx + crop.fw / 2) - 0.5) * drawnW;
-  const offsetY = ((crop.fy + crop.fh / 2) - 0.5) * drawnH;
-
-  // Grow the content to fill the window, still without changing its shape.
-  const scale = Math.min(box.width / contentW, box.height / contentH);
-
-  // scale() runs first and translate() second, so the shift is written in
-  // final, already-scaled pixels.
-  player.style.transform =
-    `translate(${(-offsetX * scale).toFixed(2)}px, ${(-offsetY * scale).toFixed(2)}px) `
-    + `scale(${scale.toFixed(4)})`;
+  window.tv.mpvSetVideoZoom(0).catch(() => {});
+  const crop = settings.autoCrop !== false ? currentCrop : null;
+  const spec = crop ? cropSpecFor(crop, player.codedWidth, player.codedHeight) : null;
+  window.tv.mpvSetVideoCrop(spec).catch(() => {});
 }
 
 /**
  * How long a fresh crop detection waits after an episode starts.
  *
- * The same courtesy prepare-ahead pays (its own 2 s delay a few lines from its
- * call site): detection is one ffprobe plus four ffmpeg sampling passes, and
- * firing those at the exact moment an episode starts contends with the
- * episode's own startup reads on the same disk. A KNOWN crop skips the wait
- * entirely — it comes from the cache and touches no tools.
+ * The courtesy survives the player swap: detection is one ffprobe plus four
+ * ffmpeg sampling passes against the drive the episode is PLAYING from. A
+ * KNOWN crop skips the wait entirely — it comes from the cache and touches
+ * no tools.
  */
 const CROP_DETECT_DELAY_MS = 2000;
 
-/**
- * Ask for the crop of the episode on screen and apply it.
- *
- * Two-step on purpose. The cached answer is asked for immediately and applies
- * the moment metadata arrives — a file measured before must not play its first
- * two seconds letterboxed. Only a file we have never measured waits out the
- * startup window before ffmpeg goes anywhere near the disk.
- *
- * `immediate` skips the wait: the settings toggle is a person asking now.
- */
 async function loadCropForCurrent(immediate = false) {
   currentCrop = null;
-  applyPicture(false);
+  applyPicture(playingBumperClip);
 
   const absPath = current && current.episode ? current.episode.absPath : null;
   if (!absPath || !window.tv.detectCrop || state.settings.autoCrop === false) return;
 
   let crop = await window.tv.detectCrop(absPath, { cachedOnly: true }).catch(() => null);
-  // The episode may have moved on while we asked.
   if (!current || current.episode.absPath !== absPath) return;
 
   if (!crop) {
@@ -2642,7 +1933,6 @@ async function loadCropForCurrent(immediate = false) {
       if (!current || current.episode.absPath !== absPath) return;
     }
     crop = await window.tv.detectCrop(absPath).catch(() => null);
-    // The episode may have moved on while ffmpeg looked.
     if (!current || current.episode.absPath !== absPath) return;
   }
 
@@ -2827,10 +2117,13 @@ async function renderCacheInfo() {
   const note = el('cacheNote');
   const info = await window.tv.cacheInfo().catch(() => null);
   if (!info) { note.textContent = 'Prepared-file details are unavailable.'; return; }
-  note.textContent =
-    `${info.count} prepared file${info.count === 1 ? '' : 's'} — ${formatGb(info.bytes)} of ${formatGb(info.budget)} budget. `
-    + 'Cleaning up removes leftovers from cancelled conversions and trims back to budget; '
-    + 'nothing that is playing or queued is touched.';
+  // This cache is a leftover of the conversion era — the player now reads
+  // originals directly and never writes here again. The button stays until
+  // the cache is empty: it is the honest way to reclaim the space.
+  note.textContent = info.count === 0
+    ? 'Empty. Nothing needs converting any more — episodes play directly.'
+    : `${info.count} converted file${info.count === 1 ? '' : 's'} left over from before — ${formatGb(info.bytes)}. `
+      + 'Nothing needs converting any more; cleaning up reclaims the space.';
 }
 
 async function renderManualSaveInfo() {
@@ -3680,7 +2973,7 @@ function openShowSettings(show) {
   el('showSetAudio').value = pref.audio || '';
   el('showSetSubs').value = pref.subs || '';
   el('showSetNote').textContent =
-    'A language other than the default may need each episode converted once before it plays.';
+    'Audio and subtitles switch instantly — the preference applies to the episode on screen too.';
   el('showSetModal').hidden = false;
   el('showSetAudio').focus();
 }
@@ -3710,18 +3003,17 @@ function saveShowPref(patch) {
   state = applySettings(shows, state, {
     showPrefs: { ...(state.settings.showPrefs || {}), [show.id]: next },
   }, {});
-  prefGeneration += 1;
   persist();
 
-  const paths = new Set(show.episodes.map((e) => e.absPath));
-  for (const absPath of paths) {
-    playableUrls.delete(absPath);
-    preparing.delete(absPath);
-  }
-  // By key prefix, not by enumerating languages: a list here would silently
-  // couple to the <select> options and rot the first time one was added.
-  for (const key of [...wantedAudio.keys()]) {
-    if (paths.has(key.slice(0, key.indexOf('\n')))) wantedAudio.delete(key);
+  /**
+   * The old body purged three caches here, because a preference could only
+   * take effect through a re-prepare. mpv switches live: if the show whose
+   * preference just changed is ON SCREEN, apply it to the episode playing
+   * right now — the setting doing something immediately is the whole point
+   * of the player swap.
+   */
+  if (current && current.showId === show.id && !playingBumperClip) {
+    applyTrackPrefs(current);
   }
 }
 
@@ -3776,204 +3068,79 @@ function locksOpen() {
 }
 
 // ---------------------------------------------------------------------------
-// audio + subtitle tracks
+// audio + subtitle tracks — live, on mpv
 // ---------------------------------------------------------------------------
 
 /**
- * Which audio track the viewer chose for the episode ON SCREEN.
- *
- * Reset for every new episode, deliberately: English is the default and stays
- * the default. This only ever holds an explicit override of the current one.
+ * The whole track apparatus collapsed when the player learned to switch
+ * live. Gone with the conversion pipeline: the audio override that forced a
+ * re-prepare, the played-vs-planned index pair whose disagreement WAS the
+ * lying-label bug, the WebVTT extraction, the <track> elements, and the
+ * last-decision-wins sequence number a minutes-long extraction needed. What
+ * remains reads mpv's own track-list — the menus carry mpv's `selected`
+ * flag, so the label and the sound share one source and cannot disagree.
  */
-let audioOverride = null;
+let currentTracks = { audio: [], subtitles: [] };
+let subsOn = false;
 
-/**
- * Which audio track is ACTUALLY playing, as opposed to which one was wanted.
- *
- * These are not the same thing and the difference is the whole bug: the menu
- * used to highlight the planner's preference, so a file that fell back to
- * playing untouched was labelled English while track one played Japanese. Null
- * means nothing has established it yet, and the menu falls back to the plan.
- */
-let playingAudioIndex = null;
-
-let currentTracks = { audio: [], subtitles: [], defaultAudioIndex: 0 };
-let activeSubIndex = null;
-let subtitleObjectUrl = null;
-
-/** Drop any subtitle currently attached, and release its blob. */
-function clearSubtitles() {
-  for (const node of [...player.querySelectorAll('track')]) node.remove();
-  if (subtitleObjectUrl) {
-    URL.revokeObjectURL(subtitleObjectUrl);
-    subtitleObjectUrl = null;
-  }
-}
-
-/**
- * Show one subtitle track, or none.
- *
- * Subtitles are extracted to WebVTT and attached as a <track>, which Chromium
- * renders and toggles instantly — no reload, unlike audio. Image-based subtitle
- * formats cannot become text and are refused rather than silently doing nothing.
- */
-/**
- * Monotonic subtitle request id: the LAST decision wins.
- *
- * An extraction can run for minutes on a slow drive, and the viewer can turn
- * subtitles off (or pick another track) while it runs — the late arrival must
- * not attach over a decision made after it started. Every entry into
- * setSubtitle, including the synchronous Off branch, claims a new id, and the
- * async tail only applies while its id is still the newest.
- */
-let subRequestSeq = 0;
-
-async function setSubtitle(index) {
-  if (!current) return;
-  const absPath = current.episode.absPath;
-  const seq = ++subRequestSeq;
-
-  if (index === null || index === undefined) {
-    clearSubtitles();
-    activeSubIndex = null;
-    renderTrackMenu();
-    return;
-  }
-
-  const track = currentTracks.subtitles.find((s) => s.index === index);
-  if (track && !track.usable) {
-    toast('Those subtitles are images, not text — they cannot be switched on.', 5000);
-    return;
-  }
-
-  toast('Loading subtitles…', 30000);
-  const result = await window.tv.subtitleText(absPath, index).catch(() => null);
-  /**
-   * The extraction can take minutes on a slow drive, and `current` does not
-   * change while an interstitial plays — so a track that finished extracting
-   * after the viewer moved on would pass the absPath guard below and paint
-   * the skipped episode's captions over the bumper. A clip never wants
-   * subtitles, full stop.
-   */
-  if (playingBumperClip || seq !== subRequestSeq) { clearToast(); return; }
-  if (!result || !result.ok || !result.vtt) {
-    clearToast();
-    toast(result && result.needsFfmpeg ? 'Subtitles need ffmpeg.' : 'Could not load those subtitles.', 4000);
-    return;
-  }
-  // The episode may have moved on while ffmpeg worked.
-  if (!current || current.episode.absPath !== absPath) return;
-
-  clearSubtitles();
-  subtitleObjectUrl = URL.createObjectURL(new Blob([result.vtt], { type: 'text/vtt' }));
-
-  const node = document.createElement('track');
-  node.kind = 'subtitles';
-  node.label = track ? track.label : 'Subtitles';
-  node.srclang = (track && track.language) || 'en';
-  node.src = subtitleObjectUrl;
-  node.default = true;
-  player.append(node);
-  // Set on load AND immediately: whichever fires first wins, and a track that
-  // loads from a blob can be ready before the listener is attached.
-  const show = () => {
-    if (node.track) node.track.mode = 'showing';
-    // Placement lives on each CUE, and the cues do not exist until the track
-    // has parsed — so it has to be applied here as well as from settings.
-    applyCuePlacement();
+async function refreshTrackMenus() {
+  if (!window.tv.mpvTrackList) { currentTracks = { audio: [], subtitles: [] }; return; }
+  const list = await window.tv.mpvTrackList().catch(() => null);
+  currentTracks = {
+    audio: audioMenuFrom(list || []),
+    subtitles: subtitleMenuFrom(list || []),
   };
-  node.addEventListener('load', show, { once: true });
-  show();
-
-  activeSubIndex = index;
-  clearToast();
+  subsOn = (list || []).some((t) => t && t.type === 'sub' && t.selected);
   renderTrackMenu();
 }
 
 /**
- * Switch the audio language of the episode on screen.
+ * The per-show preferences, applied to the file just loaded.
  *
- * Chromium has no audio-track API, so this is not a toggle — it re-prepares the
- * file with a different track mapped and reloads at the same timestamp. Usually
- * fast (video is copied, only the sound is re-encoded) and instant if that
- * variant was prepared before, but it is real work, so the UI says so.
+ * Order matters for none of it — both are instant property writes — but the
+ * guard does: the track list is asked AFTER the load settles, and a viewer
+ * who moved on mid-ask must not have the old show's preference land on the
+ * new file.
  */
-async function switchAudio(index) {
-  if (!current || index === audioOverride) return;
-  const absPath = current.episode.absPath;
-  const at = player.currentTime;
-  const wasPlaying = !player.paused;
-  const label = (currentTracks.audio.find((a) => a.index === index) || {}).label || `track ${index + 1}`;
+async function applyTrackPrefs(item) {
+  if (!window.tv.mpvTrackList) return;
+  const list = await window.tv.mpvTrackList().catch(() => null);
+  if (!list || current !== item) return;
 
-  audioOverride = index;
-  playableUrls.delete(absPath);
-  renderTrackMenu();
-  toast(`Switching audio to ${label}…`, 120000);
+  const pref = prefFor(item.showId);
+  const aid = pickAudioTrackId(list, { preferLanguage: pref.audio || 'eng' });
+  if (aid !== null) await window.tv.mpvSetAudioTrack(aid).catch(() => {});
 
-  const result = await window.tv.ensurePlayable(absPath, undefined, index).catch(() => null);
-  if (!current || current.episode.absPath !== absPath) return;  // moved on
+  const sid = pref.subs ? pickSubtitleTrackId(list, { preferLanguage: pref.subs }) : null;
+  // 'no' rather than nothing when there is no pick: sid is sticky across
+  // loadfiles, so the previous episode's selection would otherwise carry.
+  await window.tv.mpvSetSubTrack(sid !== null ? sid : 'no').catch(() => {});
+  await window.tv.mpvSetSubVisibility(sid !== null).catch(() => {});
 
-  if (!result || !result.ok || !result.mediaUrl) {
-    clearToast();
-    toast('Could not switch audio for this episode.', 4000);
-    return;
-  }
+  await refreshTrackMenus();
+}
 
-  /**
-   * Deliberately NOT cached in playableUrls. That cache's contract is "this
-   * URL plays the track the plan chose", and this one plays the track the
-   * viewer overrode — caching it would mislabel the next natural replay.
-   * The main-process variant cache keeps the re-prepare on that replay cheap.
-   */
-  player.src = result.mediaUrl;
-  player.load();
-  player.addEventListener('loadedmetadata', () => {
-    // Back to where they were, not to the start of the episode.
-    if (Number.isFinite(player.duration)) player.currentTime = Math.min(at, player.duration - 1);
-    if (wasPlaying) player.play().catch(() => {});
-    // Text tracks do not survive a source change.
-    if (activeSubIndex !== null) setSubtitle(activeSubIndex);
-  }, { once: true });
-
-  clearToast();
+/** INSTANT — the reason this branch exists. No re-prepare, no reload. */
+async function switchAudio(id) {
+  if (!current) return;
+  const label = (currentTracks.audio.find((a) => a.id === id) || {}).label || 'that track';
+  await window.tv.mpvSetAudioTrack(id).catch(() => {});
   toast(`Audio: ${label}`, 2200);
+  await refreshTrackMenus();
 }
 
-/**
- * Switch on the subtitles this show asked for, if the episode carries them.
- *
- * Quietly does nothing when there is no preference, no matching track, or only
- * an image-based one — a missing track must not produce an error toast between
- * every episode of a show whose files simply lack that language.
- */
-function applySubtitlePref(item) {
-  const want = prefFor(item.showId).subs;
-  if (!want || activeSubIndex !== null) return;
-  // Non-forced first: a forced track carries only the foreign-dialogue lines,
-  // which is not what "subtitles on" means to a person who asked for them.
-  const usable = currentTracks.subtitles.filter(
-    (t) => t.usable && matchesLanguage({ language: t.language }, want),
-  );
-  const track = usable.find((t) => !t.forced) || usable[0];
-  if (track) setSubtitle(track.index);
-}
-
-/** Read the current episode's tracks and draw the menu. */
-async function loadTracksForCurrent() {
-  if (!current || !current.episode.absPath || !window.tv.listTracks) {
-    currentTracks = { audio: [], subtitles: [], defaultAudioIndex: 0 };
-    return;
+async function setSubtitle(id) {
+  if (id === null || id === undefined) {
+    // Clear the TRACK, not just visibility: sid is a sticky mpv property,
+    // and the menu's truth source is track-list's selected flag — a track
+    // left selected-but-invisible reads as subtitles being on forever.
+    await window.tv.mpvSetSubTrack('no').catch(() => {});
+    await window.tv.mpvSetSubVisibility(false).catch(() => {});
+  } else {
+    await window.tv.mpvSetSubTrack(id).catch(() => {});
+    await window.tv.mpvSetSubVisibility(true).catch(() => {});
   }
-  const absPath = current.episode.absPath;
-  const result = await window.tv.listTracks(
-    absPath,
-    prefFor(current.showId).audio ? { preferLanguage: prefFor(current.showId).audio } : undefined,
-  ).catch(() => null);
-  if (!current || current.episode.absPath !== absPath) return;
-  currentTracks = result && result.audio
-    ? result
-    : { audio: [], subtitles: [], defaultAudioIndex: 0 };
-  renderTrackMenu();
+  await refreshTrackMenus();
 }
 
 function renderTrackMenu() {
@@ -3995,32 +3162,22 @@ function renderTrackMenu() {
     return li;
   };
 
-  // What is playing beats what was planned. Falling back to the plan is only
-  // right before playback has established anything.
-  let activeAudio = currentTracks.defaultAudioIndex;
-  if (playingAudioIndex !== null) activeAudio = playingAudioIndex;
-  if (audioOverride !== null) activeAudio = audioOverride;
   if (currentTracks.audio.length === 0) {
     audioList.append(row('No audio tracks found', false, () => {}, true));
   } else {
     for (const track of currentTracks.audio) {
-      audioList.append(row(track.label, track.index === activeAudio, () => switchAudio(track.index)));
+      audioList.append(row(track.label, track.selected, () => switchAudio(track.id)));
     }
   }
 
-  subList.append(row('Off', activeSubIndex === null, () => setSubtitle(null)));
+  subList.append(row('Off', !subsOn, () => setSubtitle(null)));
   for (const track of currentTracks.subtitles) {
-    subList.append(row(
-      track.usable ? track.label : `${track.label} — image-based`,
-      track.index === activeSubIndex,
-      () => setSubtitle(track.index),
-      !track.usable,
-    ));
+    subList.append(row(track.label, subsOn && track.selected, () => setSubtitle(track.id)));
   }
 
   const note = el('trackMenuNote');
   if (currentTracks.audio.length > 1) {
-    note.textContent = 'Changing audio re-prepares the episode and resumes where you are.';
+    note.textContent = 'Audio and subtitles switch instantly.';
     note.hidden = false;
   } else {
     note.hidden = true;
@@ -4504,7 +3661,6 @@ The channel keeps its own place.`)) return;
       state = picked.state;
       persist();
       renderSidebar();
-      prepareAhead();
       toast(picked.movie
         ? `Movies on — ${picked.movie.name} in ${state.movieLeadBlocks} block${state.movieLeadBlocks === 1 ? '' : 's'}.`
         : `Movies on — one every ${movieIntervalHours(state.settings)} hours.`, 4200);
@@ -4743,7 +3899,6 @@ The channel keeps its own place.`)) return;
   // player
   // The crop transform is computed from the element's pixel size, so it has to
   // be recomputed whenever that changes.
-  window.addEventListener('resize', () => applyPicture(playingBumperClip));
 
   player.addEventListener('ended', onEpisodeEnded);
   player.addEventListener('timeupdate', onTimeUpdate);
@@ -4760,9 +3915,12 @@ The channel keeps its own place.`)) return;
     if (app.dataset.view === 'playing') showChrome();
   });
   el('stage').addEventListener('dblclick', (event) => {
-    if (app.dataset.view === 'playing' && event.target === player) toggleFullscreen();
+    if (app.dataset.view === 'playing' && event.target === el('playerSurface')) toggleFullscreen();
   });
-  player.addEventListener('click', togglePlay);
+  // The picture's click target is the transparent surface standing where the
+  // <video> element stood — the facade is not a DOM node and never gets a
+  // 'click'.
+  el('playerSurface').addEventListener('click', togglePlay);
 
   document.addEventListener('keydown', onGlobalKey);
   window.addEventListener('beforeunload', () => window.tv.saveState(state));
@@ -4806,46 +3964,28 @@ function renderBuffer() {
   el('scrubBuffer').style.width = `${(end / player.duration) * 100}%`;
 }
 
-/** Files we have already re-encoded once, so a second failure gives up. */
-const escalated = new Set();
-
 function onPlaybackError() {
-  // A clip that will not play is not an episode failure — its own handler moves
-  // the channel on, and escalating here would re-encode the wrong file and
-  // skip an episode that was never given a chance.
+  // A clip that will not play is not an episode failure — its own handler
+  // moves the channel on.
   if (playingBumperClip) return;
 
-  const name = current ? `${current.showName} ${current.label}` : 'that file';
-  const absPath = current && current.episode ? current.episode.absPath : null;
-
   /**
-   * A decode failure means the file needs converting, not that it is missing.
-   * The codec tables are a prediction and two things beat them: H.265, whose
-   * support depends on the machine rather than the file, and codec ids we have
-   * never seen. Both are planned optimistically, so this is where a wrong guess
-   * gets corrected — re-encode properly, once, rather than dropping an episode
-   * that was only ever one conversion away from playing.
+   * The old body escalated through conversion tiers here — a decode failure
+   * meant the PLANNER guessed wrong and a re-encode could fix it. mpv does
+   * not guess; a file it reports an error for is genuinely unreadable
+   * (truncated, corrupt, or gone with its drive), and the only honest move
+   * is the one the old last resort made: say so, and move on.
    */
-  if (absPath && needsFallback(player.error) && !escalated.has(absPath)) {
-    escalated.add(absPath);
-    playableUrls.delete(absPath);
-
-    const token = playToken;
-    const item = current;
-    resolvePlayable(item, token, TIER.FULL).then((url) => {
-      if (token !== playToken) return;
-      if (!url) {
-        toast(`Could not play ${name} — skipping it.`, 4500);
-        if (app.dataset.view === 'playing') playNext();
-        return;
-      }
-      player.src = url;
-      player.load();
-      player.play().catch(() => {});
-    });
+  const name = current ? `${current.showName} ${current.label}` : 'that file';
+  failedInARow += 1;
+  if (failedInARow >= MAX_FAILURES_IN_A_ROW) {
+    failedInARow = 0;
+    toast('Several episodes in a row could not be played — is the drive connected? Stopping here.', 8000);
+    setView('ready');
+    renderReady();
+    renderSidebar();
     return;
   }
-
   toast(`Could not play ${name} — skipping it.`, 4500);
   setTimeout(() => { if (app.dataset.view === 'playing') playNext(); }, 1200);
 }
@@ -4908,6 +4048,7 @@ function wireWindowControls() {
   // without the button — a double-click on the drag strip, Win+Up, a snap — and
   // a glyph that only reads the state once starts lying at the first of those.
   window.tv.onWindowState?.(({ maximized, fullscreen }) => {
+    windowIsFullscreen = Boolean(fullscreen);
     app.dataset.maximized = String(Boolean(maximized));
     app.dataset.fullscreen = String(Boolean(fullscreen));
   });
@@ -4958,11 +4099,18 @@ function resumeInPlace() {
   player.play().catch(() => {});
 }
 
+/** Mirrored from window:state — the OS window is the one source of truth. */
+let windowIsFullscreen = false;
+
 async function toggleFullscreen() {
-  const next = !document.fullscreenElement;
-  if (next) await document.documentElement.requestFullscreen().catch(() => {});
-  else await document.exitFullscreen().catch(() => {});
-  window.tv.setFullscreen(next);
+  /**
+   * ONE mechanism, not two. The old body ALSO requested the page's own HTML
+   * fullscreen, which now belongs to the interface plane alone — Chromium's
+   * built-in Escape exited the HTML half and left the OS window fullscreen,
+   * a state the app could not see and the viewer could not leave.
+   */
+  windowIsFullscreen = !windowIsFullscreen;
+  window.tv.setFullscreen(windowIsFullscreen);
 }
 
 function onGlobalKey(event) {
@@ -5064,7 +4212,10 @@ function onGlobalKey(event) {
       break;
     case 'ArrowLeft': player.currentTime -= 10; showChrome(); break;
     case 'ArrowRight': player.currentTime += 30; showChrome(); break;
-    case 'f': case 'F': toggleFullscreen(); break;
+    // F11 handled here because the default menu (and its accelerator) is
+    // gone: it fullscreened whichever plane was FOCUSED, which is always the
+    // interface — leaving the video window behind at its old size.
+    case 'f': case 'F': case 'F11': event.preventDefault(); toggleFullscreen(); break;
     case 'n': case 'N': askSkip(); break;
     case 'l': case 'L':
       // A toggle, because that is what a single key on a panel should be —
@@ -5081,7 +4232,9 @@ function onGlobalKey(event) {
       toast(state.settings.muted ? 'Muted' : 'Sound on', 1400);
       break;
     case 'Escape':
-      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      // The OS window is the one fullscreen there is now; leave it here,
+      // where the old HTML fullscreen used to exit.
+      if (windowIsFullscreen) toggleFullscreen();
       break;
     default: break;
   }
@@ -5140,65 +4293,10 @@ boot();
 // waiting on a conversion
 // ---------------------------------------------------------------------------
 
-/**
- * An honest wait.
- *
- * This replaced a toast with a sixty-second life. Most conversions finish
- * inside that and it was fine; a 49GB film whose audio Chromium cannot decode
- * takes about forty minutes, and the message vanished after one of them. The
- * report was "it says processing, then the popup disappears and nothing
- * plays" — the app was working the whole time and had simply stopped saying
- * so.
- *
- * So it stays up until the wait ends, and it says three things a spinner
- * cannot: how far in, how much longer, and WHY this is happening at all.
+/*
+ * The preparing panel lived here — the honest wait screen for a conversion
+ * running in front of the viewer. Nothing converts any more; nothing waits.
  */
-let preparingFor = null;
-let preparingStartedAt = 0;
-let stopPreparingProgress = null;
-
-function showPreparing(item) {
-  const absPath = item.episode && item.episode.absPath;
-  if (!absPath) return;
-
-  preparingFor = absPath;
-  preparingStartedAt = performance.now();
-
-  el('preppingTitle').textContent = item.isMovie
-    ? item.showName
-    : `${item.showName} ${item.label}`;
-  el('preppingFill').style.width = '0%';
-  el('preppingCount').textContent = 'Starting…';
-  el('preppingNote').textContent = 'This file needs converting before it can play. It only happens once — after this it starts immediately.';
-  el('prepping').hidden = false;
-
-  if (stopPreparingProgress) stopPreparingProgress();
-  stopPreparingProgress = window.tv.onPrepareProgress
-    ? window.tv.onPrepareProgress((payload) => {
-      if (!payload || payload.absPath !== preparingFor) return;
-      renderPreparing(payload.outMs || 0, payload.totalMs || 0);
-    })
-    : null;
-}
-
-/**
- * Draws what preparingCopy decided. The wording and the estimate live in
- * src/shared/prepProgress.js, where they can be tested — the parts that can be
- * wrong here are all arithmetic, and none of it is visible in a screenshot.
- */
-function renderPreparing(outMs, totalMs) {
-  const elapsed = (performance.now() - preparingStartedAt) / 1000;
-  const { fraction, text } = preparingCopy(outMs, totalMs, elapsed);
-
-  if (fraction !== null) el('preppingFill').style.width = `${(fraction * 100).toFixed(1)}%`;
-  el('preppingCount').textContent = text;
-}
-
-function hidePreparing() {
-  el('prepping').hidden = true;
-  preparingFor = null;
-  if (stopPreparingProgress) { stopPreparingProgress(); stopPreparingProgress = null; }
-}
 
 // ---------------------------------------------------------------------------
 // library mode
