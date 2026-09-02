@@ -110,13 +110,28 @@ Still to build, in order:
      positions top/middle/bottom → sub-pos 10/50/100; one real font family
      per role.
    14-check harness; suite 512.
-4. **S-mpv-5: retire the conversion world (branch-only).** prepare-ahead,
-   playableUrls, the preparing overlay, filler promos, tier planning,
-   measured verdicts, the prepared cache + cleanup + budget, `media://` for
-   playback. Library-table "conversion" column becomes "plays directly".
-   Thumbnails move fully onto the bundled-ffmpeg artwork machinery (the
-   in-page `<video>`-canvas decoder goes with the `<video>` element).
+4. **S-mpv-5: THE SWITCHOVER.** ✅ **COMPLETE (`b8c0e57`+`9000382`).**
+   main.js boots planes+mpv+host BEFORE the renderer loads; the renderer's
+   `<video>` became the facade; the conversion world removed (−645 lines).
+   Proven by `scripts/mpv-smoke.mjs` on a SCRATCH profile (NTV_PROFILE):
+   dev tree AND the PACKAGED build (NTV_SMOKE_BINARY) both play episode →
+   card → a DIFFERENT programme unattended, saves written. 22 review
+   findings folded (breaker counts playback failures; subs Off clears sid;
+   click/dblclick on #playerSurface; seek clamps; ONE fullscreen mechanism
+   + F11/Escape in-app + default menu removed; planes close as ONE via
+   close(); mpv boot failure = dialog+quit; `idle-active` feeds
+   shouldPause across restarts; maximized-drag guard; activate re-entry
+   guard; stale copy fixed).
+   **DEFERRED, still owed:** OS keyboard window verbs (Win+Up/snap) act on
+   the inert overlay; `raise-failed` has no user surfacing (main logs
+   only) and first paint waits out the raise; the library table still
+   speaks the old planner's conversion language (`entryConverts` world);
+   thumbnails still `<video>`-probe media:// (works; ffmpeg-capture move
+   optional); Ctrl+R reload is deliberately dead with the menu.
 5. **S-mpv-6: soak + Audrey's test pass**, then the merge/ship decision.
+   Portable delivered: `Desktop\Nostalgia TV (mpv test).exe` — SAME profile
+   as the installed app (progress carries over); NEVER run both at once
+   (the second instance silently focuses the first).
 
 ## Traps and open questions
 
