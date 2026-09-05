@@ -3287,7 +3287,31 @@ input[type="range"]::-webkit-slider-thumb {
 :root[data-skin="vcr"] .showctl[data-act="reset"]::after {
   font-size: var(--t-body);
   font-family: var(--mono);
+  line-height: 1;
 }
+
+/**
+ * CENTRE the substituted glyph, and give the play button room for a big one.
+ *
+ * The generated content is an inline box inside a button that was laid out
+ * for a text label, so it sat small and pushed to one side of a 34px control.
+ * Centring has to be said explicitly because the substitution replaced the
+ * text the button was aligned around.
+ *
+ * The play mark is the largest thing on the transport on purpose — it is a
+ * VCR's headline indicator, and Home Video draws its ► noticeably smaller
+ * than the ROM does, so at the body size it read as an afterthought.
+ */
+:root[data-skin="vcr"] .ctl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+:root[data-skin="vcr"] #btnPlay {
+  min-width: 64px;
+  height: 44px;
+}
+:root[data-skin="vcr"] #btnPlay::after { font-size: var(--t-title); }
 /* The player's button reports state through its TEXT, which CSS cannot match
    on — so the renderer stamps data-playing beside it and this reads that.
    Both faces need a rule or pausing would blank the button. */
@@ -3369,6 +3393,83 @@ input[type="range"]::-webkit-slider-thumb {
    thinner than its neighbours and the hierarchy quietly inverts. One extra
    dot of stem puts the weight back. */
 .osdcell[data-on="true"] .osdcell__word { text-shadow: 1px 0 0 currentColor; }
+
+/* ── the OSD corners ──────────────────────────────────────────────────────
+   Transport state, tape speed, and the date-and-counter block. Present in
+   the markup for every theme and drawn in NONE of them but this one — the
+   alternative was building it in JS and tearing it down on every theme
+   change, which is more moving parts for the same picture. */
+.osd { display: none; }
+
+:root[data-skin="vcr"] .osd {
+  display: block;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;      /* it is a readout, never a target */
+  font-family: var(--mono);
+  font-size: var(--t-title);
+  line-height: 1;
+  color: var(--ink);
+}
+/* Title-safe: a CRT overscanned, so a real OSD sat well inside the edge. */
+:root[data-skin="vcr"] .osd > * { position: absolute; }
+:root[data-skin="vcr"] .osd__state { top: 32px; left: 48px; }
+:root[data-skin="vcr"] .osd__speed { top: 32px; right: 48px; }
+
+/**
+ * The OSD line owns the top of the picture; the chrome starts under it.
+ *
+ * Both want the same two corners — PLAY landed on the show title and SP on
+ * the library button. A VCR put its transport state first and above
+ * everything, so the readout keeps the corners and the app's own header
+ * moves down rather than the other way round.
+ */
+/* 80px = the OSD line's own bottom edge (32 top + 32 tall) plus a 16px gap.
+   Measured rather than guessed: 56 left them overlapping by eight pixels. */
+:root[data-skin="vcr"] .chrome__top { padding-top: 80px; }
+:root[data-skin="vcr"] .osd__count {
+  right: 48px;
+  bottom: 128px;             /* clear of the transport, which owns the floor */
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  text-align: right;
+}
+:root[data-skin="vcr"] .osd__date { font-size: var(--t-body); }
+
+/**
+ * The one place the skin DOES outline its type.
+ *
+ * Everything else sits on a painted panel, where eight shadow copies per
+ * glyph only muddy a face whose appeal is its hard edges. This sits over the
+ * PICTURE, which is why the hardware drew a ring of dark dots around OSD
+ * characters in the first place — without it the readout vanishes over a
+ * bright frame. Zero blur, one font-pixel, eight directions: a CSS stroke is
+ * centred on the outline and eats into the letterform instead of ringing it.
+ */
+:root[data-skin="vcr"] .osd,
+:root[data-skin="vcr"] .nowplaying,
+:root[data-skin="vcr"] .chrome .time,
+:root[data-skin="vcr"] .chrome .upnext {
+  text-shadow:
+    2px 0 0 #000, -2px 0 0 #000, 0 2px 0 #000, 0 -2px 0 #000,
+    2px 2px 0 #000, -2px 2px 0 #000, 2px -2px 0 #000, -2px -2px 0 #000;
+}
+
+/**
+ * ■ on what is switched ON, across the settings sheet.
+ *
+ * Her reference menu marks an enabled row with a solid square rather than a
+ * tick, and the app's checkboxes already carry a ✓ that the fill makes
+ * redundant. The square goes in the LABEL, where the reference puts it, so
+ * the checkbox keeps doing its job untouched.
+ */
+/* The slot is reserved when OFF, so ticking one does not shove the label
+   sideways. The :checked rule below carries an extra pseudo-class and so
+   outranks this regardless of order — but general before specific is how it
+   should read. */
+:root[data-skin="vcr"] .check input + span::before { content: "\00a0\00a0"; }
+:root[data-skin="vcr"] .check input:checked + span::before { content: "\25A0\00a0"; }
 
 /* Title-safe inset: a CRT overscanned, so nothing important sat at the edge. */
 :root[data-skin="vcr"] .browse__bar,

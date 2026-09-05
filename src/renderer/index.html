@@ -297,6 +297,24 @@
 
     <!-- player chrome -->
     <div class="chrome">
+      <!-- The VCR's own display, drawn only under the VHS skin and hidden by
+           CSS everywhere else. Inside the chrome on purpose: this app is
+           emphatic that interface appears when it is SUMMONED and never on
+           its own, and a corner overlay burning over every episode would
+           break that rule the moment it looked most authentic.
+
+           Four corners, the way a VCR laid them out: transport state top
+           left, tape speed top right, and the date-and-counter block bottom
+           right. The date is the "--/--/--" of a machine whose clock was
+           never set, which is what her reference photograph shows. -->
+      <div class="osd" aria-hidden="true">
+        <span class="osd__state" id="osdState">PLAY&#160;&#9658;</span>
+        <span class="osd__speed">SP</span>
+        <span class="osd__count">
+          <span class="osd__date">--/--/--</span>
+          <span class="osd__clock" id="osdClock">00:00:00</span>
+        </span>
+      </div>
       <div class="chrome__top">
         <div class="nowplaying">
           <span class="nowplaying__show" id="npShow"></span>

@@ -39,6 +39,8 @@ const SHOTS = [
   'vhs-face',
   'vhs-rail',
   'vhs-pair-white',
+  'vhs-osd',
+  'vhs-transport-zoom',
   'vhs-pair-green',
   'vhs-colours',
   'vhs-settings',

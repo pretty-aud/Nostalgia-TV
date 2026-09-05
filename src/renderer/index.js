@@ -159,6 +159,22 @@ function setView(view) {
   if (wasHidden && sidebarVisible() && sidebarDirty) renderSidebar();
 }
 
+/**
+ * A tape counter: always H:MM:SS, always padded, never elided.
+ *
+ * formatTime drops the hours below an hour, because a running time reads
+ * better short. A counter is the opposite — it was a fixed-width mechanical
+ * readout and its whole character is that the digits never move. Two
+ * formatters rather than one with a flag, because they want opposite things.
+ */
+function formatCounter(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
+}
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const total = Math.floor(seconds);
@@ -5079,10 +5095,14 @@ The channel keeps its own place.`)) return;
   player.addEventListener('play', () => {
     el('btnPlay').textContent = '❚❚';
     el('btnPlay').dataset.playing = 'true';
+    el('osdState').textContent = 'PLAY ►';
   });
   player.addEventListener('pause', () => {
     el('btnPlay').textContent = '▶';
     el('btnPlay').dataset.playing = 'false';
+    // A VCR said PAUSE with two bars, not with a play triangle — the button
+    // shows what pressing it will DO, the corner shows what the deck IS.
+    el('osdState').textContent = 'PAUSE ▌▌';
   });
   player.addEventListener('error', onPlaybackError);
 
@@ -5105,6 +5125,7 @@ let lastSavedAt = 0;
 function onTimeUpdate() {
   const { currentTime, duration } = player;
   el('timeLabel').textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
+  el('osdClock').textContent = formatCounter(currentTime);
   if (Number.isFinite(duration) && duration > 0) {
     el('scrubFill').style.width = `${(currentTime / duration) * 100}%`;
   }
