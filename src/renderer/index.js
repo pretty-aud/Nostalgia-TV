@@ -3667,7 +3667,6 @@ function wireEvents() {
 
   // --- set schedules -------------------------------------------------------
 
-  el('btnSchedule').addEventListener('click', openSchedule);
   el('btnOpenSchedule').addEventListener('click', () => { closeSettings(); openSchedule(); });
   el('btnCloseSchedule').addEventListener('click', closeSchedule);
   el('scheduleBackdrop').addEventListener('click', closeSchedule);
