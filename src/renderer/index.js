@@ -3050,7 +3050,7 @@ function renderMediaTable() {
   let shown = 0;
 
   if (mediaKind === 'show') {
-    ['Title', 'Episodes', 'Artwork', 'Details'].forEach(th);
+    ['Title', 'Episodes', 'Artwork', 'Card image', 'Details'].forEach(th);
 
     for (const show of shows) {
       if (query && !show.name.toLowerCase().includes(query)) continue;
@@ -3071,6 +3071,21 @@ function renderMediaTable() {
       const art = artCell(hasArt('show', show.id),
         `${hasArt('show', show.id) ? '✓ card' : '— card'} · ${artCount}/${show.episodes.length} eps`);
 
+      const setTd = document.createElement('td');
+      const set = document.createElement('button');
+      set.type = 'button';
+      set.className = 'btn btn--quiet';
+      set.textContent = 'Set image…';
+      set.addEventListener('click', () => {
+        openArtPicker('show', show.id, show.name, () => {
+          // The cell also carries the per-episode tally, so only the card half
+          // of its label is the part this just changed.
+          art.textContent = `✓ card · ${artCount}/${show.episodes.length} eps`;
+          if (browseOpen()) renderBrowse();
+        });
+      });
+      setTd.append(set);
+
       const detailTd = document.createElement('td');
       const toggle = document.createElement('button');
       toggle.type = 'button';
@@ -3078,7 +3093,7 @@ function renderMediaTable() {
       toggle.textContent = 'Episodes';
       detailTd.append(toggle);
 
-      tr.append(name, eps, art, detailTd);
+      tr.append(name, eps, art, setTd, detailTd);
       rows.append(tr);
 
       /**
@@ -3097,7 +3112,7 @@ function renderMediaTable() {
         detailRow = document.createElement('tr');
         detailRow.className = 'mediarow--detail';
         const cell = document.createElement('td');
-        cell.colSpan = 4;
+        cell.colSpan = 5;
         const list = document.createElement('ul');
         list.className = 'mediaeps';
         for (const episode of show.episodes) {
@@ -3136,14 +3151,8 @@ function renderMediaTable() {
       set.type = 'button';
       set.className = 'btn btn--quiet';
       set.textContent = 'Set image…';
-      set.addEventListener('click', async () => {
-        const result = await window.tv.chooseArtwork('movie', movie.relPath).catch(() => null);
-        if (!result || result.cancelled) return;
-        if (!result.ok) { toast(result.error || 'Could not use that image.', 4200); return; }
-        artworkCache.delete(`movie\n${movie.relPath}`);
-        mediaData.art.set(`movie\n${movie.relPath}`, true);
-        art.textContent = '✓';
-        toast('Card image updated.', 2400);
+      set.addEventListener('click', () => {
+        openArtPicker('movie', movie.relPath, movie.name, () => { art.textContent = '✓'; });
       });
       setTd.append(set);
 
@@ -3205,6 +3214,116 @@ function closeShowSettings() {
 
 function showSetOpen() {
   return !el('showSetModal').hidden;
+}
+
+/* --- the card image picker ------------------------------------------------ */
+
+/**
+ * What the picker is setting, and who to tell when it lands.
+ *
+ * Two places open this — a row in the library table and a show's own settings
+ * — and each has a different thing to update afterwards, so the caller hands
+ * in the follow-up rather than the dialog trying to work out where it came
+ * from.
+ */
+let artPickTarget = null;
+
+/**
+ * Kept in step with electron/main.js. The main process is the one that
+ * actually has to refuse — a renderer check can only ever be a courtesy,
+ * because it is the one half a determined caller can skip.
+ */
+const ART_MAX_BYTES = 12 * 1024 * 1024;
+const ART_TYPES = /^image\/(png|jpeg|webp|gif|bmp)$/;
+
+function artPickOpen() {
+  return !el('artModal').hidden;
+}
+
+function openArtPicker(kind, id, label, onDone) {
+  artPickTarget = { kind, id, onDone };
+  el('artFor').textContent = label || '';
+  const err = el('artError');
+  err.hidden = true;
+  err.textContent = '';
+  delete el('artDrop').dataset.over;
+  el('artModal').hidden = false;
+  el('btnArtBrowse').focus();
+}
+
+function closeArtPicker() {
+  el('artModal').hidden = true;
+  delete el('artDrop').dataset.over;
+  artPickTarget = null;
+}
+
+/**
+ * A refusal stays IN the dialog rather than going out as a toast.
+ *
+ * The whole reason to have said the rules up front is that a wrong file gets
+ * corrected on the spot — and a message that floats away over the settings
+ * sheet is not next to the thing being corrected, or still on screen by the
+ * time the second attempt is being chosen.
+ */
+function artPickFailed(message) {
+  const err = el('artError');
+  err.textContent = message;
+  err.hidden = false;
+}
+
+/**
+ * Land a result, whichever route produced it.
+ *
+ * Both the file dialog and the drop end in the same two obligations: forget
+ * the cached art under that key — a remembered hit would keep painting the
+ * old picture until a restart, which reads exactly like the new one not
+ * taking — and tell whichever surface asked.
+ */
+function applyArtResult(result) {
+  if (!artPickTarget) return;
+  if (!result || result.cancelled) return;
+  if (!result.ok) { artPickFailed(result.error || 'Could not use that image.'); return; }
+
+  const { kind, id, onDone } = artPickTarget;
+  artworkCache.delete(`${kind}
+${id}`);
+  if (mediaData && mediaData.art) mediaData.art.set(`${kind}
+${id}`, true);
+  closeArtPicker();
+  if (typeof onDone === 'function') onDone();
+  toast('Card image updated.', 2400);
+}
+
+/**
+ * A dropped file, read here and handed over as bytes.
+ *
+ * Electron removed File.path, so there is no path to give the main process —
+ * the renderer has to read the file itself. The type and size checks are the
+ * courtesy half of the guidance in the dialog: nativeImage answers a PDF with
+ * an empty image and no complaint, and "nothing happened" is the worst
+ * possible reply to a file someone just dragged in.
+ */
+async function artFromFile(file) {
+  if (!file || !artPickTarget) return;
+  if (!ART_TYPES.test(file.type || '')) {
+    artPickFailed('That is not an image this app can read. Use PNG, JPG, WEBP, GIF or BMP.');
+    return;
+  }
+  if (file.size > ART_MAX_BYTES) {
+    artPickFailed('That image is over 12 MB. Try a smaller one.');
+    return;
+  }
+
+  const target = artPickTarget;
+  const bytes = await file.arrayBuffer().catch(() => null);
+  if (!bytes) { artPickFailed('Could not read that file.'); return; }
+  // Closed, or pointed at something else, while the read was in flight —
+  // landing this now would tick over a row nobody is looking at any more.
+  if (artPickTarget !== target) return;
+
+  const result = await window.tv.setArtworkFromData(target.kind, target.id, bytes)
+    .catch((error) => ({ ok: false, error: String(error && error.message ? error.message : error) }));
+  applyArtResult(result);
 }
 
 /**
@@ -3639,6 +3758,64 @@ function wireEvents() {
     renderMediaTable();
   });
 
+  // --- the card image picker -----------------------------------------------
+
+  el('btnCloseArt').addEventListener('click', closeArtPicker);
+  el('artBackdrop').addEventListener('click', closeArtPicker);
+
+  el('btnArtBrowse').addEventListener('click', async () => {
+    if (!artPickTarget) return;
+    const target = artPickTarget;
+    const result = await window.tv.chooseArtwork(target.kind, target.id).catch(() => null);
+    // The OS dialog is modal to the app, so nothing can have moved underneath
+    // it — but a cancel must leave the picker standing, not read as a failure.
+    if (!result || result.cancelled) return;
+    applyArtResult(result);
+  });
+
+  /**
+   * The whole zone is the drop target, and the whole zone is also a button.
+   *
+   * Dragging is not available to everyone, and a keyboard reaching the zone
+   * should get the same file dialog rather than a dead end — which is why the
+   * markup gives it role="button" and a tab stop.
+   */
+  const artDrop = el('artDrop');
+  artDrop.addEventListener('click', (event) => {
+    if (event.target.closest('#btnArtBrowse')) return;   // its own handler ran
+    el('btnArtBrowse').click();
+  });
+  artDrop.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    el('btnArtBrowse').click();
+  });
+
+  /**
+   * dragover MUST be prevented, on the zone and on the window.
+   *
+   * Without the zone's preventDefault the browser refuses the drop and no drop
+   * event ever fires. Without the window's, a file let go anywhere else
+   * NAVIGATES the renderer to that file — the app silently becomes a picture
+   * viewer with no way back, which is the failure mode worth guarding even
+   * when the picker is closed.
+   */
+  artDrop.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    artDrop.dataset.over = 'true';
+  });
+  artDrop.addEventListener('dragleave', () => { delete artDrop.dataset.over; });
+  artDrop.addEventListener('drop', (event) => {
+    event.preventDefault();
+    delete artDrop.dataset.over;
+    const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    if (!file) { artPickFailed('Nothing was dropped that this app can read.'); return; }
+    artFromFile(file);
+  });
+  window.addEventListener('dragover', (event) => event.preventDefault());
+  window.addEventListener('drop', (event) => event.preventDefault());
+
   el('btnDetailSettings').addEventListener('click', () => openShowSettings(browseDetailShow));
   el('btnCloseShowSet').addEventListener('click', closeShowSettings);
   el('showSetBackdrop').addEventListener('click', closeShowSettings);
@@ -3655,23 +3832,18 @@ function wireEvents() {
     toast(event.target.value ? 'Subtitles will switch on for this show.' : 'Subtitles back to off.', 2600);
   });
 
-  el('btnShowSetImage').addEventListener('click', async () => {
+  el('btnShowSetImage').addEventListener('click', () => {
     if (!showSetShow) return;
     const show = showSetShow;
-    const result = await window.tv.chooseArtwork('show', show.id).catch(() => null);
-    if (!result || result.cancelled) return;
-    if (!result.ok) { toast(result.error || 'Could not use that image.', 4200); return; }
-    // Drop the cached miss/old art so the new image shows the moment it can.
-    artworkCache.delete(`show
-${show.id}`);
-    if (browseDetailShow && browseDetailShow.id === show.id) {
-      const art = el('detailArt');
-      art.textContent = '';
-      art.dataset.empty = 'true';
-      paintArt(art, [], { kind: 'show', id: show.id });
-    }
-    if (browseOpen()) renderBrowse();
-    toast('Card image updated.', 2600);
+    openArtPicker('show', show.id, show.name, () => {
+      if (browseDetailShow && browseDetailShow.id === show.id) {
+        const art = el('detailArt');
+        art.textContent = '';
+        art.dataset.empty = 'true';
+        paintArt(art, [], { kind: 'show', id: show.id });
+      }
+      if (browseOpen()) renderBrowse();
+    });
   });
 
   el('btnShowSetForget').addEventListener('click', () => {
@@ -4378,6 +4550,13 @@ function onGlobalKey(event) {
   // peels one layer at a time — the show card, then the grid — and nothing else
   // gets through: space must not pause an episode nobody can see, and N must
   // not advance a channel that is not the thing on screen.
+  // Checked before everything: the picker opens over the show-settings sheet
+  // AND over the library table, so it is always the layer in front.
+  if (artPickOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeArtPicker(); }
+    return;
+  }
+
   // Checked before browse: this dialog opens OVER the detail card inside the
   // library, and Escape must close the thing on top, not the card under it.
   if (showSetOpen()) {
@@ -4649,7 +4828,19 @@ function renderBrowse() {
   const body = el('browseBody');
   body.textContent = '';
 
-  const rows = continueWatching(shows, movieFiles, state, 12).filter((r) => matchesQuery(r.name));
+  /**
+   * No rail while searching.
+   *
+   * A search is a question about the whole library, and the answer has to be
+   * one list read straight down. Leaving the rail up gives the same title two
+   * places to appear, and "carry on where you were" is not an answer to
+   * "where is Akira" — it is a second, louder thing sitting in front of it.
+   * Typing turns the page into results and nothing else.
+   *
+   * Not computed at all while a query is live, rather than computed and
+   * filtered away: this runs on every keystroke.
+   */
+  const rows = browseQuery ? [] : continueWatching(shows, movieFiles, state, 12);
   const showList = shows.filter((s) => matchesQuery(s.name));
   const movieList = movieFiles.filter((m) => matchesQuery(m.name));
 

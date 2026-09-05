@@ -958,6 +958,30 @@ function registerIpc() {
     }
   });
 
+  /**
+   * The same store, from bytes the renderer read off a dropped file.
+   *
+   * Capped, because this crosses IPC: a card image is a few hundred KB and
+   * anything remotely near this ceiling is somebody dropping the wrong file.
+   * Refusing with a reason beats serialising a 4GB video into the main
+   * process to find out it is not a picture.
+   */
+  const MAX_ART_BYTES = 12 * 1024 * 1024;
+  ipcMain.handle('artwork:setFromData', async (_event, kind, id, bytes) => {
+    if (!['show', 'movie'].includes(kind) || typeof id !== 'string') {
+      return { ok: false, error: 'Bad request' };
+    }
+    if (!bytes || typeof bytes.byteLength !== 'number') return { ok: false, error: 'No image data' };
+    if (bytes.byteLength > MAX_ART_BYTES) {
+      return { ok: false, error: 'That image is over 12 MB. Try a smaller one.' };
+    }
+    try {
+      return await artwork.setFromBuffer(kind, id, bytes);
+    } catch (error) {
+      return { ok: false, error: String(error && error.message ? error.message : error) };
+    }
+  });
+
   ipcMain.handle('thumb:get', async (_event, absPath) => {
     try {
       const buf = await fsp.readFile(thumbPathFor(absPath));

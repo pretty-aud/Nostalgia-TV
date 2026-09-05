@@ -728,6 +728,47 @@
      instantly and an unchecked title honestly says so instead of a spinner
      pretending to know. Same furniture as the play-order table on purpose:
      one way to read a table of titles, learned once. -->
+<!-- ── card image picker ──────────────────────────────────────────────
+     Two ways in, because both are natural and neither is obviously first:
+     dropping a file you already have open, or browsing for one. The
+     requirements are stated IN the window rather than left to be discovered
+     by a rejection — an aspect ratio is not something anyone can guess. -->
+<div class="modal modal--narrow" id="artModal" hidden>
+  <div class="modal__backdrop" id="artBackdrop"></div>
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="artTitle">
+    <header class="modal__head">
+      <h2 class="modal__title" id="artTitle">Card image</h2>
+      <button class="iconbtn" id="btnCloseArt" type="button" aria-label="Close">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <p class="artpick__for" id="artFor"></p>
+
+      <div class="artdrop" id="artDrop" tabindex="0" role="button"
+           aria-describedby="artRules">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 16V4" /><path d="M7.5 8.5L12 4l4.5 4.5" />
+          <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
+        </svg>
+        <span class="artdrop__lead">Drop an image here</span>
+        <span class="artdrop__or">or</span>
+        <button class="btn" id="btnArtBrowse" type="button">Choose a file…</button>
+      </div>
+
+      <ul class="artrules" id="artRules">
+        <li><b>16:9</b> — the same shape as the cards. Anything else is cropped to fit.</li>
+        <li><b>1280 × 720</b> is ideal. Smaller than <b>640 × 360</b> will look soft; wider is scaled down to 640.</li>
+        <li>PNG, JPG, WEBP, GIF or BMP, up to <b>12 MB</b>.</li>
+      </ul>
+
+      <p class="artpick__err" id="artError" hidden></p>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="mediaModal" hidden>
   <div class="modal__backdrop" id="mediaBackdrop"></div>
 

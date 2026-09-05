@@ -107,6 +107,7 @@
     artworkStats: async (items) => (items || []).map(() => false),
     getArtwork: async () => null,
     chooseArtwork: async () => ({ ok: false, cancelled: true }),
+    setArtworkFromData: async () => ({ ok: false, error: 'not in the preview' }),
 
     /**
      * The window verbs and the crop probe. A browser has no window to
