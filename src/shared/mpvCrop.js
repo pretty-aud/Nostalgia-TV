@@ -24,6 +24,29 @@
  * picture, never shave it.
  */
 
+/**
+ * The smallest share of the frame a crop may keep and still be believable.
+ *
+ * BARS ARE BORDERS. The widest real crops in this library keep three quarters
+ * of the frame — 4:3 pillarboxed in 16:9 is 75%, 2.35:1 letterboxed is 75%,
+ * and something windowboxed on all four sides still keeps over half. Measured
+ * across 136 cached detections: 24 legitimate crops, the smallest keeping
+ * 74.6%.
+ *
+ * The 25th kept 4.7% — a 316x310 box in the middle of a 1920x1080 frame,
+ * which mpv duly treated as the whole picture and blew up to fill the window.
+ * That is cropdetect doing exactly what it was asked on a run of dark frames:
+ * with nothing bright near the edges it reports the lit patch and calls the
+ * rest border. detectCrop's union over sample points is meant to prevent this
+ * and cannot, because the union only helps when at least ONE sample saw the
+ * full picture; here every sample was dark.
+ *
+ * So there is a floor, and it lives HERE, at the last gate before mpv, rather
+ * than only in detection — it has to reject the bad entries already sitting
+ * in the cache, which no amount of fixing detection can reach.
+ */
+const MIN_KEPT_AREA = 0.5;
+
 /** "WxH+X+Y" for mpv's video-crop, or null for "leave the frame alone". */
 function cropSpecFor(crop, videoWidth, videoHeight) {
   if (!crop || !crop.worthCropping) return null;
@@ -35,6 +58,11 @@ function cropSpecFor(crop, videoWidth, videoHeight) {
   const fw = Number(crop.fw);
   const fh = Number(crop.fh);
   if (!(fw > 0) || !(fh > 0) || fw > 1 || fh > 1) return null;
+
+  // Too little left to be bars. See MIN_KEPT_AREA: refusing to crop shows the
+  // whole frame, which is at worst a thin border she can see past — where
+  // trusting this would blow a fragment of the picture up to fill the window.
+  if (fw * fh < MIN_KEPT_AREA) return null;
 
   const fx = Math.min(1, Math.max(0, Number(crop.fx) || 0));
   const fy = Math.min(1, Math.max(0, Number(crop.fy) || 0));
