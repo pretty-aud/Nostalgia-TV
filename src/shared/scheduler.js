@@ -128,6 +128,14 @@ const DEFAULT_SETTINGS = {
    */
   theme: 'midnight',   // one of THEMES in the renderer; anything else falls back
 
+  /**
+   * Which face the interface is drawn in, as ids from FONT_CHOICES in the
+   * renderer — `display` for the wordmark and headings, `body` for prose.
+   * An unknown id falls back rather than blanking the interface, so a file
+   * written by a later version cannot leave the app unreadable.
+   */
+  fonts: { display: 'grotesk', body: 'inter' },
+
   autoCrop: true,
   interstitialZoom: 100,    // scale % for bumpers/promos ONLY, to crop baked-in bars
   uiScale: 100,             // scale % for player text and controls

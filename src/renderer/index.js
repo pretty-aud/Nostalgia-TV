@@ -65,6 +65,7 @@ import { createMpvFacade } from './mpvBridge.js';
 import { pickAudioTrackId, pickSubtitleTrackId, audioMenuFrom, subtitleMenuFrom } from '../shared/mpvTracks.js';
 import { subStyleProperties } from '../shared/mpvSubStyle.js';
 import { cropSpecFor } from '../shared/mpvCrop.js';
+import { FONT_CHOICES, DEFAULT_FONTS, fontStackFor } from '../shared/fonts.js';
 
 // ---------------------------------------------------------------------------
 // module state
@@ -449,8 +450,21 @@ function renderSidebar() {
    */
   const showToggles = !running;
 
-  el('showsHead').textContent = running ? running.name : 'Shows';
-  el('showCount').textContent = visible.length ? String(visible.length) : '';
+  /**
+   * "(31 shows)", with the NUMBER carrying the accent.
+   *
+   * The schedule's name used to head this line and was simply the picker
+   * above repeated. What the picker cannot tell you is how many shows the
+   * choice leaves, and that count is the part that moves when you change
+   * schedules — so it is coloured and the noun is not.
+   */
+  const count = el('showCount');
+  count.textContent = '';
+  const n = document.createElement('b');
+  n.className = 'sectionhead__n';
+  n.textContent = String(visible.length);
+  count.append(document.createTextNode('('), n,
+    document.createTextNode(` show${visible.length === 1 ? '' : 's'})`));
 
   const list = el('showList');
   list.textContent = '';
@@ -894,6 +908,29 @@ function renderSettings() {
 
   const theme = resolveTheme(state.settings.theme);
   el('themeSelect').value = theme;
+
+  // Built from FONT_CHOICES rather than written into the markup, so a face is
+  // added in one place and cannot drift out of step with what applyFonts can
+  // actually resolve.
+  const fonts = state.settings.fonts || {};
+  for (const [id, chosen, fallback] of [
+    ['fontDisplaySelect', fonts.display, DEFAULT_FONTS.display],
+    ['fontBodySelect', fonts.body, DEFAULT_FONTS.body],
+  ]) {
+    const select = el(id);
+    if (!select.options.length) {
+      for (const font of FONT_CHOICES) {
+        const option = document.createElement('option');
+        option.value = font.id;
+        option.textContent = font.label;
+        // Show each choice IN itself: the label is the only preview there is,
+        // and reading "handwritten" in Inter tells you nothing.
+        option.style.fontFamily = font.stack;
+        select.append(option);
+      }
+    }
+    select.value = FONT_CHOICES.some((f) => f.id === chosen) ? chosen : fallback;
+  }
   el('themeNote').textContent = LIGHT_THEMES.includes(theme)
     ? 'Panels take the theme; over the picture the type stays legible against the video.'
     : '';
@@ -2130,6 +2167,25 @@ function applyTheme() {
   const theme = resolveTheme(String((state.settings || {}).theme || 'midnight'));
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.light = String(LIGHT_THEMES.includes(theme));
+}
+
+
+/**
+ * Set the two families the whole interface is drawn in.
+ *
+ * `--display` is the wordmark and headings; `--grotesque` is everything else
+ * that is prose. `--mono` is deliberately NOT settable: it carries episode
+ * codes, counts and timecodes, where columns lining up is the whole job, and
+ * a proportional face there would be a downgrade dressed as a preference.
+ *
+ * Written as inline custom properties on the root so they beat the :root
+ * defaults in the stylesheet while leaving every rule that reads the tokens
+ * untouched — the same trick applyUiScale uses for --ui-scale.
+ */
+function applyFonts() {
+  const fonts = (state.settings || {}).fonts || {};
+  document.documentElement.style.setProperty('--display', fontStackFor(fonts.display, DEFAULT_FONTS.display));
+  document.documentElement.style.setProperty('--grotesque', fontStackFor(fonts.body, DEFAULT_FONTS.body));
 }
 
 /** Player text and controls, for people who want them larger than the default. */
@@ -3813,6 +3869,16 @@ The channel keeps its own place.`)) return;
     applyTheme();
   });
 
+  el('fontDisplaySelect').addEventListener('change', (event) => {
+    setSetting({ fonts: { ...(state.settings.fonts || {}), display: event.target.value } });
+    applyFonts();
+  });
+
+  el('fontBodySelect').addEventListener('change', (event) => {
+    setSetting({ fonts: { ...(state.settings.fonts || {}), body: event.target.value } });
+    applyFonts();
+  });
+
   el('promoBetweenToggle').addEventListener('change', (event) => {
     setSetting({ promoBetweenShows: event.target.checked });
     toast(event.target.checked
@@ -4422,6 +4488,7 @@ async function boot() {
   }
 
   applyTheme();
+  applyFonts();
   applySubtitleStyle();
   applyUiScale();
   applyPicture(false);

@@ -77,7 +77,12 @@
     <!-- The only scrolling region. Everything above and below stays put, so
          the schedule and the marathon picker never scroll out of reach. -->
     <div class="sidebar__scroll">
-      <h2 class="sectionhead"><span id="showsHead">Shows</span><span id="showCount" class="sectionhead__n"></span></h2>
+      <!-- No name here. The picker directly above already says which schedule
+           is in force — repeating it under its own control is the word twice.
+           What is NOT obvious from up there is how many shows that leaves,
+           and that number is the thing which changes, so it is the only thing
+           this line says. -->
+      <h2 class="sectionhead sectionhead--count" id="showCount"></h2>
       <ul class="shows" id="showList"></ul>
       <p class="emptyshows" id="showsEmpty" hidden></p>
     </div>
@@ -456,6 +461,29 @@
             </span>
           </label>
           <p class="modes__note" id="themeNote"></p>
+
+          <!-- Two fields because the app genuinely sets two faces: the
+               wordmark and headings in one, everything that is prose in the
+               other. Offering a single "font" would quietly flatten that
+               pairing, which is most of the app's character.
+
+               Episode codes, counts and timecodes are NOT covered here — they
+               are monospaced so columns line up, and making that settable
+               would be a downgrade dressed as a preference. -->
+          <h4 class="setsub">Fonts</h4>
+          <label class="field">
+            <span class="field__label mono">Titles</span>
+            <span class="field__control">
+              <select class="select" id="fontDisplaySelect"></select>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field__label mono">Body text</span>
+            <span class="field__control">
+              <select class="select" id="fontBodySelect"></select>
+            </span>
+          </label>
+          <p class="modes__note">Codes and timings stay monospaced so they keep lining up.</p>
 
           <h4 class="setsub">Player text &amp; controls</h4>
           <label class="field">

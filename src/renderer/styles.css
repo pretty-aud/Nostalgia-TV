@@ -278,8 +278,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* ── sidebar head ─────────────────────────────────────────────────────── */
 
+/* Padding sized for what is LEFT here. This block used to carry the library
+   path, the counts and two folder buttons; they moved to Settings and the
+   generous frame stayed, leaving the wordmark floating in a hole. */
 .sidebar__head {
-  padding: calc(var(--u) * 3) var(--gutter);
+  padding: calc(var(--u) * 2.5) var(--gutter) calc(var(--u) * 2);
   border-bottom: 1px solid var(--hair);
 }
 
@@ -340,13 +343,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 .sidebar__scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
-/* The schedule picker sits between the head and the list it filters, and must
-   never be squeezed by a long library — it is how you get back to All Shows. */
-.field--schedule {
-  flex: 0 0 auto;
-  padding-bottom: calc(var(--u) * 1.5);
-  border-bottom: 1px solid var(--hair);
-}
 
 /* Said when a schedule names no show the library still has. Without it the
    list is simply blank, which reads as the app having lost them. */
@@ -370,6 +366,19 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   text-transform: none;
   color: var(--ink-mute);
 }
+/* The count line carries no name, so it does not need the space-between that
+   pushed a heading and a number apart — it is one short phrase, set left, and
+   sits closer to the list it counts. */
+.sectionhead--count {
+  display: block;
+  padding-top: calc(var(--u) * 2);
+  color: var(--ink-mute);
+}
+/* Only the NUMBER takes the accent: it is the part that changes when the
+   schedule does, and colouring the noun with it would say the whole phrase
+   was the variable. */
+.sectionhead--count .sectionhead__n { color: var(--signal-soft); font-weight: 600; }
+
 .sectionhead__n { color: var(--ink-mute); letter-spacing: var(--tr-label); }
 
 .shows { list-style: none; padding-bottom: var(--u); }
@@ -639,6 +648,21 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 }
 
 .field { display: block; padding: calc(var(--u) * 1.5) var(--gutter) 0; }
+
+/* The schedule picker sits between the head and the list it filters, and must
+   never be squeezed by a long library — it is how you get back to All Shows.
+
+   It MUST come after .field: that rule's shorthand ends in `0`, so a
+   padding-bottom set earlier in the file lost on source order and the select
+   sat almost on the hairline below it — a box touching a rule reads as a
+   mistake rather than a boundary. Equal space above and below makes this a
+   band of its own. */
+.field--schedule {
+  flex: 0 0 auto;
+  padding-top: calc(var(--u) * 2.5);
+  padding-bottom: calc(var(--u) * 2.5);
+  border-bottom: 1px solid var(--hair);
+}
 .field__label {
   display: block;
   font-family: var(--grotesque);
