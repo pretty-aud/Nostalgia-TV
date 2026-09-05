@@ -462,3 +462,92 @@ describe('the shows a schedule contains', () => {
     expect(showsInSchedule(shows, { id: 's1' })).toEqual([]);
   });
 });
+
+/**
+ * Who is allowed to play, and which control answers that question.
+ *
+ * Three controls overlap here and used to disagree:
+ *
+ *   the tick boxes   belong to the WHOLE LIBRARY (settings.disabledShows)
+ *   a schedule       decides membership outright when one is set
+ *   play order       a lock: "do not play this until that has played"
+ *
+ * The rule: a schedule is the source of truth for MEMBERSHIP and the tick
+ * boxes are not consulted under one — but PLAY ORDER holds everywhere, in
+ * every schedule and in All Shows alike. Selecting a schedule used to switch
+ * every lock off, because the schedule check returned before the lock check.
+ */
+describe('who may play', () => {
+  const rng = mulberry32(9);
+  const shows = makeShows(4, 3);
+
+  /** Every distinct show id the channel deals in the next `n` items. */
+  const dealt = (settings, extra = {}) => {
+    let state = createState('X:/lib');
+    state.settings = { ...state.settings, ...settings };
+    Object.assign(state, extra);
+    state = primeQueue(shows, state, rng);
+    return new Set(peek(shows, state, 12).map((item) => item.showId));
+  };
+
+  const scheduleOf = (...ids) => ({
+    schedules: [{ id: 's1', name: 'Nights', items: ids }],
+    activeScheduleId: 's1',
+  });
+  /**
+   * A show held back by play order: asked for, not yet earned.
+   *
+   * The value is an OBJECT with `after` — isLocked ignores a bare string, so
+   * a lock written as one is silently no lock at all.
+   */
+  const lockOn = (showId) => ({ locks: { [`show:${showId}`]: { after: 'show:show-0' } } });
+
+  it('ALL SHOWS: an unticked show does not play', () => {
+    expect(dealt({ disabledShows: ['show-1'] }).has('show-1')).toBe(false);
+  });
+
+  it('ALL SHOWS: play order is obeyed', () => {
+    expect(dealt(lockOn('show-2')).has('show-2')).toBe(false);
+  });
+
+  it('SCHEDULE: only its shows play, whatever the library holds', () => {
+    const ids = dealt(scheduleOf('show-1', 'show-3'));
+    expect([...ids].sort()).toEqual(['show-1', 'show-3']);
+  });
+
+  it('SCHEDULE: an UNTICKED show still plays if the schedule names it', () => {
+    // The bug this pins: the tick boxes belong to All Shows, so a schedule
+    // naming a show outranks having switched it off at some point.
+    const ids = dealt({ disabledShows: ['show-1'], ...scheduleOf('show-1', 'show-3') });
+    expect(ids.has('show-1')).toBe(true);
+  });
+
+  it('SCHEDULE: play order is STILL obeyed', () => {
+    // The regression this pins: selecting any schedule used to switch every
+    // lock off, because the schedule check returned before the lock check.
+    const ids = dealt({ ...scheduleOf('show-1', 'show-2'), ...lockOn('show-2') });
+    expect(ids.has('show-2')).toBe(false);
+    expect(ids.has('show-1')).toBe(true);
+  });
+
+  it('SCHEDULE: an unticked AND locked show is still held back', () => {
+    const ids = dealt({
+      disabledShows: ['show-1'],
+      ...scheduleOf('show-1', 'show-3'),
+      ...lockOn('show-1'),
+    });
+    expect(ids.has('show-1')).toBe(false);
+  });
+
+  it('MARATHON still overrides everything, including a lock', () => {
+    // Asking for one show by name is the most explicit instruction there is,
+    // and the only other outcome is a channel that stops dead on request.
+    const ids = dealt({
+      marathonShowId: 'show-2',
+      disabledShows: ['show-2'],
+      ...scheduleOf('show-1'),
+      ...lockOn('show-2'),
+    });
+    expect([...ids]).toEqual(['show-2']);
+  });
+});

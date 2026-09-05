@@ -486,7 +486,17 @@ function renderSidebar() {
     const cursor = state.cursors[show.id] || { index: 0 };
     const position = Math.min(cursor.index, show.episodes.length);
     const nextEpisode = show.episodes[position % show.episodes.length];
-    const off = disabled.has(show.id);
+    /**
+     * Switched-off is an ALL SHOWS state, so it is only drawn there.
+     *
+     * Under a schedule the running order decides what plays and the tick
+     * boxes are not consulted — but the card still rendered greyed and
+     * collapsed from the same list, so a show the schedule had explicitly
+     * named looked excluded from the channel it was about to play on.
+     * showToggles is already "no schedule is running"; the look and the
+     * behaviour now come from the one flag.
+     */
+    const off = showToggles && disabled.has(show.id);
 
     const li = document.createElement('li');
     li.className = 'show';
@@ -2135,7 +2145,7 @@ const THEMES = [
   'ember', 'searchlight', 'nitrate', 'crimson', 'marigold',
   'wilson', '02', 'bordeaux',
   'greenbox', 'forest', 'mint', 'bench', 'patina',
-  'oceanic', 'orbital', 'cobalt',
+  'oceanic', 'orbital',
   '01', 'neon', 'vhs', 'sunset', 'lilac',
   'kawaii', 'iris',
 ];

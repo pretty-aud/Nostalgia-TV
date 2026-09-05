@@ -293,13 +293,19 @@ function pruneQueue(shows, queue) {
 }
 
 /**
- * Marathon mode deliberately OVERRIDES the disabled list rather than
- * intersecting with it: explicitly choosing a show to marathon is a stronger
- * statement than having switched it off at some point in the past, and an empty
- * channel would be the only other outcome.
+ * Who may play, in one place — every rotation mode, the deck, the queue and
+ * the bumper inherit it from here rather than each asking separately.
  *
- * Putting it here rather than at each call site means every rotation mode, the
- * deck, the queue and the bumper all inherit it from one place.
+ * The precedence, highest first:
+ *
+ *   1. MARATHON. Asking for one show by name is the most explicit instruction
+ *      there is, and it overrides everything including a lock — the only other
+ *      outcome is a channel that stops dead on a request the viewer just made.
+ *   2. PLAY ORDER. A lock is a promise not to spoil a sequel, and it holds
+ *      under a schedule as much as under the shuffle.
+ *   3. THE SCHEDULE, when one is set: it decides membership outright, and the
+ *      library's tick boxes are not consulted.
+ *   4. THE TICK BOXES, when no schedule is set.
  */
 function isEnabled(show, settings, lockedIds) {
   // Marathon is checked FIRST, which is also what makes it an override: asking
@@ -307,18 +313,28 @@ function isEnabled(show, settings, lockedIds) {
   if (settings.marathonShowId) return show.id === settings.marathonShowId;
 
   /**
-   * A set schedule is the same kind of statement, so it overrides the same
-   * things. Naming a show in a schedule you built by hand outranks having
-   * switched it off at some point, and outranks a lock — which is a default
-   * for a rotation nobody has specified, not a veto over one you have.
+   * PLAY ORDER APPLIES EVERYWHERE. A lock says "do not play this until that
+   * has played", and that is true of a schedule as much as of the shuffled
+   * rotation — a schedule decides WHAT is in the running order, never that a
+   * sequel may be spoiled. It used to sit below the schedule check, so
+   * selecting any schedule quietly switched every lock off.
+   */
+  if (lockedIds && lockedIds.has(show.id)) return false;
+
+  /**
+   * A schedule is the SOURCE OF TRUTH for membership.
    *
-   * It also NARROWS: under a schedule the only shows that play are the ones on
-   * it, so a show left out is out whether or not it is switched on.
+   * Naming a show in a running order you built by hand outranks having
+   * switched it off at some point — the tick boxes belong to the whole
+   * library, and under a schedule they are not the question being asked.
+   *
+   * It also NARROWS: the only shows that play are the ones on it, so a show
+   * left out is out whether or not it is switched on.
    */
   const schedule = activeSchedule(settings);
   if (schedule) return (schedule.items || []).includes(show.id);
 
-  if (lockedIds && lockedIds.has(show.id)) return false;
+  // No schedule: the tick boxes are the answer.
   return !(settings.disabledShows || []).includes(show.id);
 }
 

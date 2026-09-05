@@ -33,6 +33,7 @@ const SHOTS = [
   'key-library',
   'themes-new',
   'theme-menu',
+  'schedule-greying',
 ];
 
 let failed = 0;

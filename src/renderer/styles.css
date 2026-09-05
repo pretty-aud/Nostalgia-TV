@@ -2860,28 +2860,14 @@ input[type="range"]::-webkit-slider-thumb {
    roughly four times further from its nearest neighbour than two themes the
    app already treats as distinct.
 
-   Each changes the GROUND as well as the accent. Two themes that differ only
-   in accent read as the same theme twice, which is how cobalt started: gold
-   on near-black was 17 from midnight, and the navy had to become properly
-   blue before it was its own room. */
+   Each changes the GROUND as well as the accent, because two themes that
+   differ only in accent read as the same theme twice. A fifth, cobalt, was
+   built and then removed at her request. */
 
-/* Warm light in a cold room. Every other blue theme pairs a cold ground with
-   a colder accent (oceanic, orbital, slate, arctic), which is one note played
-   twice; gold against navy is the pairing none of them make. */
-:root[data-theme="cobalt"] {
-  --paper:      #06183d;
-  --paper-lift: #0d2455;
-  --paper-high: #14336f;
-  --ink:        #e6edfb;
-  --ink-mute:   #93a9d4;
-  --ink-faint:  #62789f;
-  --signal:      #f5b301;
-  --signal-soft: rgba(245, 179, 1, 0.68);
-  --signal-wash: rgba(245, 179, 1, 0.10);
-  --hair:       rgba(230, 237, 251, 0.14);
-  --hair-soft:  rgba(230, 237, 251, 0.07);
-  --lift:       rgba(230, 237, 251, 0.05);
-}
+/* cobalt (gold on navy) lived here and was removed at Audrey's request — she
+   did not like it. Deleted outright rather than aliased: an alias is for a
+   theme that was RENAMED, and a saved name that no longer exists correctly
+   falls back to midnight. */
 
 /* The one hue with no dark theme at all. Lilac is light and 01 puts lime on
    purple; violet as the SIGNAL, on a ground tinted the same way, is unclaimed.

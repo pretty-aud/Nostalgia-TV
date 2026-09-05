@@ -4,7 +4,7 @@
    silently inherits the default instead, which is how the first version of
    this shot produced five identical amber cells. */
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const NEW = ['cobalt', 'iris', 'patina', 'bordeaux', 'sage'];
+const NEW = ['iris', 'patina', 'bordeaux', 'sage'];
 const KEYS = ['paper', 'paper-lift', 'paper-high', 'ink', 'ink-mute', 'signal', 'hair'];
 const root = document.documentElement;
 const original = root.dataset.theme;

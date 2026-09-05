@@ -8,7 +8,7 @@
  * Bare statements.
  */
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const NEW = ['sage', 'bordeaux', 'patina', 'cobalt', 'iris'];
+const NEW = ['sage', 'bordeaux', 'patina', 'iris'];
 const sel = document.getElementById('themeSelect');
 const opts = [...sel.options].map((o) => ({ value: o.value, label: o.textContent }));
 if (opts.length < 30) throw new Error('theme menu did not read: ' + opts.length);
