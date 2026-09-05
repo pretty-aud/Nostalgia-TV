@@ -32,6 +32,7 @@ const SHOTS = [
   'genre-checks',
   'key-library',
   'themes-new',
+  'theme-menu',
 ];
 
 let failed = 0;
