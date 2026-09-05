@@ -89,27 +89,79 @@ if (play.paint === pause.paint) throw new Error('play and pause draw the same ma
  */
 document.getElementById('btnSettings').click();
 await wait(800);
-const boxes = [...document.querySelectorAll('.check input[type="checkbox"]')];
-if (boxes.length < 2) throw new Error('no checkboxes to test');
-boxes[0].checked = true;
-boxes[1].checked = false;
-await wait(200);
-const boxStyle = (input) => getComputedStyle(input);
-const onBox = boxStyle(boxes[0]);
-const offBox = boxStyle(boxes[1]);
-if (onBox.appearance !== 'none') throw new Error(`the native checkbox is still being drawn: appearance ${onBox.appearance}`);
-if (parseFloat(onBox.borderTopLeftRadius) !== 0) throw new Error('the tick box has rounded corners');
+
+/**
+ * EVERY checkbox in the document, not just the ones on this tab.
+ *
+ * The first version of this checked `.check input` only, and the Play-order
+ * table \u2014 which builds bare inputs into .lockrow rows and opens out of this
+ * same sheet \u2014 kept its native Windows control.
+ *
+ * A whole-document sweep is still not enough on its own: the lock rows do not
+ * EXIST until that table is opened, so a sweep run before opening it finds
+ * nothing to complain about and passes with the bug present. Verified: with
+ * the .lockrow rule removed and this table left closed, this probe went
+ * green. So open it first, and assert that it really produced rows.
+ */
+const opener = document.getElementById('btnOpenLocks');
+if (!opener) throw new Error('no #btnOpenLocks \u2014 the play-order table cannot be reached');
+opener.click();
+await wait(800);
+if (!document.querySelectorAll('.lockrow').length) throw new Error('the play-order table produced no rows');
+
+/* A lock row only grows its "whole show" checkbox once that row has a SHOW as
+   its prerequisite \u2014 with none set, the table has rows and no checkboxes at
+   all, and this sweep passes on an empty set. So set one. */
+const after = document.querySelector('#lockRows tr select');
+if (!after) throw new Error('the play-order table has no prerequisite picker');
+const target = [...after.options].find((o) => o.value.startsWith('show:'));
+if (!target) throw new Error('no show to depend on, so the checkbox can never appear');
+after.value = target.value;
+after.dispatchEvent(new Event('change', { bubbles: true }));
+await wait(700);
+const lockBoxes = [...document.querySelectorAll('.lockrow input[type="checkbox"]')];
+if (!lockBoxes.length) throw new Error('setting a prerequisite did not produce the whole-show checkbox');
+
+const every = [...document.querySelectorAll('input[type="checkbox"]')];
+if (every.length < 3) throw new Error(`only ${every.length} checkboxes in the document \u2014 the sweep is not reaching them`);
+const native = every.filter((b) => getComputedStyle(b).appearance !== 'none');
+if (native.length) {
+  throw new Error(`${native.length} of ${every.length} checkboxes are still the native control, e.g. ${native[0].id || native[0].className || native[0].parentElement.className}`);
+}
+
+/**
+ * ONE box, toggled \u2014 not two different boxes compared to each other, which is
+ * what this used to do and which proves nothing about either of them.
+ */
+const box = every.find((b) => b.closest('.check')) || every[0];
+const layers = (el) => {
+  const img = getComputedStyle(el).backgroundImage;
+  return img === 'none' ? 0 : img.split('gradient(').length - 1;
+};
+box.checked = false;
+await wait(150);
+const offLayers = layers(box);
+box.checked = true;
+await wait(150);
+const onLayers = layers(box);
+const onBox = getComputedStyle(box);
 if (parseFloat(onBox.width) < 18 || parseFloat(onBox.height) < 18) throw new Error(`tick box is ${onBox.width}x${onBox.height}`);
-// The cross is two crossed gradients, so a ticked box has two background
-// layers and an unticked one has none. Failing control: revert to a glyph and
-// backgroundImage stays 'none' in both states, so the first check throws.
-const layers = (s) => (s.backgroundImage === 'none' ? 0 : s.backgroundImage.split('gradient(').length - 1);
-if (layers(onBox) !== 2) throw new Error(`a ticked box draws ${layers(onBox)} gradient layers, expected 2`);
-if (layers(offBox) !== 0) throw new Error('an unticked box is drawing a mark');
-const labelMark = (input) => getComputedStyle(input.nextElementSibling, '::before').content;
-for (const b of boxes.slice(0, 2)) {
+// The cross is two crossed gradients. Failing control: revert the mark to a
+// glyph and backgroundImage stays 'none' ticked, so this throws.
+if (onLayers !== 2) throw new Error(`a ticked box draws ${onLayers} gradient layers, expected 2`);
+if (offLayers !== 0) throw new Error('an unticked box is drawing a mark');
+if (onBox.backgroundPosition.split(',')[0].trim() !== '50% 50%') {
+  throw new Error(`the mark is not centred: background-position ${onBox.backgroundPosition}`);
+}
+const labelMark = (input) => (input.nextElementSibling
+  ? getComputedStyle(input.nextElementSibling, '::before').content
+  : 'none');
+for (const b of every.slice(0, 4)) {
   const m = labelMark(b);
   if (m.includes('\u25A0')) throw new Error(`the label still draws a second marker: ${m}`);
 }
+const closeLocks = document.getElementById('locksClose') || document.querySelector('#locksModal .modal__close');
+if (closeLocks) closeLocks.click();
+await wait(300);
 document.getElementById('btnCloseSettings').click();
 await wait(300);

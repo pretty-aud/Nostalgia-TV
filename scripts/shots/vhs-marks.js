@@ -69,6 +69,11 @@ const contentOf = (el, pseudo) => {
   return raw.replace(/^"|"$/g, '').replace(/\\"/g, '"');
 };
 
+/* The OSD carries its transport word plus a face-supplied mark, chosen by an
+   attribute — so both values have to be forced to be seen. */
+const osd = () => document.getElementById('osdState');
+const setState = (value) => { const el = osd(); if (el) el.dataset.state = value; };
+
 // Every place the skin puts a mark on screen. `row` groups the marks that sit
 // side by side and therefore have to agree with each other.
 const SITES = () => [
@@ -79,7 +84,12 @@ const SITES = () => [
   { name: '#btnTracks', el: document.getElementById('btnTracks'), pseudo: '::after' },
   { name: '#btnFull', el: document.getElementById('btnFull'), pseudo: '::after' },
   { name: '#btnLibrary', el: document.getElementById('btnLibrary'), pseudo: '::after' },
-  { name: 'osdState', el: document.getElementById('osdState'), pseudo: '::after' },
+  // BOTH states. The markup seeds data-state="play", so reading it as it
+  // stands would leave the pause mark — the one that differs most between the
+  // faces — completely unchecked. prep runs at READ time, not now: calling
+  // setState while building this array would just leave the last value set.
+  { name: 'osdState[play]', el: osd(), pseudo: '::after', prep: () => setState('play') },
+  { name: 'osdState[pause]', el: osd(), pseudo: '::after', prep: () => setState('pause') },
   ...['back', 'pass', 'reset', 'marathon'].map((act) => ({
     name: `.showctl[${act}]`,
     el: document.querySelector(`.showctl[data-act="${act}"]`),
@@ -116,6 +126,7 @@ for (const face of FACES) {
   const lines = [];
   for (const site of SITES()) {
     if (!site.el) { failures.push(`${face.key} ${site.name}: not in the DOM`); continue; }
+    if (site.prep) site.prep();
     const text = contentOf(site.el, site.pseudo);
     if (text === '') { failures.push(`${face.key} ${site.name}: EMPTY — no rule matched`); continue; }
     // A CSS escape runs up to SIX hex digits, so "\25B6" immediately followed

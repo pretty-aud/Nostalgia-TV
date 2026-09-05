@@ -48,20 +48,36 @@ const SHOTS = [
   'vhs-sidebar',
   'vhs-glyph-audit',
   'vhs-marks',
+  'vhs-transport-narrow',
 ];
+
+/**
+ * Shots that need a window that is NOT the 1280x880 default.
+ *
+ * Everything above runs at shoot-state's default size, which meant that for a
+ * long time no probe had ever seen the app at a width where its layout
+ * actually breaks — the transport labels wrapping out of their boxes were
+ * reported by a person, at a size no probe was looking at.
+ */
+const SIZES = {
+  'vhs-transport-narrow': ['980', '720'],
+};
 
 let failed = 0;
 for (const name of SHOTS) {
+  const size = SIZES[name] || [];
   const result = spawnSync(electron, [
     path.join(root, 'scripts', 'shoot-state.js'), '--',
     url,
     path.join(root, 'shots', `${name}.png`),
     path.join(root, 'scripts', 'shots', `${name}.js`),
+    ...size,
   ], { cwd: root, encoding: 'utf8' });
 
   const ok = result.status === 0;
   if (!ok) failed += 1;
-  console.log(`${ok ? '✓' : '✗'} ${name}${ok ? '' : ` (exit ${result.status}) ${(result.stderr || '').trim()}`}`);
+  const at = size.length ? ` @${size.join('x')}` : '';
+  console.log(`${ok ? '✓' : '✗'} ${name}${at}${ok ? '' : ` (exit ${result.status}) ${(result.stderr || '').trim()}`}`);
 }
 
 process.exit(failed ? 1 : 0);

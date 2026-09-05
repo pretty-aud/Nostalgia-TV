@@ -3235,19 +3235,31 @@ input[type="range"]::-webkit-slider-thumb {
  * break to a second line that renders BELOW the drawn border — measured at
  * 39px of content in a 30px box, on all four, at 1130px wide and narrower.
  *
- * Both rules are needed. Nowrap alone widens the row until controls run off
- * the right edge; wrapping alone leaves the labels still breaking inside
- * their boxes. Together the boxes stay intact and the row reflows onto a
- * second line only when it must. At full width nothing changes.
+ * flex-wrap is the fix: given a second line the controls stop being squeezed,
+ * so no label is ever narrow enough to break. Measured down to 520px wide,
+ * nothing spills and the row never overflows. At 1440 and above it is still
+ * one line, so nothing changes at full screen.
+ *
+ * white-space: nowrap is NOT a second half of that fix, whatever an earlier
+ * draft of this comment claimed — removing it changes no measurement at any
+ * width. It earns its place on .upnext alone: text-overflow only applies to
+ * text that does not wrap, so without it the ellipsis below never fires and a
+ * long episode title sets two lines inside the row instead of being clipped.
  */
-:root[data-skin="vcr"] .transport {
-  flex-wrap: wrap;
-  row-gap: var(--u);
-}
+/* No row-gap here: .transport already sets `gap: var(--u)`, which IS the
+   row gap as well, so restating it would only look load-bearing. */
+:root[data-skin="vcr"] .transport { flex-wrap: wrap; }
 :root[data-skin="vcr"] .transport > * { white-space: nowrap; }
-/* The one item long enough to overflow a row by itself. */
+/* The one item long enough to overflow a row by itself. overflow:hidden also
+   makes its automatic minimum size zero, so no min-width is needed — and it
+   does clip about two pixels off the outline this skin paints round OSD text
+   at the first and last glyph, which is the price of the ellipsis. */
 :root[data-skin="vcr"] .upnext {
-  min-width: 0;
+  /* Capped, or a long episode title takes a whole line to itself and pushes
+     the transport to a third row. Flex wraps before it shrinks, so a ceiling
+     is the only thing that makes the ellipsis below actually happen. 28
+     characters of a fixed-advance face. */
+  max-width: 28ch;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -3282,8 +3294,11 @@ input[type="range"]::-webkit-slider-thumb {
  */
 :root[data-skin="vcr"] .btn--signal { font-weight: 400; }
 
-/* Height-matched to the button beside it (54px down to 46px), SCOPED TO THE
-   READY SCREEN. Putting the padding on .btn--signal itself would be (0,3,0)
+/* Height-matched to the button beside it (54px down to 46px), scoped to the
+   WELCOME PANE — which is the ready screen AND the first-run screen, since
+   renderReady() and renderWelcome() both draw into the one .welcome__inner.
+   Both put their primary action there, so both should match.
+   Putting the padding on .btn--signal itself would be (0,3,0)
    and outrank `.skipask__actions .btn` at (0,2,0), shrinking one button in
    the skip dialog while its three siblings stayed tall — the very defect
    this is fixing, relocated. #btnDetailPlay and #skipEpisode are untouched. */
@@ -3291,13 +3306,17 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* With the weight difference gone the two ready-screen buttons would be
    indistinguishable: the bordered-control rule above forces every button to
-   full ink, which stomps .btn--quiet's mute. This puts it back — same
-   specificity (0,2,0), later in source, so it wins — and the secondary action
+   full ink, which stomps .btn--quiet's mute. This puts it back — both are
+   (0,3,0), so it wins only by sitting later in the file and must stay
+   below the bordered-control rule — and the secondary action
    stays secondary using the skin's own two ink levels rather than a third. */
 :root[data-skin="vcr"] .btn--quiet { color: var(--ink-mute); }
 
-/* The switched-on box, drawn heavier to match everything else. The ✓ stays —
-   it is a real glyph in this ROM (measured), so it needs no substitution. */
+/* The switched-on box, drawn heavier to match everything else. The ✓ does NOT
+   stay, whatever this comment used to claim: it is a real glyph in the ROM and
+   is absent from Home Video, which is the default face, so it fell back. The
+   div keeps its ✓ text for the other themes; the skin hides it at font-size 0
+   and draws an X instead. See THE TICK BOX below. */
 :root[data-skin="vcr"] .show__toggle {
   width: 20px;
   height: 20px;
@@ -3321,12 +3340,17 @@ input[type="range"]::-webkit-slider-thumb {
  * (next in both stacks) has none of them either, those marks were being drawn
  * by whatever monospace font the OS happened to supply. That is what "the
  * buttons are different heights" was: identical boxes, marks from two
- * different fonts. Home Video's ◀ ▶ ▲ ▼ ■ all share one ink box, and the
- * ROM's ◄ ► do too, so within a face a row now lines up by construction.
+ * different fonts. Home Video's ◀ ▶ ▲ ▼ ■ all share one ink box, so a row
+ * lines up there by construction; the ROM's ◄ ► share one too, but its ■ is
+ * four pixels shorter, so a RUNNING marathon sits slightly low on that face
+ * alone — in a cell that is inverted anyway. Measured, and accepted.
  *
  * Hence [data-osd-face], stamped on the root by applyFonts(). Marks both
  * faces own (× ≡ ▼ ■) stay in one rule; the rest split. The text stays in the
- * markup at font-size 0, so the accessible name never changes.
+ * markup at font-size 0. That keeps the text in the accessibility tree — but
+ * a mark moved into generated content is not part of an accessible name, so
+ * anything whose name was carrying a glyph now spells it out in an aria-label
+ * instead.
  */
 :root[data-skin="vcr"] #btnPlay,
 :root[data-skin="vcr"] #btnFull,
@@ -3382,6 +3406,16 @@ input[type="range"]::-webkit-slider-thumb {
   justify-content: center;
 }
 
+/* ...but .browsectl is SHOWN AND HIDDEN with display, and the rule above beats
+   both of its base rules — (0,3,0) against (0,1,0) and (0,2,0) — so under the
+   skin the way back to the channel was drawn in channel mode too, where there
+   is nothing to go back to and its handler has no state to act on. It also
+   made the transport one control wider than it can ever need to be, which is
+   part of why the row overflowed. The first of these ties the rule above and
+   so must stay below it; the second wins outright at (0,4,0). */
+:root[data-skin="vcr"] .browsectl { display: none; }
+:root[data-skin="vcr"] .app[data-browsing="true"] .browsectl { display: inline-flex; }
+
 /**
  * THE TRANSPORT MARK IS DRAWN, NOT TYPED.
  *
@@ -3416,9 +3450,10 @@ input[type="range"]::-webkit-slider-thumb {
   clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 /* The button reports state through its TEXT, which CSS cannot match on — so
-   the renderer stamps data-playing beside it and this reads that. (0,3,1)
-   against the rule above at (0,2,1), so this wins on specificity and not on
-   source order. */
+   the renderer stamps data-playing beside it and this reads that. (1,3,1)
+   against the rule above at (1,2,1) — #btnPlay is an id, which an earlier
+   draft of this comment left out of both triples — so this wins on
+   specificity and not on source order. */
 :root[data-skin="vcr"] #btnPlay[data-playing="true"]::after {
   clip-path: none;
   background: linear-gradient(to right,
@@ -3455,23 +3490,28 @@ input[type="range"]::-webkit-slider-thumb {
  * the ink; the show row's toggle keeps the skin's inverse-video fill for ON
  * and so draws in the paper.
  */
-:root[data-skin="vcr"] .check input {
+/* BOTH checkbox surfaces. The settings sheet uses .check, and the Play-order
+   table opening out of the same sheet builds bare inputs into .lockrow — so
+   fixing only .check left the native control standing on the second table. */
+:root[data-skin="vcr"] .check input,
+:root[data-skin="vcr"] .lockrow input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
   width: 20px;
   height: 20px;
   flex: none;
   border: 2px solid var(--ink);
-  border-radius: 0;
   background-color: transparent;
 }
 :root[data-skin="vcr"] .check input:checked,
+:root[data-skin="vcr"] .lockrow input[type="checkbox"]:checked,
 :root[data-skin="vcr"] .show[data-off="false"] .show__toggle {
   background-size: 12px 12px;
   background-position: center;
   background-repeat: no-repeat;
 }
-:root[data-skin="vcr"] .check input:checked {
+:root[data-skin="vcr"] .check input:checked,
+:root[data-skin="vcr"] .lockrow input[type="checkbox"]:checked {
   background-image:
     linear-gradient(45deg,
       transparent calc(50% - 1.5px), var(--ink) calc(50% - 1.5px),
@@ -3491,7 +3531,11 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* The show list: a reserved cursor gutter on every row, so nothing reflows
-   when the cursor appears. The cursor itself is face-split below. */
+   when the cursor appears. The cursor itself is face-split below.
+   NOTE: nothing in the app sets data-next — a repo-wide grep finds it only in
+   this stylesheet — so the cursor rules are dormant and the gutter is
+   currently indenting every name for a mark that never arrives. Kept
+   face-split so they are correct if the attribute is ever written. */
 :root[data-skin="vcr"] .show__name::before {
   content: "\00a0\00a0";
   white-space: pre;
