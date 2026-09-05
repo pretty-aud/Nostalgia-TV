@@ -620,21 +620,46 @@ function thumbPathFor(absPath) {
 let videoWindow = null;
 let mpvPlayerHandle = null;
 /**
- * Is mpv sitting idle? Background work (the artwork sweep, ingest) stands
- * down during playback, and playback no longer flows through media:// — the
- * open-stream count that used to answer "is somebody watching" is silent
- * under mpv. mpv's own idle-active property is the honest replacement.
+ * Is anybody actually watching right now? Background work (the artwork sweep,
+ * ingest) stands down during playback, and playback no longer flows through
+ * media:// — the open-stream count that used to answer this is silent under
+ * mpv, so mpv's own property answers it instead.
+ *
+ * The property is `core-idle`, NOT `idle-active`, and the difference is the
+ * whole behaviour. `idle-active` means "no file is loaded at all", which this
+ * app makes true exactly once: at boot. From the first episode onward a file
+ * is always loaded — keep-open holds the last frame, and the next item opens
+ * immediately — so `idle-active` went false and NEVER came back, latching the
+ * background work off for the rest of the session. Posters stopped filling in
+ * after the first episode and an ingest started later sat at "waiting"
+ * forever, with no error and no progress line moving.
+ *
+ * `core-idle` means "not actively playing" — false while playing, true while
+ * paused, seeking, or sitting on the library screen. That is what main's
+ * open-stream count measured (a stream was open only while bytes were being
+ * read for playback), so it is the faithful replacement.
+ *
  * True until told otherwise: at boot, nothing is playing.
  */
 let mpvIdleActive = true;
 
 function watchMpvActivity(player) {
-  const subscribe = () => player.observe('idle-active', (value) => {
+  const subscribe = () => player.observe('core-idle', (value) => {
     mpvIdleActive = Boolean(value);
   }).catch(() => {});
   subscribe();
   // Observers die with a crashed process; re-arm with each replacement.
   player.on('restarted', subscribe);
+  /**
+   * A dead player reports nothing, so the last value it sent would stand
+   * forever — and the last value before a mid-episode death is "playing".
+   * That is the same latch by another route: mpv dies, and the artwork sweep
+   * and ingest stay suppressed for the rest of the session. Nobody is
+   * watching a player that is not running.
+   */
+  const release = () => { mpvIdleActive = true; };
+  player.on('down', release);
+  player.on('died', release);
 }
 
 async function createWindow() {

@@ -29,23 +29,54 @@ const RESYNC_EVENTS = [
   'enter-full-screen', 'leave-full-screen',
 ];
 
-function createPlanes({ videoOptions = {}, overlayWebPreferences = {} } = {}) {
-  const video = new BrowserWindow({
+/**
+ * `Window` is injected so this file can be tested at all.
+ *
+ * It defaults to Electron's BrowserWindow, so every caller in the app passes
+ * nothing and reads unchanged. The seam matters because the geometry here —
+ * a resize border that sits OUTSIDE the visible window, and two windows that
+ * drive each other — is the kind that goes wrong silently and can only be
+ * pinned down against a fake pair. mpvHost takes its player the same way.
+ */
+function createPlanes({ videoOptions = {}, overlayWebPreferences = {}, Window = BrowserWindow } = {}) {
+  const video = new Window({
     backgroundColor: '#000000',
     show: false,
     ...videoOptions,
   });
+  // The overlay must not be draggable below what the video window can follow.
+  const minWidth = videoOptions.minWidth;
+  const minHeight = videoOptions.minHeight;
   // A stable black page — never content. The plane exists so mpv has a
   // surface; anything drawn here sits UNDER mpv's raised child forever.
   video.loadURL('data:text/html,<body style="background:%23000;margin:0"></body>');
 
-  const overlay = new BrowserWindow({
+  const overlay = new Window({
     parent: video,
     transparent: true,
     frame: false,
     hasShadow: false,
-    thickFrame: false,
-    resizable: false,
+    /**
+     * thickFrame and resizable are TRUE, and that pair is the only mouse
+     * resize this app has.
+     *
+     * The overlay covers the video window's content area exactly, and on a
+     * frameless window the content area IS the whole window — so the overlay
+     * sits on top of every pixel Windows would have used as a resize border.
+     * Built non-resizable with thickFrame off, the pair could not be resized
+     * by dragging any edge at all: the app was stuck at whatever size it
+     * launched at, with only the maximise button and fullscreen left. The
+     * shipping app was frameless too and never lost this, because it had no
+     * second window covering itself.
+     *
+     * thickFrame is what puts WS_THICKFRAME back, and without it `resizable`
+     * alone gives a frameless window no border to grab. hasShadow stays off
+     * so the transparent plane draws no frame of its own.
+     */
+    thickFrame: true,
+    resizable: true,
+    ...(minWidth ? { minWidth } : {}),
+    ...(minHeight ? { minHeight } : {}),
     minimizable: false,
     maximizable: false,
     skipTaskbar: true,   // one taskbar entry: the pair presents as ONE app
@@ -57,13 +88,29 @@ function createPlanes({ videoOptions = {}, overlayWebPreferences = {} } = {}) {
 
   const boundsEqual = (a, b) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
+  /**
+   * CONTENT bounds on both sides, never getBounds().
+   *
+   * The overlay carries WS_THICKFRAME so it can be resized by the mouse, and
+   * Windows puts that resize border OUTSIDE the visible area of a frameless
+   * window — measured here at 7px left, 6px right and bottom. So the
+   * overlay's outer rect is ~13px wider than the picture it covers, and
+   * comparing it against the video's content bounds can never be equal.
+   *
+   * That is not a cosmetic mismatch, it is a feedback loop: the equality test
+   * below is the ONLY thing that stops the two windows driving each other.
+   * Never converging, every resize would push the video window out to the
+   * overlay's outer size, which re-syncs the overlay wider, which pushes
+   * again — a window that grows without touching it. Content-to-content, the
+   * two agree exactly and the loop terminates on the first pass.
+   */
   const sync = () => {
     if (video.isDestroyed() || overlay.isDestroyed()) return;
     if (video.isMinimized()) return;   // owned windows hide with their owner
     const target = video.getContentBounds();
-    if (boundsEqual(overlay.getBounds(), target)) return;   // already there: no event chatter
+    if (boundsEqual(overlay.getContentBounds(), target)) return;   // already there: no event chatter
     syncing = true;
-    overlay.setBounds(target);
+    overlay.setContentBounds(target);
     syncing = false;
   };
 
@@ -83,7 +130,10 @@ function createPlanes({ videoOptions = {}, overlayWebPreferences = {} } = {}) {
     if (video.isMaximized() || video.isFullScreen()) { sync(); return; }
     const content = video.getContentBounds();
     const frame = video.getBounds();
-    const target = overlay.getBounds();
+    // Content bounds for the same reason sync() uses them: the overlay's own
+    // invisible resize border would otherwise shift the video window by the
+    // border width on every single drag.
+    const target = overlay.getContentBounds();
     const wantX = target.x - (content.x - frame.x);
     const wantY = target.y - (content.y - frame.y);
     if (wantX === frame.x && wantY === frame.y) return;   // converged
@@ -91,6 +141,30 @@ function createPlanes({ videoOptions = {}, overlayWebPreferences = {} } = {}) {
     video.setPosition(wantX, wantY);
     syncing = false;
   });
+  /**
+   * The reverse glue for RESIZE, the twin of the move handler above.
+   *
+   * Dragging an edge resizes the OVERLAY — it owns the only grabbable border
+   * — so the video window has to be driven to match, or mpv would keep
+   * rendering at the old size while the interface changed shape around it.
+   *
+   * Content bounds, not bounds: the overlay is frameless, so what the viewer
+   * dragged is a content rectangle, and that is what the video window must
+   * end up with. setContentBounds does the frame arithmetic for us, which the
+   * move handler has to do by hand because it only knows a position.
+   */
+  overlay.on('resize', () => {
+    if (syncing || video.isDestroyed() || overlay.isDestroyed()) return;
+    // Maximised and fullscreen sizes belong to the OS; leave them alone and
+    // let the forward sync put the overlay back where it should be.
+    if (video.isMaximized() || video.isFullScreen()) { sync(); return; }
+    const target = overlay.getContentBounds();
+    if (boundsEqual(video.getContentBounds(), target)) return;   // converged
+    syncing = true;
+    video.setContentBounds(target);
+    syncing = false;
+  });
+
   // Some of those events fire BEFORE the OS settles the final bounds
   // (fullscreen transitions especially); a trailing pass catches the rest.
   const settle = () => setTimeout(sync, 120);

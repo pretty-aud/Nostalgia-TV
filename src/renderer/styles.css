@@ -311,9 +311,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   line-height: 1;
 }
 
-
-
-
 .btn {
   padding: 9px 14px;
   border: 1px solid var(--hair);
@@ -399,7 +396,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   color: var(--signal-soft);
   transition: background var(--fast), border-color var(--fast), color var(--fast);
 }
-
 
 /* Switched ON is the state worth seeing across a list of two dozen rows, so
    it is filled rather than outlined. Built from --signal on --paper so it
@@ -502,7 +498,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .field[data-on="true"] .field__label { color: var(--signal); }
 
 /* Rotation is inert during a marathon; dimming says so without hiding it. */
-
 
 /* Same idea for a field whose setting does not currently apply — block length
    while another rotation is selected, box opacity with the box switched off. */
@@ -787,8 +782,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* Fitts: the scrub target is 20px tall even though the rule reads as 3px. */
 .scrub { padding: 9px 0; cursor: pointer; }
 .scrub__track { position: relative; height: 3px; background: rgba(244, 241, 234, 0.2); }
-.scrub__buffer, .scrub__fill { position: absolute; inset: 0 auto 0 0; display: block; }
-.scrub__buffer { background: rgba(244, 241, 234, 0.22); }
+.scrub__fill { position: absolute; inset: 0 auto 0 0; display: block; }
 .scrub__fill { background: var(--signal); }
 .scrub__fill::after {
   content: "";
@@ -914,23 +908,9 @@ input[type="range"]::-webkit-slider-thumb {
 .bumper__skip { color: var(--ink-faint); letter-spacing: var(--tr-label); text-transform: uppercase; }
 .bumper__count { color: var(--signal); font-size: var(--t-body); }
 
-/* Shown only when the countdown has run out and the next episode is still
-   converting. It replaces the "any key" hint rather than joining it, because at
-   that moment the honest thing to say is what we are waiting for. */
-.bumper__prep {
-  color: var(--signal);
-  letter-spacing: var(--tr-label);
-  text-transform: uppercase;
-}
-
 /* A depleting rule reads from across a room; a spinner would not. */
 .timer { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(244, 241, 234, 0.1); }
 .timer i { display: block; height: 100%; width: 100%; background: var(--signal); transform-origin: left center; }
-
-/* Held past the countdown: the rule pulses instead of sitting full, so a wait
-   never looks like a frozen screen. */
-.bumper__prep:not([hidden]) { animation: prep-pulse 1.6s ease-in-out infinite; }
-@keyframes prep-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
 /* ── scaling ──────────────────────────────────────────────────────────── */
 
@@ -1236,13 +1216,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-mute);
 }
 
-/* Subtitles sit above the chrome rather than behind it. */
-video::cue {
-  background: rgba(8, 7, 12, 0.78);
-  color: var(--ink);
-  font-family: var(--grotesque);
-}
-
 /* ── toast ────────────────────────────────────────────────────────────── */
 
 .toast {
@@ -1286,7 +1259,6 @@ video::cue {
   .bumper__foot { left: calc(var(--u) * 5); right: calc(var(--u) * 5); }
 }
 
-
 /* ── skip dialog ──────────────────────────────────────────────────────────
 
    Sits over the player rather than in the sidebar: it is asked mid-episode,
@@ -1328,7 +1300,6 @@ video::cue {
    scanned as a pair of similar buttons. */
 .skipask__actions { display: flex; flex-direction: column; gap: var(--u); }
 .skipask__actions .btn { width: 100%; text-align: center; padding: 11px 14px; }
-
 
 /* ── restored and added: fixed footer, sound, shared section labels ────── */
 
@@ -1416,7 +1387,6 @@ video::cue {
 }
 .volume[data-silent="true"] input[type="range"]::-webkit-slider-thumb { background: var(--ink-faint); }
 
-
 /* ── restored: segmented rotation control ─────────────────────────────── */
 
 /* A seated track with pills inside, rather than three abutting boxes. Used by
@@ -1499,7 +1469,6 @@ video::cue {
    orange type and orange accents on the dark gradients that are already there.
    Re-declaring the tokens on these containers re-themes everything within. */
 
-
 /* ── themes, second set ───────────────────────────────────────────────── */
 
 /* All pink. A light panel, so it needs the same over-video inversion the other
@@ -1518,7 +1487,6 @@ video::cue {
   --hair-soft:  rgba(61, 7, 34, 0.12);
   --lift:       rgba(61, 7, 34, 0.06);
 }
-
 
 /* Magenta on deep violet. */
 :root[data-theme="neon"] {
@@ -1758,11 +1726,6 @@ video::cue {
 :root[data-light="true"] .trackmenu,
 :root[data-light="true"] .skipask,
 :root[data-light="true"] .toast,
-/* The conversion-wait overlay is an over-video surface like everything above
-   it. Left off this list it drew PANEL ink over its own near-black scrim on
-   every light theme — unreadable during exactly the wait it exists to
-   explain, which the stylesheet itself warns can be forty minutes. */
-:root[data-light="true"] .prepping,
 /* The window buttons belong here too. The top-right corner is over the STAGE
    in every view — the sidebar only ever reaches 340px from the left — so they
    are an over-video surface like the rest of this list, not a panel one.
@@ -2679,58 +2642,6 @@ video::cue {
  */
 .browsectl { display: none; }
 .app[data-browsing="true"] .browsectl { display: block; }
-
-/* ── waiting on a conversion ──────────────────────────────────────────────
-   Sits over the stage while a file is being rebuilt. Not a toast: the wait
-   can be forty minutes, and a message that expires after sixty seconds turns
-   a working app into one that appears to have given up. */
-.prepping {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  display: grid;
-  place-items: center;
-  background: rgba(4, 3, 7, 0.82);
-  animation: fade-in var(--fast) both;
-}
-.prepping__inner {
-  width: min(520px, 82%);
-  text-align: left;
-}
-.prepping__title {
-  margin-top: 6px;
-  font-family: var(--display);
-  font-size: var(--t-sub);
-  font-weight: 600;
-  letter-spacing: var(--tr-tight);
-  line-height: var(--lh-name);
-}
-.prepping__bar {
-  margin-top: calc(var(--u) * 2.5);
-  height: 4px;
-  border-radius: var(--r-pill);
-  background: rgba(244, 241, 234, 0.16);
-  overflow: hidden;
-}
-.prepping__bar i {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--signal);
-  border-radius: var(--r-pill);
-  transition: width var(--med) linear;
-}
-.prepping__count {
-  margin-top: var(--u);
-  font-size: var(--t-meta);
-  color: var(--signal-soft);
-}
-.prepping__note {
-  margin-top: calc(var(--u) * 2);
-  font-size: var(--t-meta);
-  color: var(--ink-mute);
-  line-height: 1.5;
-}
 
 /* ---------------------------------------------------------------------------
    Set schedules

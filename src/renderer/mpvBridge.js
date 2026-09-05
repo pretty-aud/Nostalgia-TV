@@ -209,6 +209,25 @@ export function createMpvFacade(tv, { now = () => Date.now() } = {}) {
           paused: intended.paused,
         });
       }
+      /**
+       * Announce the rebuild, because this restore is deliberately PARTIAL.
+       *
+       * What lives here is what a <video> element owns: the file, the
+       * position, pause, volume, mute. Everything else the app had asked mpv
+       * for is a PROCESS property that died with the process — the subtitle
+       * style, the crop, the interstitial zoom, the audio and subtitle track
+       * — and none of it belongs in a facade whose whole job is to look like
+       * an element. Teaching this function about subtitles would put app
+       * knowledge inside the shim.
+       *
+       * So the app is told instead, and re-asserts its own. Without this the
+       * picture came back at the right timestamp wearing mpv's defaults: her
+       * subtitle size and colour gone for the REST OF THE SESSION (nothing
+       * else ever re-applies them), subtitles she had switched off silently
+       * back on, and the track menu still showing the pre-crash selection —
+       * a menu asserting a track that is not playing.
+       */
+      emit('restored');
     } catch (error) {
       console.error('mpv restart restore failed:', error);
     }
@@ -307,22 +326,23 @@ export function createMpvFacade(tv, { now = () => Date.now() } = {}) {
       tv.mpvSetMute(intended.muted).catch(() => {});
     },
 
-    /** The empty ranges object renderBuffer treats as "nothing to draw". */
-    get buffered() { return { length: 0, end: () => 0 }; },
-
     /**
-     * Inert element shims, NOT fakes: call sites the features step rewires
-     * (crop transforms, subtitle <track> plumbing) must degrade to doing
-     * nothing rather than throw on a missing DOM method in the meantime.
+     * The inert element shims are GONE, and their absence is the point.
+     *
+     * `style: {}`, `querySelectorAll: () => []`, `append: () => {}`,
+     * `textTracks: []`, `getBoundingClientRect` and `buffered` were scaffolding
+     * for the switchover: while call sites were still being rewired, a
+     * leftover `player.style.transform = ...` had to no-op instead of
+     * throwing. The rewiring finished, and nothing in the renderer touches
+     * any of them now.
+     *
+     * Kept, they would be worse than dead code. A write to `player.style`
+     * SUCCEEDS silently — no throw, no rejection, not even an unhandled
+     * promise — so a future call site aimed at the wrong object would go
+     * wrong in perfect silence. That is the failure mode this whole branch
+     * has now been bitten by twice. Without them the same mistake is an
+     * immediate TypeError with a stack.
      */
-    style: {},
-    getBoundingClientRect: () => ({
-      x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0,
-    }),
-    querySelectorAll: () => [],
-    append: () => {},
-    textTracks: [],
-
     dispose() {
       for (const unsub of unsubscribers) { try { unsub(); } catch { /* gone */ } }
       listeners.clear();

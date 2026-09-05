@@ -118,6 +118,54 @@
     onPrepareProgress: () => () => {},
     listTracks: async () => ({ ok: true, audio: [], subtitles: [], defaultAudioIndex: 0 }),
     subtitleText: async () => ({ ok: false }),
+
+    /**
+     * The window verbs and the crop probe. A browser has no window to
+     * minimise and no ffmpeg to ask, so these are inert — but the renderer
+     * subscribes to onWindowState during boot and wires the buttons to the
+     * rest, so their ABSENCE is what would break the page.
+     */
+    minimizeWindow: () => {},
+    toggleMaximizeWindow: () => {},
+    closeWindow: () => {},
+    onWindowState: () => () => {},
+    detectCrop: async () => null,
+
+    /**
+     * The mpv surface. Not optional, and not decoration.
+     *
+     * The renderer builds its player at MODULE SCOPE — `createMpvFacade(
+     * window.tv)` — and that call immediately subscribes to all five onMpv*
+     * feeds. Without them the very first line of the bundle throws, the whole
+     * renderer never boots, and this page renders blank. Which is exactly
+     * what it did: the switchover added the facade and nobody taught the
+     * stub about it, so every design screenshot silently became a picture of
+     * nothing, and shoot-all/shoot-state kept "succeeding".
+     *
+     * The subscribe verbs must return an unsubscribe function, because that
+     * is what the real preload returns and what the facade stores.
+     */
+    onMpvProp: () => () => {},
+    onMpvEvent: () => () => {},
+    onMpvDied: () => () => {},
+    onMpvRestarted: () => () => {},
+    onMpvDown: () => () => {},
+
+    // The command verbs. Design work never drives real playback, so these are
+    // inert — but they must EXIST, for the same reason as above.
+    mpvOpen: async () => ({ ok: true }),
+    mpvSetPause: async () => ({ ok: true }),
+    mpvStop: async () => ({ ok: true }),
+    mpvSeek: async () => ({ ok: true }),
+    mpvSetVolume: async () => ({ ok: true }),
+    mpvSetMute: async () => ({ ok: true }),
+    mpvSetAudioTrack: async () => ({ ok: true }),
+    mpvSetSubTrack: async () => ({ ok: true }),
+    mpvSetSubVisibility: async () => ({ ok: true }),
+    mpvSetSubStyle: async () => ({ ok: true }),
+    mpvSetVideoCrop: async () => ({ ok: true }),
+    mpvSetVideoZoom: async () => ({ ok: true }),
+    mpvTrackList: async () => ([]),
   };
 
   // Open whichever surface the query string asks for, once boot has settled.
@@ -141,7 +189,6 @@
         document.getElementById('timeLabel').textContent = '12:04 / 24:31';
         document.getElementById('chromeUpNext').textContent = 'Next: Trigun S01E04';
         document.getElementById('scrubFill').style.width = '49%';
-        document.getElementById('scrubBuffer').style.width = '63%';
       }
     }, 400);
   });

@@ -109,6 +109,66 @@ function windowProbeScript() {
   ].join('\n');
 }
 
+/**
+ * The children of the app's video plane, front of the z-order first.
+ *
+ * This is the only thing that separates the two causes of a black sample:
+ * mpv's --wid child and Chromium's "Intermediate D3D Window" are siblings
+ * inside that window, and whichever is first is the one on screen. If mpv is
+ * first and sized to the window, nothing is covering it — a black sample then
+ * means the SCREEN CAPTURE could not read mpv's swapchain, not that the
+ * picture is gone.
+ */
+function childZOrder(pid) {
+  const script = [
+    'Add-Type -TypeDefinition @"',
+    'using System; using System.Runtime.InteropServices; using System.Text;',
+    'public class NtvZ {',
+    '  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }',
+    '  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();',
+    '  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);',
+    '  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint procId);',
+    '  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);',
+    '  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);',
+    '  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);',
+    '  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);',
+    '}',
+    '"@',
+    '[NtvZ]::SetProcessDPIAware() | Out-Null',
+    '$target = [int]$args[0]',
+    '$best = [System.IntPtr]::Zero; $bestArea = -1',
+    '$h = [System.IntPtr]::Zero',
+    'do {',
+    '  $h = [NtvZ]::FindWindowEx([System.IntPtr]::Zero, $h, [NullString]::Value, [NullString]::Value)',
+    '  if ($h -ne [System.IntPtr]::Zero) {',
+    '    $o = 0; [NtvZ]::GetWindowThreadProcessId($h, [ref]$o) | Out-Null',
+    '    if ($o -eq $target -and [NtvZ]::IsWindowVisible($h) -and ([NtvZ]::GetWindow($h, 4) -eq [System.IntPtr]::Zero)) {',
+    '      $r = New-Object NtvZ+RECT; [NtvZ]::GetWindowRect($h, [ref]$r) | Out-Null',
+    '      $a = ($r.Right - $r.Left) * ($r.Bottom - $r.Top)',
+    '      if ($a -gt $bestArea) { $bestArea = $a; $best = $h }',
+    '    }',
+    '  }',
+    '} while ($h -ne [System.IntPtr]::Zero)',
+    'if ($best -eq [System.IntPtr]::Zero) { Write-Output "  no video plane found"; exit }',
+    '$c = [System.IntPtr]::Zero',
+    'do {',
+    '  $c = [NtvZ]::FindWindowEx($best, $c, [NullString]::Value, [NullString]::Value)',
+    '  if ($c -ne [System.IntPtr]::Zero) {',
+    '    $sb = New-Object System.Text.StringBuilder 256',
+    '    [NtvZ]::GetClassName($c, $sb, 256) | Out-Null',
+    '    $r = New-Object NtvZ+RECT; [NtvZ]::GetWindowRect($c, [ref]$r) | Out-Null',
+    '    Write-Output ("  child class={0} visible={1} {2}x{3}" -f $sb.ToString(), [NtvZ]::IsWindowVisible($c), ($r.Right - $r.Left), ($r.Bottom - $r.Top))',
+    '  }',
+    '} while ($c -ne [System.IntPtr]::Zero)',
+  ].join('\n');
+  const zPath = path.join(work, 'zorder.ps1');
+  fs.writeFileSync(zPath, script, 'utf8');
+  const out = spawnSync('powershell',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', zPath, String(pid)],
+    { encoding: 'utf8', windowsHide: true, timeout: 25000 });
+  console.error(`${out.stdout || ''}${out.stderr || ''}`.trimEnd());
+}
+
 let probePath = null;
 function sampleAppCentre(pid, { verbose = false } = {}) {
   if (!probePath) {
@@ -358,6 +418,33 @@ async function main() {
     for (let i = 0; i < 15 && !isFixtureColour(afterResize); i += 1) {
       await sleep(400);
       afterResize = sampleAppCentre(child.pid);
+    }
+    if (!isFixtureColour(afterResize)) {
+      /**
+       * A BLACK SAMPLE HERE HAS TWO CAUSES AND THEY LOOK IDENTICAL. Read this
+       * before spending an hour on it, because one session already did.
+       *
+       *  1. The picture really is covered — Chromium's compositor child got
+       *     back on top of mpv. The bug this check exists for.
+       *  2. THE MEASUREMENT LIED. CopyFromScreen is a BitBlt, and a GPU
+       *     swapchain is not always readable that way. Maximising can flip
+       *     mpv's presentation into a mode BitBlt reads as pure black while
+       *     the picture is perfectly fine on screen.
+       *
+       * Observed: five consecutive failures, then three consecutive passes,
+       * with no code change between them. During the failures mpv's own log
+       * had zero errors and reported video=playing throughout.
+       *
+       * THE DISCRIMINATOR is z-order and size, printed below. If mpv's child
+       * is FIRST in the list and sized to the window, nothing is covering it
+       * and cause 2 is your answer — re-run before believing this check. If
+       * mpv is behind "Intermediate D3D Window", or sized to the OLD window,
+       * it is cause 1 and it is real.
+       */
+      console.error('  the sample was black — printing every window and mpv child z-order.');
+      console.error('  mpv FIRST and full-size => the capture lied, re-run. mpv behind => real.');
+      sampleAppCentre(child.pid, { verbose: true });
+      childZOrder(child.pid);
     }
     verdict('the picture SURVIVES a maximize (the raise holds)',
       isFixtureColour(afterResize),

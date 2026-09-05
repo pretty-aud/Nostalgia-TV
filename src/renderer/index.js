@@ -191,11 +191,6 @@ function toast(message, ms = 3200) {
  * because we do not know how long the job will take, so finishing early has to
  * take it down explicitly or it hangs around over the episode it announced.
  */
-function clearToast() {
-  clearTimeout(toastTimer);
-  el('toast').dataset.show = 'false';
-}
-
 /**
  * Saving.
  *
@@ -3954,7 +3949,36 @@ The channel keeps its own place.`)) return;
 
   player.addEventListener('ended', onEpisodeEnded);
   player.addEventListener('timeupdate', onTimeUpdate);
-  player.addEventListener('progress', renderBuffer);
+
+  /**
+   * mpv came back from the dead. Re-assert everything the APP asked the old
+   * process for, because all of it died with that process.
+   *
+   * The bridge restores what an element owns — file, position, pause, volume,
+   * mute — and deliberately stops there. These are the rest, and without them
+   * the picture returns at the right timestamp wearing mpv's own defaults.
+   *
+   * The subtitle style is the one that never healed on its own: nothing else
+   * in the app re-applies it per file, so one crash left her chosen size,
+   * colour and box at mpv's defaults for the whole remaining session. It goes
+   * first and unconditionally — it is a process property with no dependence
+   * on a file being loaded.
+   *
+   * The track preference and the crop DO need the file, so they ride a fresh
+   * one-shot loadedmetadata exactly as a normal open does. Re-running the
+   * preference also repairs the track menu, which until then went on showing
+   * the pre-crash selection — asserting a track that was not playing.
+   */
+  player.addEventListener('restored', () => {
+    applySubtitleStyle();
+    if (!current) return;
+    const item = current;
+    player.addEventListener('loadedmetadata', () => {
+      if (current !== item) return;   // she moved on while mpv was rebuilding
+      applyTrackPrefs(item).catch((error) => console.error('track preferences failed after restart:', error));
+      loadCropForCurrent().catch((error) => console.error('auto-crop failed after restart:', error));
+    }, { once: true });
+  });
   // Glyph only. Showing chrome here would fire on every automatic start —
   // each episode, each bumper, each promo — which is the interface appearing
   // over the opening of the picture. Chrome comes from togglePlay, hover and
@@ -4008,12 +4032,6 @@ function onTimeUpdate() {
     };
     persist();
   }
-}
-
-function renderBuffer() {
-  if (!Number.isFinite(player.duration) || player.buffered.length === 0) return;
-  const end = player.buffered.end(player.buffered.length - 1);
-  el('scrubBuffer').style.width = `${(end / player.duration) * 100}%`;
 }
 
 function onPlaybackError() {

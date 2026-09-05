@@ -45,10 +45,12 @@ const GLOBALS = new Set([
   'RangeError', 'Infinity', 'NaN', 'undefined', 'globalThis', 'Intl', 'Proxy',
   'Reflect', 'BigInt', 'parseInt', 'parseFloat', 'isNaN', 'isFinite',
   'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI',
-  'Uint8Array', 'ArrayBuffer', 'DataView', 'TextEncoder', 'TextDecoder',
-  // node / electron main
+  'Uint8Array', 'Uint8ClampedArray', 'Uint16Array', 'Uint32Array', 'Int8Array',
+  'Int16Array', 'Int32Array', 'Float32Array', 'Float64Array',
+  'ArrayBuffer', 'DataView', 'TextEncoder', 'TextDecoder', 'WebSocket',
+  // node / electron main / scripts
   'process', 'require', 'module', 'exports', '__dirname', '__filename', 'Buffer',
-  'arguments',
+  'arguments', 'setImmediate', 'clearImmediate', 'AbortSignal',
 ]);
 
 function declarePattern(node, declared) {
@@ -75,13 +77,26 @@ function isNotAReference(node, parent) {
   if (parent.type === 'Property' && parent.key === node && !parent.computed) return true;
   if (parent.type === 'MethodDefinition' && parent.key === node && !parent.computed) return true;
   if (parent.type === 'PropertyDefinition' && parent.key === node && !parent.computed) return true;
+  // `import.meta` and `new.target` parse as a MetaProperty whose two halves
+  // are Identifier nodes. Neither is a name anything declares.
+  if (parent.type === 'MetaProperty') return true;
   return parent.type === 'LabeledStatement' || parent.type === 'BreakStatement' || parent.type === 'ContinueStatement';
 }
 
-function freeIdentifiers(source) {
+function freeIdentifiers(source, { asFunctionBody = false } = {}) {
+  /**
+   * asFunctionBody is for scripts/shots/*.js, which are NOT modules: the
+   * screenshot rig injects each one into the page as a function body, so they
+   * legally use top-level `await` and top-level `return`. Wrapping them the
+   * way the harness actually runs them keeps them inside the guard instead of
+   * excluding the very files whose silent breakage produces a blank review
+   * screenshot. The wrapper adds one line, so reported lines are offset by
+   * one — corrected below.
+   */
+  const text = asFunctionBody ? `async function __shot() {\n${source}\n}` : source;
   // sourceType 'module' parses both: the CommonJS main-process files contain
   // no import/export, and module mode is the strict superset.
-  const ast = parse(source, { ecmaVersion: 'latest', sourceType: 'module', locations: true });
+  const ast = parse(text, { ecmaVersion: 'latest', sourceType: 'module', locations: true });
   const declared = new Set();
   const used = new Map();
 
@@ -113,23 +128,32 @@ function freeIdentifiers(source) {
   walk(ast, null);
   return [...used]
     .filter(([name]) => !declared.has(name) && !GLOBALS.has(name))
-    .map(([name, line]) => `${name} (line ${line})`);
+    .map(([name, line]) => `${name} (line ${asFunctionBody ? line - 1 : line})`);
 }
 
-/** Every shipped source file, minus the generated bundle. */
+/**
+ * Every shipped source file AND every proving tool, minus generated output.
+ *
+ * scripts/ is here deliberately. It was left out at first, which put the
+ * smoke test, the embed proof, the vendoring and the screenshot rig — every
+ * artefact that PROVES this branch — outside the guard written because of
+ * this exact bug. A free identifier inside one of the smoke's verdict blocks
+ * is not a failed check; it is a check that silently never ran.
+ */
 function sourceFiles() {
   const found = [];
   const visit = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) { visit(full); continue; }
-      if (!entry.name.endsWith('.js')) continue;
+      if (!/\.(js|mjs|cjs)$/.test(entry.name)) continue;
       if (entry.name === 'bundle.js') continue;   // esbuild output, not source
       found.push(full);
     }
   };
   visit(join(ROOT, 'src'));
   visit(join(ROOT, 'electron'));
+  visit(join(ROOT, 'scripts'));
   return found;
 }
 
@@ -142,7 +166,9 @@ describe('every identifier a source file uses exists', () => {
 
   for (const file of files) {
     it(`${relative(ROOT, file).replace(/\\/g, '/')} has no free identifiers`, () => {
-      expect(freeIdentifiers(readFileSync(file, 'utf8'))).toEqual([]);
+      const rel = relative(ROOT, file).replace(/\\/g, '/');
+      const asFunctionBody = rel.startsWith('scripts/shots/');
+      expect(freeIdentifiers(readFileSync(file, 'utf8'), { asFunctionBody })).toEqual([]);
     });
   }
 });

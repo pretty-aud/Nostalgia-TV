@@ -437,20 +437,34 @@ describe('mpv facade', () => {
     expect(facade.error.message).toContain('could not be restarted');
   });
 
-  it('exposes src and the inert element shims the un-rewired call sites touch', async () => {
+  it('reports the open file as src', async () => {
     const tv = fakeTv();
     const facade = createMpvFacade(tv);
     expect(facade.src).toBe('');
     await openStarted(facade, tv, 'H:/a.mkv');
     expect(facade.src).toBe('H:/a.mkv');
+  });
 
-    // Inert, not faked: these exist so applyPicture/clearSubtitles degrade
-    // to no-ops until the features step rewires them, instead of throwing.
-    facade.style.transform = 'scale(2)';
-    expect(facade.getBoundingClientRect().width).toBe(0);
-    expect(facade.querySelectorAll('track')).toEqual([]);
-    expect(() => facade.append()).not.toThrow();
-    expect(facade.textTracks).toEqual([]);
-    expect(facade.buffered.length).toBe(0);
+  /**
+   * The inverse of the test this replaced.
+   *
+   * While the switchover was mid-flight the facade carried inert DOM shims —
+   * style, getBoundingClientRect, querySelectorAll, append, textTracks,
+   * buffered — so a call site not yet rewired would no-op instead of throw.
+   * Every one of those call sites is now rewired, and keeping the shims would
+   * leave a trap: `player.style.transform = ...` SUCCEEDS against a bare
+   * object. No throw, no rejection, nothing in the console. A future mistake
+   * aimed at the wrong object would be invisible, which is exactly how this
+   * branch has already lost a viewer's evening twice.
+   *
+   * Gone, the same mistake is an immediate TypeError with a stack. This test
+   * exists to stop anyone helpfully adding them back.
+   */
+  it('has NO inert DOM shims, so a stray element call throws instead of silently doing nothing', () => {
+    const facade = createMpvFacade(fakeTv());
+    for (const member of ['style', 'getBoundingClientRect', 'querySelectorAll', 'append', 'textTracks', 'buffered']) {
+      expect(facade[member]).toBeUndefined();
+    }
+    expect(() => { facade.style.transform = 'scale(2)'; }).toThrow(TypeError);
   });
 });
