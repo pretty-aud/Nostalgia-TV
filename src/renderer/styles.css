@@ -2590,7 +2590,7 @@ input[type="range"]::-webkit-slider-thumb {
   gap: calc(var(--u) * 1.5);
   /* Closer to its tiles than to the section above: proximity is what makes a
      heading belong to the row under it rather than float between two. */
-  margin-bottom: calc(var(--u) * 1.75);
+  margin-bottom: calc(var(--u) * 2.25);
 }
 
 /* ── the resume rail ──────────────────────────────────────────────────────
@@ -2660,15 +2660,18 @@ input[type="range"]::-webkit-slider-thumb {
   cursor: pointer;
   overflow: hidden;
 }
-.railcard__art {
+/* Two-class selector on purpose. The card reuses .tile__art for the image
+   sizing and the initials fallback, and that rule is defined LATER in this
+   file — at equal specificity it was winning, so the rounded corners and the
+   hairline border kept coming back however many times they were set here. */
+.railcard .railcard__art {
   aspect-ratio: 16 / 9;
-  border-radius: 0;        /* flush neighbours: a radius would cut white notches between them */
+  /* Square and unbordered: the row is a continuous strip of picture, and a
+     radius cuts a notch of background between neighbours while a border draws
+     a grid over what should read as one band. */
+  border-radius: 0;
   border: 0;
 }
-/* A hairline between neighbours, so a run of dark frames does not read as one
-   wide image. Inset rather than a border, which would add width and break the
-   exact thirds. */
-.railcard + .railcard { box-shadow: inset 1px 0 0 var(--hair-soft); }
 
 .railcard__scrim {
   position: absolute;
@@ -2765,10 +2768,16 @@ input[type="range"]::-webkit-slider-thumb {
 @media (prefers-reduced-motion: reduce) {
   .rail { scroll-behavior: auto; }
 }
+/* 1.5x the panel-title size: 30px. At 20px these sat at the same weight as
+   the card captions under them, so the page read as one long undifferentiated
+   list; a section head has to win against a row of artwork. Double (40px) won
+   it too easily and started competing with the cards themselves. Tighter
+   tracking and leading keep the size from feeling loose. */
 .browsesec__title {
-  font-size: var(--t-title);
+  font-size: calc(var(--t-title) * 1.5);
   font-weight: 600;
-  letter-spacing: var(--tr-tight);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 .browsesec__n { color: var(--ink-faint); font-size: var(--t-micro); font-family: var(--mono); }
 

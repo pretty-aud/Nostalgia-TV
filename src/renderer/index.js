@@ -4658,7 +4658,7 @@ function renderBrowse() {
     : `${shows.length} shows · ${movieFiles.length} movies`;
 
   if (rows.length) {
-    body.append(carousel('Continue watching', rows.map(continueTile)));
+    body.append(carousel('Continue watching', rows, continueTile));
   }
   if (showList.length) {
     body.append(section('TV Shows', showList.length, showList.map(showTile)));
@@ -4698,7 +4698,7 @@ function renderBrowse() {
  */
 const CAROUSEL_MIN_TO_LOOP = 4;
 
-function carousel(title, tiles) {
+function carousel(title, rows, build) {
   const wrap = document.createElement('section');
   wrap.className = 'browsesec browsesec--rail';
 
@@ -4715,29 +4715,41 @@ function carousel(title, tiles) {
   const track = document.createElement('ul');
   track.className = 'rail__track';
 
-  // Fewer than a viewport's worth has nothing to loop THROUGH — cloning two
-  // more copies of three tiles just puts the same three back on screen.
-  const loops = tiles.length >= CAROUSEL_MIN_TO_LOOP;
-  const clone = (node) => {
-    const copy = node.cloneNode(true);
-    copy.setAttribute('aria-hidden', 'true');
-    copy.tabIndex = -1;
-    // A clone carries no listeners, so give it the original's click.
-    copy.addEventListener('click', () => node.click());
-    return copy;
-  };
+  /**
+   * The repeat sets are BUILT, not cloned.
+   *
+   * cloneNode copies the DOM as it stands, and a card's artwork arrives
+   * asynchronously — the frame grab is fetched and decoded after the element
+   * exists. Cloning therefore captured the cards before their pictures had
+   * landed, and those copies stayed empty for ever: the row looked right
+   * until a wrap carried you into a repeat set, and then every card was
+   * blank. Building each set through the same factory gives every card its
+   * own paint, and its own click handler, so there is nothing to forward.
+   */
+  const loops = rows.length >= CAROUSEL_MIN_TO_LOOP;
+  const buildSet = (hidden) => rows.map((row) => {
+    const card = build(row);
+    if (hidden) {
+      // The row must read once to a screen reader and tab through its real
+      // cards only, however many copies the loop needs.
+      card.setAttribute('aria-hidden', 'true');
+      card.tabIndex = -1;
+    }
+    return card;
+  });
 
-  if (loops) track.append(...tiles.map(clone));
+  if (loops) track.append(...buildSet(true));
+  const tiles = buildSet(false);
   track.append(...tiles);
-  if (loops) track.append(...tiles.map(clone));
+  if (loops) track.append(...buildSet(true));
 
   viewport.append(track);
 
   const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const setWidthOnce = () => {
     const all = track.children;
-    if (all.length < tiles.length * 2 + 1) return 0;
-    return all[tiles.length].offsetLeft - all[0].offsetLeft;
+    if (all.length < rows.length * 2 + 1) return 0;
+    return all[rows.length].offsetLeft - all[0].offsetLeft;
   };
 
   const arrow = (direction) => {
@@ -4772,7 +4784,7 @@ function carousel(title, tiles) {
    * of three pictures, which measures nothing anybody asked about.
    */
   const perPage = 3;
-  const pages = Math.max(1, Math.ceil(tiles.length / perPage));
+  const pages = Math.max(1, Math.ceil(rows.length / perPage));
   const dots = document.createElement('div');
   dots.className = 'raildots';
   dots.setAttribute('role', 'tablist');
@@ -4785,8 +4797,8 @@ function carousel(title, tiles) {
       dot.className = 'raildot';
       dot.setAttribute('aria-label', `Page ${i + 1} of ${pages}`);
       dot.addEventListener('click', () => {
-        const first = track.children[loops ? tiles.length : 0];
-        const target = track.children[(loops ? tiles.length : 0) + i * perPage];
+        const first = track.children[loops ? rows.length : 0];
+        const target = track.children[(loops ? rows.length : 0) + i * perPage];
         if (target && first) {
           viewport.scrollTo({
             left: target.offsetLeft - first.offsetLeft + (loops ? setWidthOnce() : 0),
@@ -4832,8 +4844,8 @@ function carousel(title, tiles) {
     const kids = () => track.children;
     const setWidth = () => {
       const all = kids();
-      if (all.length < tiles.length * 2 + 1) return 0;
-      return all[tiles.length].offsetLeft - all[0].offsetLeft;
+      if (all.length < rows.length * 2 + 1) return 0;
+      return all[rows.length].offsetLeft - all[0].offsetLeft;
     };
     /**
      * Home is ONE SET WIDTH, and nothing more.
