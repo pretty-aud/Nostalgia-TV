@@ -198,9 +198,4 @@ async function runLocked(items, deps) {
  * A read-only copy of the ledger for the library table. A COPY on purpose:
  * the table must never hold a live reference to the object run() mutates.
  */
-async function entriesSnapshot() {
-  const { entries } = await load();
-  return JSON.parse(JSON.stringify(entries));
-}
-
-module.exports = { init, status, run, newItems, keyOf, entriesSnapshot };
+module.exports = { init, status, run, newItems, keyOf };

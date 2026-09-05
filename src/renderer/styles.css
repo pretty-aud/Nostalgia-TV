@@ -3041,7 +3041,11 @@ input[type="range"]::-webkit-slider-thumb {
   margin: 0;
   padding: calc(var(--u) * 0.5) 0 calc(var(--u) * 0.5) calc(var(--u) * 2);
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  /* TWO columns, because each row now has two cells. The rows are
+     `display: contents`, so the count here is what actually lays them out —
+     leave a third track behind after dropping the conversion verdict and the
+     NEXT episode's label slides up into it, scrambling the whole list. */
+  grid-template-columns: 1fr auto;
   gap: 2px calc(var(--u) * 2);
   font-size: var(--t-meta);
 }

@@ -104,7 +104,6 @@
     ingestStatus: async () => ({ newCount: 0, newShows: 0, newEpisodes: 0, newMovies: 0 }),
     ingestRun: async () => ({ ok: true, ingested: 0, captured: 0, needConversion: 0, shows: 0, episodes: 0, movies: 0 }),
     onIngestProgress: () => () => {},
-    ingestEntries: async () => ({}),
     artworkStats: async (items) => (items || []).map(() => false),
     getArtwork: async () => null,
     chooseArtwork: async () => ({ ok: false, cancelled: true }),

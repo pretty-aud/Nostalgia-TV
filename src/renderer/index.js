@@ -31,9 +31,6 @@ import {
   showsInSchedule,
 } from '../shared/scheduler.js';
 import {
-  summarizeShow,
-} from '../shared/mediaStatus.js';
-import {
   readyCopy,
   seedFromCursors,
   markEpisode,
@@ -2974,7 +2971,7 @@ function wireColumnDrops() {
  * and also the pointer back to the Ingest button.
  */
 let mediaKind = 'show';
-let mediaData = null;   // { entries, art: Map('kind\nid' -> bool) }
+let mediaData = null;   // { art: Map('kind\nid' -> bool) }
 
 async function openMedia() {
   el('mediaModal').hidden = false;
@@ -2983,15 +2980,20 @@ async function openMedia() {
   renderMediaTable();          // paints the "loading" shell immediately
 
   const items = ingestItems();
-  const [entries, flags] = await Promise.all([
-    window.tv.ingestEntries().catch(() => ({})),
-    window.tv.artworkStats(items).catch(() => []),
-  ]);
+  /**
+   * Artwork only.
+   *
+   * The ingest LEDGER was fetched alongside this, for one purpose: telling
+   * the table whether each title needed converting. Nothing converts, that
+   * column is gone, and the read went with it — along with the only reason
+   * this window ever waited on two round trips instead of one.
+   */
+  const flags = await window.tv.artworkStats(items).catch(() => []);
   if (el('mediaModal').hidden) return;   // closed while loading
 
   const art = new Map();
   items.forEach((item, i) => art.set(`${item.kind}\n${item.id}`, Boolean(flags[i])));
-  mediaData = { entries, art };
+  mediaData = { art };
   renderMediaTable();
   el('mediaSearch').focus();
 }
@@ -3045,7 +3047,6 @@ function renderMediaTable() {
   }
 
   const query = el('mediaSearch').value.trim().toLowerCase();
-  const { entries } = mediaData;
   let shown = 0;
 
   if (mediaKind === 'show') {
@@ -3055,7 +3056,6 @@ function renderMediaTable() {
       if (query && !show.name.toLowerCase().includes(query)) continue;
       shown += 1;
 
-      const summary = summarizeShow(show, entries);
       const artCount = show.episodes.reduce(
         (n, e) => n + (hasArt('episode', e.relPath) ? 1 : 0), 0,
       );
@@ -3066,10 +3066,10 @@ function renderMediaTable() {
       name.textContent = show.name;
       const eps = document.createElement('td');
       eps.className = 'mediarow__meta';
-      eps.textContent = String(summary.total);
+      eps.textContent = String(show.episodes.length);
 
       const art = artCell(hasArt('show', show.id),
-        `${hasArt('show', show.id) ? '✓ card' : '— card'} · ${artCount}/${summary.total} eps`);
+        `${hasArt('show', show.id) ? '✓ card' : '— card'} · ${artCount}/${show.episodes.length} eps`);
 
       const detailTd = document.createElement('td');
       const toggle = document.createElement('button');
