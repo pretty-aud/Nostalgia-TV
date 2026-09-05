@@ -2146,7 +2146,7 @@ const THEMES = [
   'wilson', '02', 'bordeaux',
   'greenbox', 'forest', 'mint', 'bench', 'patina',
   'oceanic', 'orbital',
-  '01', 'neon', 'vhs', 'sunset', 'lilac',
+  '01', 'neon', 'synthwave', 'sunset', 'lilac',
   'kawaii', 'iris',
 ];
 

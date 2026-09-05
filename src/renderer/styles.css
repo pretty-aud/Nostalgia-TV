@@ -2680,7 +2680,12 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* Tracking error. The two colours a worn tape fringes into, used as the two
    they already are: magenta for attention, cyan for switched-on. */
-:root[data-theme="vhs"] {
+/* Was called "vhs" until the name was needed for the real thing — a full VCR
+   skin, not a palette. Not one colour changed here; only the name. Renamed
+   rather than aliased, deliberately: THEME_ALIASES is applied BEFORE the
+   membership check, so an alias from "vhs" would hijack every selection of
+   the new VHS theme and silently land the viewer here instead. */
+:root[data-theme="synthwave"] {
   --paper:      #0a0710;
   --paper-lift: #130d1c;
   --paper-high: #1c1428;
@@ -2828,7 +2833,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* Ceefax at six in the morning. Pure #000 is correct exactly here and nowhere
    else in the set, with the saturated primaries a teletext decoder could
    actually produce: broadcast yellow live, cyan for the second rail, white
-   type. Not vhs — there is no magenta anywhere — and not midnight's amber,
+   type. Not synthwave — there is no magenta anywhere — and not midnight's amber,
    which is orange-brown beside this. */
 :root[data-theme="teletext"] {
   --paper:      #000000;
@@ -2871,7 +2876,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* The one hue with no dark theme at all. Lilac is light and 01 puts lime on
    purple; violet as the SIGNAL, on a ground tinted the same way, is unclaimed.
-   Kept desaturated so it reads as ink rather than as neon — vhs and neon
+   Kept desaturated so it reads as ink rather than as neon — synthwave and neon
    already own the loud end of this side of the wheel. */
 :root[data-theme="iris"] {
   --paper:      #0d0a16;
@@ -2907,7 +2912,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* Wine, and a rose that is deliberately NOT hot. The three pinks already here
-   are all high-chroma (neon, vhs, kawaii); this one is dusty, and it sits on
+   are all high-chroma (neon, synthwave, kawaii); this one is dusty, and it sits on
    the only wine-toned ground in the set — crimson is near-black. */
 :root[data-theme="bordeaux"] {
   --paper:      #180a10;
