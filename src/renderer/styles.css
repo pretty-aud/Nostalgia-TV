@@ -3226,6 +3226,32 @@ input[type="range"]::-webkit-slider-thumb {
 /* The knob is a modern affordance; the bar IS the affordance. */
 :root[data-skin="vcr"] .scrub__fill::after { display: none; }
 
+/**
+ * A LABEL MUST NEVER WRAP OUT OF ITS BOX.
+ *
+ * .ctl is a fixed 34px tall and its text is free to wrap. In the app's own
+ * 13px sentence-case type that never happened. The skin sets 16px ALL CAPS,
+ * so at ordinary window sizes BACK TO CHANNEL, AUDIO, PREV and NEXT each
+ * break to a second line that renders BELOW the drawn border — measured at
+ * 39px of content in a 30px box, on all four, at 1130px wide and narrower.
+ *
+ * Both rules are needed. Nowrap alone widens the row until controls run off
+ * the right edge; wrapping alone leaves the labels still breaking inside
+ * their boxes. Together the boxes stay intact and the row reflows onto a
+ * second line only when it must. At full width nothing changes.
+ */
+:root[data-skin="vcr"] .transport {
+  flex-wrap: wrap;
+  row-gap: var(--u);
+}
+:root[data-skin="vcr"] .transport > * { white-space: nowrap; }
+/* The one item long enough to overflow a row by itself. */
+:root[data-skin="vcr"] .upnext {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Buttons and controls get a drawn box rather than a tinted panel. */
 :root[data-skin="vcr"] .btn,
 :root[data-skin="vcr"] .ctl,
@@ -3244,6 +3270,32 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--paper);
 }
 
+/**
+ * THE PRIMARY BUTTON'S "BACKGROUND" WAS THE FONT, NOT A DECLARATION.
+ *
+ * .btn--signal is font-weight 600. Home Video ships 400 and 700 only, so 600
+ * resolves to the 700 face — and HomeVideo-Bold is an INVERSE VIDEO face,
+ * drawing a filled box behind every glyph. That is the box behind RESUME; the
+ * computed background-color is transparent, so no background rule was ever
+ * involved. On the IBM face the same 600 gives SYNTHETIC bold instead, which
+ * smears a 1-bit 8x16 cell. Regular weight is the fix for both.
+ */
+:root[data-skin="vcr"] .btn--signal { font-weight: 400; }
+
+/* Height-matched to the button beside it (54px down to 46px), SCOPED TO THE
+   READY SCREEN. Putting the padding on .btn--signal itself would be (0,3,0)
+   and outrank `.skipask__actions .btn` at (0,2,0), shrinking one button in
+   the skip dialog while its three siblings stayed tall — the very defect
+   this is fixing, relocated. #btnDetailPlay and #skipEpisode are untouched. */
+:root[data-skin="vcr"] .welcome__inner .btn--signal { padding: 9px 14px; }
+
+/* With the weight difference gone the two ready-screen buttons would be
+   indistinguishable: the bordered-control rule above forces every button to
+   full ink, which stomps .btn--quiet's mute. This puts it back — same
+   specificity (0,2,0), later in source, so it wins — and the secondary action
+   stays secondary using the skin's own two ink levels rather than a third. */
+:root[data-skin="vcr"] .btn--quiet { color: var(--ink-mute); }
+
 /* The switched-on box, drawn heavier to match everything else. The ✓ stays —
    it is a real glyph in this ROM (measured), so it needs no substitution. */
 :root[data-skin="vcr"] .show__toggle {
@@ -3253,85 +3305,232 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /**
- * SUBSTITUTE THE GLYPHS THE ROM DOES NOT HAVE.
+ * SUBSTITUTE THE MARKS EACH FACE DOES NOT HAVE — AND THE TWO FACES DIFFER.
  *
- * Every non-ASCII character the interface can draw was measured against the
- * font (an 8x16 cell advances exactly 8px at 16px; a missing glyph falls back
- * and measures something else). Thirteen of the twenty are present. These
- * seven are not, and would each render in a proportional fallback face —
- * anti-aliased, wrong weight, sitting right on the transport bar.
+ * This block used to substitute one way for everybody, on the belief that
+ * Home Video carried every mark and only the IBM ROM needed help. Measured
+ * two independent ways — rasterising each glyph against a family that cannot
+ * resolve, and reading the cmap out of the shipped binaries — the coverage is
+ * very nearly DISJOINT:
  *
- * Replaced in CSS rather than in JS: the markup, the labels and every
- * behaviour stay exactly as they are, and the substitution disappears with
- * the skin. Each replacement is a real CP437 glyph, verified present.
+ *   Home Video:  ◀ ▶ ▲ ▼ ■ ‖ ⏸ ≡ ×      no  ◄ ► ▌ ▐ │ ✓ ✕ ⟲ ⛶
+ *   IBM VGA ROM: ◄ ► ▲ ▼ ■ ▌ ▐ │ ✓ ≡ ×   no  ◀ ▶ ‖ ⏸ ✕ ⟲ ⛶
  *
- *   ▶ U+25B6 → ► U+25BA     ❚❚ U+275A → ▌▌ U+258C
- *   ✕ U+2715 → × U+00D7     ▾ U+25BE  → ▼ U+25BC
- *   ☰ U+2630 → ≡ U+2261     ⟲ U+27F2  → ◄◄ U+25C4  (it rewinds to episode 1)
- *   ⛶ U+26F6 → the word FULL, which is what a VCR would have printed anyway
+ * So every replacement written for the ROM traded a glyph Home Video HAS for
+ * one it has not — and since Home Video is the default face, and JetBrains
+ * (next in both stacks) has none of them either, those marks were being drawn
+ * by whatever monospace font the OS happened to supply. That is what "the
+ * buttons are different heights" was: identical boxes, marks from two
+ * different fonts. Home Video's ◀ ▶ ▲ ▼ ■ all share one ink box, and the
+ * ROM's ◄ ► do too, so within a face a row now lines up by construction.
+ *
+ * Hence [data-osd-face], stamped on the root by applyFonts(). Marks both
+ * faces own (× ≡ ▼ ■) stay in one rule; the rest split. The text stays in the
+ * markup at font-size 0, so the accessible name never changes.
  */
 :root[data-skin="vcr"] #btnPlay,
 :root[data-skin="vcr"] #btnFull,
 :root[data-skin="vcr"] #btnLibrary,
+:root[data-skin="vcr"] #btnBack,
+:root[data-skin="vcr"] #btnFwd,
+:root[data-skin="vcr"] #btnPrev,
+:root[data-skin="vcr"] #btnNext,
+:root[data-skin="vcr"] #btnTracks,
 :root[data-skin="vcr"] .modal__close,
 :root[data-skin="vcr"] .chip__x,
 :root[data-skin="vcr"] .tagopt__drop,
-:root[data-skin="vcr"] .showctl[data-act="reset"] { font-size: 0; }
+:root[data-skin="vcr"] .show__toggle,
+:root[data-skin="vcr"] .showctl { font-size: 0; }
 
-:root[data-skin="vcr"] #btnPlay::after,
+/* A grid box with font-size 0 still lays the empty text run out as its own
+   grid item, which pushes the mark off centre. Flex puts both on one line.
+   (.show__toggle needs font-size 0 to hide its ✓ but has no generated mark —
+   its X is a background, centred by background-position.) */
+:root[data-skin="vcr"] .showctl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 :root[data-skin="vcr"] #btnFull::after,
 :root[data-skin="vcr"] #btnLibrary::after,
+:root[data-skin="vcr"] #btnBack::after,
+:root[data-skin="vcr"] #btnFwd::after,
+:root[data-skin="vcr"] #btnPrev::after,
+:root[data-skin="vcr"] #btnNext::after,
+:root[data-skin="vcr"] #btnTracks::after,
 :root[data-skin="vcr"] .modal__close::after,
 :root[data-skin="vcr"] .chip__x::after,
 :root[data-skin="vcr"] .tagopt__drop::after,
-:root[data-skin="vcr"] .showctl[data-act="reset"]::after {
+:root[data-skin="vcr"] .showctl::after {
   font-size: var(--t-body);
   font-family: var(--mono);
   line-height: 1;
 }
 
 /**
- * CENTRE the substituted glyph, and give the play button room for a big one.
+ * CENTRE the substituted glyph.
  *
  * The generated content is an inline box inside a button that was laid out
  * for a text label, so it sat small and pushed to one side of a 34px control.
  * Centring has to be said explicitly because the substitution replaced the
  * text the button was aligned around.
- *
- * The play mark is the largest thing on the transport on purpose — it is a
- * VCR's headline indicator, and Home Video draws its ► noticeably smaller
- * than the ROM does, so at the body size it read as an afterthought.
  */
 :root[data-skin="vcr"] .ctl {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
+
+/**
+ * THE TRANSPORT MARK IS DRAWN, NOT TYPED.
+ *
+ * Play and pause are the two most looked-at marks in the app and they have to
+ * read as the same size in the same place. No pair of characters can do that
+ * across both faces: a triangle is an outline glyph that sits on the baseline,
+ * a block element is drawn to TILE — full cell height, ink in half its
+ * advance — and the two are different by design, not by accident. Measured at
+ * the 32px this used, the old pair put down 23px of ink against 39px, with
+ * descents of 0 and 10 — a mark half again as tall, three pixels lower, and
+ * pushed sideways because centring works on the advance and a block element's
+ * advance is half empty. Home Video's own best pair (▶ and ‖) is 17 against
+ * 23; the ROM's (► and ▌▌) is 22 against 32. There is no winning character.
+ *
+ * So the mark is geometry: one 22x24 box, both states, both faces, no font
+ * involved. It cannot drift when the face changes and it cannot fall back.
+ *
+ * The nudge trap: #btnPlay itself is font-size 0 (the rule above), so an
+ * em-based tweak written on the BUTTON computes against zero and does
+ * nothing. Everything here is on the ::after, which has a real size.
+ */
 :root[data-skin="vcr"] #btnPlay {
   min-width: 64px;
   height: 44px;
 }
-:root[data-skin="vcr"] #btnPlay::after { font-size: var(--t-title); }
-/* The player's button reports state through its TEXT, which CSS cannot match
-   on — so the renderer stamps data-playing beside it and this reads that.
-   Both faces need a rule or pausing would blank the button. */
-:root[data-skin="vcr"] #btnPlay::after { content: "\25BA"; }
-:root[data-skin="vcr"] #btnPlay[data-playing="true"]::after { content: "\258C\258C"; }
+:root[data-skin="vcr"] #btnPlay::after {
+  content: "";
+  display: block;
+  width: 22px;
+  height: 24px;
+  background: var(--ink);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+/* The button reports state through its TEXT, which CSS cannot match on — so
+   the renderer stamps data-playing beside it and this reads that. (0,3,1)
+   against the rule above at (0,2,1), so this wins on specificity and not on
+   source order. */
+:root[data-skin="vcr"] #btnPlay[data-playing="true"]::after {
+  clip-path: none;
+  background: linear-gradient(to right,
+    var(--ink) 0 32%, transparent 32% 68%, var(--ink) 68% 100%);
+}
+
+/* ── marks BOTH faces own ─────────────────────────────────────────────── */
 :root[data-skin="vcr"] #btnFull::after { content: "FULL"; }
 /* Non-breaking, or the space collapses against the generated content. */
 :root[data-skin="vcr"] #btnLibrary::after { content: "\2261\00a0LIBRARY"; }
+/* ▾ U+25BE is in NEITHER face; ▼ U+25BC is in both. The old comment claimed
+   this substitution existed — it never did, and the arrow fell back. */
+:root[data-skin="vcr"] #btnTracks::after { content: "AUDIO\00a0\25BC"; }
 :root[data-skin="vcr"] .modal__close::after,
 :root[data-skin="vcr"] .chip__x::after,
 :root[data-skin="vcr"] .tagopt__drop::after { content: "\00D7"; }
-:root[data-skin="vcr"] .showctl[data-act="reset"]::after { content: "\25C4\25C4"; }
+/**
+ * THE TICK BOX, AND THE MARK INSIDE IT, ARE DRAWN.
+ *
+ * The settings sheet was still using the NATIVE checkbox: a rounded white
+ * control with an anti-aliased tick, drawn by Windows, in a skin built on a
+ * 1-bit cell — and beside it a ■ saying the same thing a second time. Empty,
+ * it read as a box inside a box, because that is exactly what it was.
+ *
+ * An X rather than a tick, which is how a deck of this era marked a set
+ * slot. Drawn rather than typed for the same reason the transport mark is:
+ * × exists in both faces, but a glyph is centred on its LINE BOX and not on
+ * its ink, so "centred in the box" would be approximate and would shift when
+ * the face changed. Two crossed gradients are exact, and free.
+ *
+ * The colour is named, NOT currentColor. A form control does not inherit
+ * color in Chromium's UA sheet — computed, .check input is rgb(0,0,0) — so
+ * currentColor drew a black cross on a blue ground. The settings box draws in
+ * the ink; the show row's toggle keeps the skin's inverse-video fill for ON
+ * and so draws in the paper.
+ */
+:root[data-skin="vcr"] .check input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background-color: transparent;
+}
+:root[data-skin="vcr"] .check input:checked,
+:root[data-skin="vcr"] .show[data-off="false"] .show__toggle {
+  background-size: 12px 12px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+:root[data-skin="vcr"] .check input:checked {
+  background-image:
+    linear-gradient(45deg,
+      transparent calc(50% - 1.5px), var(--ink) calc(50% - 1.5px),
+      var(--ink) calc(50% + 1.5px), transparent calc(50% + 1.5px)),
+    linear-gradient(315deg,
+      transparent calc(50% - 1.5px), var(--ink) calc(50% - 1.5px),
+      var(--ink) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+}
+:root[data-skin="vcr"] .show[data-off="false"] .show__toggle {
+  background-image:
+    linear-gradient(45deg,
+      transparent calc(50% - 1.5px), var(--paper) calc(50% - 1.5px),
+      var(--paper) calc(50% + 1.5px), transparent calc(50% + 1.5px)),
+    linear-gradient(315deg,
+      transparent calc(50% - 1.5px), var(--paper) calc(50% - 1.5px),
+      var(--paper) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+}
 
-/* The show list: a reserved cursor gutter, and ► on the one that plays next.
-   The gutter is reserved at REST too, so nothing reflows when it appears. */
+/* The show list: a reserved cursor gutter on every row, so nothing reflows
+   when the cursor appears. The cursor itself is face-split below. */
 :root[data-skin="vcr"] .show__name::before {
   content: "\00a0\00a0";
   white-space: pre;
 }
-:root[data-skin="vcr"] .show[data-next="true"] .show__name::before { content: "\25BA\00a0"; }
+
+/* ── HOME VIDEO: ◀ ▶ ‖, and no ◄ ► ▌ at all ──────────────────────────── */
+:root[data-skin="vcr"][data-osd-face="homevideo"] #btnBack::after  { content: "10\25C0"; }
+/* SIX-DIGIT ESCAPE, deliberately. "\25B6" followed by "30" is read as ONE
+   escape of up to six hex digits — \25B630, which is past U+10FFFF and
+   renders as the replacement character. Padding to six digits ends the
+   escape unambiguously; a trailing space would too, but this cannot be
+   lost to a reformat. */
+:root[data-skin="vcr"][data-osd-face="homevideo"] #btnFwd::after   { content: "\0025B630"; }
+:root[data-skin="vcr"][data-osd-face="homevideo"] #btnPrev::after  { content: "\25C0\25C0\00a0PREV"; }
+:root[data-skin="vcr"][data-osd-face="homevideo"] #btnNext::after  { content: "NEXT\00a0\25B6\25B6"; }
+:root[data-skin="vcr"][data-osd-face="homevideo"] .showctl[data-act="back"]::after     { content: "\25C0"; }
+:root[data-skin="vcr"][data-osd-face="homevideo"] .showctl[data-act="pass"]::after     { content: "\25B6"; }
+:root[data-skin="vcr"][data-osd-face="homevideo"] .showctl[data-act="reset"]::after    { content: "\25C0\25C0"; }
+:root[data-skin="vcr"][data-osd-face="homevideo"] .showctl[data-act="marathon"]::after { content: "\25B6"; }
+:root[data-skin="vcr"][data-osd-face="homevideo"] .show[data-next="true"] .show__name::before { content: "\25B6\00a0"; }
+:root[data-skin="vcr"][data-osd-face="homevideo"] .osd__state[data-state="play"]::after  { content: "\00a0\25B6"; }
+:root[data-skin="vcr"][data-osd-face="homevideo"] .osd__state[data-state="pause"]::after { content: "\00a0\2016"; }
+
+/* ── IBM VGA ROM: ◄ ► ▌, and no ◀ ▶ ‖ at all ─────────────────────────── */
+:root[data-skin="vcr"][data-osd-face="ibm"] #btnBack::after  { content: "10\25C4"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] #btnFwd::after   { content: "\0025BA30"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] #btnPrev::after  { content: "\25C4\25C4\00a0PREV"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] #btnNext::after  { content: "NEXT\00a0\25BA\25BA"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] .showctl[data-act="back"]::after     { content: "\25C4"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] .showctl[data-act="pass"]::after     { content: "\25BA"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] .showctl[data-act="reset"]::after    { content: "\25C4\25C4"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] .showctl[data-act="marathon"]::after { content: "\25BA"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] .show[data-next="true"] .show__name::before { content: "\25BA\00a0"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] .osd__state[data-state="play"]::after  { content: "\00a0\25BA"; }
+:root[data-skin="vcr"][data-osd-face="ibm"] .osd__state[data-state="pause"]::after { content: "\00a0\258C\258C"; }
+
+/* A running marathon overrides its face's triangle in either face. (0,6,1)
+   beats both face rules at (0,5,1), so this does not depend on source order. */
+:root[data-skin="vcr"][data-osd-face] .showctl[data-act="marathon"].showctl--on::after { content: "\25A0"; }
 
 /* ── the OSD select rail ──────────────────────────────────────────────────
    One ruled box divided into cells; the chosen one inverts and carries a ►.
@@ -3395,10 +3594,10 @@ input[type="range"]::-webkit-slider-thumb {
 .osdcell[data-on="true"] .osdcell__word { text-shadow: 1px 0 0 currentColor; }
 
 /* ── the OSD corners ──────────────────────────────────────────────────────
-   Transport state, tape speed, and the date-and-counter block. Present in
-   the markup for every theme and drawn in NONE of them but this one — the
-   alternative was building it in JS and tearing it down on every theme
-   change, which is more moving parts for the same picture. */
+   Transport state, tape speed, and the tape counter. Present in the markup
+   for every theme and drawn in NONE of them but this one — the alternative
+   was building it in JS and tearing it down on every theme change, which is
+   more moving parts for the same picture. */
 .osd { display: none; }
 
 :root[data-skin="vcr"] .osd {
@@ -3435,7 +3634,6 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 6px;
   text-align: right;
 }
-:root[data-skin="vcr"] .osd__date { font-size: var(--t-body); }
 
 /**
  * The one place the skin DOES outline its type.
@@ -3456,20 +3654,10 @@ input[type="range"]::-webkit-slider-thumb {
     2px 2px 0 #000, -2px 2px 0 #000, 2px -2px 0 #000, -2px -2px 0 #000;
 }
 
-/**
- * ■ on what is switched ON, across the settings sheet.
- *
- * Her reference menu marks an enabled row with a solid square rather than a
- * tick, and the app's checkboxes already carry a ✓ that the fill makes
- * redundant. The square goes in the LABEL, where the reference puts it, so
- * the checkbox keeps doing its job untouched.
- */
-/* The slot is reserved when OFF, so ticking one does not shove the label
-   sideways. The :checked rule below carries an extra pseudo-class and so
-   outranks this regardless of order — but general before specific is how it
-   should read. */
-:root[data-skin="vcr"] .check input + span::before { content: "\00a0\00a0"; }
-:root[data-skin="vcr"] .check input:checked + span::before { content: "\25A0\00a0"; }
+/* The ■ that used to sit in the label here is gone. It was drawn beside a
+   native checkbox that was still showing its own tick, so one piece of state
+   had two indicators and neither belonged to the skin. The drawn box further
+   up carries it now; see THE TICK BOX. */
 
 /* Title-safe inset: a CRT overscanned, so nothing important sat at the edge. */
 :root[data-skin="vcr"] .browse__bar,

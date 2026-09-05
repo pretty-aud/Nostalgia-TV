@@ -47,6 +47,7 @@ const SHOTS = [
   'vhs-library',
   'vhs-sidebar',
   'vhs-glyph-audit',
+  'vhs-marks',
 ];
 
 let failed = 0;

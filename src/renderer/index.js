@@ -2340,9 +2340,20 @@ function applyTheme() {
  * IBM is the 8x16 character ROM — genuinely 1-bit, and the more literal
  * reading of a hardware on-screen display.
  *
- * Both were measured against every glyph the interface can draw: Home Video
- * carries all sixteen, the ROM carries thirteen and the skin substitutes the
- * other three. So the face can change without anything falling back.
+ * THEIR COVERAGE IS NEARLY DISJOINT, which this comment used to deny — it
+ * claimed Home Video carried all sixteen marks and only the ROM needed
+ * substituting. Measured two ways (rasterising each glyph against a family
+ * that cannot resolve, and parsing the cmap out of the shipped binaries),
+ * the truth is the opposite of a superset:
+ *
+ *   Home Video has  ◀ ▶ ▲ ▼ ■ ‖ ⏸  and lacks  ◄ ► ▌ ▐ │ ✓ ✕ ⟲ ⛶
+ *   The ROM has     ◄ ► ▲ ▼ ■ ▌ ▐ │ ✓  and lacks  ◀ ▶ ‖ ⏸
+ *
+ * So a substitution written for one face BREAKS the other, and every mark
+ * the skin replaced for the ROM's sake was silently falling back to an OS
+ * font under the default face. That is why the face is stamped on the root
+ * below: the substitutions in styles.css are per-face, and CSS had no way to
+ * tell which face was in force.
  *
  * Each stack keeps a mono fallback, so a missing font file degrades to
  * something still fixed-width rather than to Inter, which would read as the
@@ -2370,7 +2381,12 @@ function applyFonts() {
   const fonts = (state.settings || {}).fonts || {};
   const root = document.documentElement;
   if (SKINS[resolveTheme(String((state.settings || {}).theme || 'midnight'))]) {
-    const stack = OSD_FACES[osdFace()].stack;
+    const face = osdFace();
+    // The face has to be an ATTRIBUTE, not just a custom property: the two
+    // faces own different marks, so styles.css picks a different glyph for
+    // each, and a selector cannot read --mono to find out which is in force.
+    root.dataset.osdFace = face;
+    const stack = OSD_FACES[face].stack;
     // All three families collapse to one: a machine has one character
     // generator, and --mono has to come along or codes and timecodes would
     // stay in JetBrains beside the skin's own face.
@@ -2379,6 +2395,7 @@ function applyFonts() {
     root.style.setProperty('--mono', stack);
     return;
   }
+  delete root.dataset.osdFace;
   root.style.removeProperty('--mono');      // back to the stylesheet's value
   root.style.setProperty('--display', fontStackFor(fonts.display, DEFAULT_FONTS.display));
   root.style.setProperty('--grotesque', fontStackFor(fonts.body, DEFAULT_FONTS.body));
@@ -5095,14 +5112,20 @@ The channel keeps its own place.`)) return;
   player.addEventListener('play', () => {
     el('btnPlay').textContent = '❚❚';
     el('btnPlay').dataset.playing = 'true';
-    el('osdState').textContent = 'PLAY ►';
+    // The WORD only. The mark beside it is a glyph one face has and the other
+    // does not, so the skin supplies it per-face; writing it here froze it to
+    // whichever face the line was typed for. The OSD is drawn in no theme but
+    // the skin, so nothing else loses a mark by this.
+    el('osdState').textContent = 'PLAY';
+    el('osdState').dataset.state = 'play';
   });
   player.addEventListener('pause', () => {
     el('btnPlay').textContent = '▶';
     el('btnPlay').dataset.playing = 'false';
     // A VCR said PAUSE with two bars, not with a play triangle — the button
     // shows what pressing it will DO, the corner shows what the deck IS.
-    el('osdState').textContent = 'PAUSE ▌▌';
+    el('osdState').textContent = 'PAUSE';
+    el('osdState').dataset.state = 'pause';
   });
   player.addEventListener('error', onPlaybackError);
 

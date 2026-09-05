@@ -303,15 +303,18 @@
            its own, and a corner overlay burning over every episode would
            break that rule the moment it looked most authentic.
 
-           Four corners, the way a VCR laid them out: transport state top
-           left, tape speed top right, and the date-and-counter block bottom
-           right. The date is the "--/--/--" of a machine whose clock was
-           never set, which is what her reference photograph shows. -->
+           Three corners: transport state top left, tape speed top right, and
+           the tape counter bottom right. There was a fourth — the "--/--/--"
+           of a machine whose clock was never set, which is what the reference
+           photograph shows — but a placeholder that can never fill in is a
+           decoration pretending to be a readout, and it was removed.
+
+           The state carries its word only; the mark beside it is a glyph the
+           two faces do not share, so the skin supplies it per-face. -->
       <div class="osd" aria-hidden="true">
-        <span class="osd__state" id="osdState">PLAY&#160;&#9658;</span>
+        <span class="osd__state" id="osdState" data-state="play">PLAY</span>
         <span class="osd__speed">SP</span>
         <span class="osd__count">
-          <span class="osd__date">--/--/--</span>
           <span class="osd__clock" id="osdClock">00:00:00</span>
         </span>
       </div>

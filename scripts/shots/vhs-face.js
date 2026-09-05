@@ -18,6 +18,10 @@ await wait(800);
 out.shownWithSkin = !document.getElementById('vhsFontField').hidden;
 out.defaultIsHomeVideo = /Home Video/.test(stackOf());
 out.monoFollows = /Home Video/.test(monoOf());
+// The face has to reach CSS as an ATTRIBUTE too: the two faces own different
+// marks, so every substitution is written per-face and a selector cannot read
+// a custom property. Without this every face-split rule matches nothing.
+out.faceStamped = document.documentElement.dataset.osdFace === 'homevideo';
 out.fontSelectsDimmed = document.getElementById('fontDisplaySelect').disabled;
 
 const cells = [...document.querySelectorAll('#vhsFontRail .osdcell')];
@@ -30,12 +34,14 @@ cells[1].click();
 await wait(700);
 out.ibmApplied = /IBM VGA/.test(stackOf()) && /IBM VGA/.test(monoOf());
 out.ibmMarked = [...document.querySelectorAll('#vhsFontRail .osdcell')][1].dataset.on === 'true';
+out.ibmStamped = document.documentElement.dataset.osdFace === 'ibm';
 
 // Leave the skin: her own faces must come back, mono included.
 sel.value = 'midnight'; sel.dispatchEvent(new Event('change', { bubbles: true }));
 await wait(700);
 out.restoredOnLeaving = !/IBM VGA|Home Video/.test(stackOf()) && /JetBrains/.test(monoOf());
 out.hiddenAgain = document.getElementById('vhsFontField').hidden;
+out.faceUnstamped = !document.documentElement.dataset.osdFace;
 
 const bad = Object.entries(out).filter(([k, v]) => k !== 'labels' && !v);
 if (bad.length) throw new Error(`face picker: ${bad.map(([k]) => k).join(', ')} — ${JSON.stringify(out)}`);
