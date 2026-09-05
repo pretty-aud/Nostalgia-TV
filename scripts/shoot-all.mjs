@@ -30,6 +30,8 @@ const SHOTS = [
   'genre-filter',
   'genre-filtered',
   'genre-checks',
+  'key-library',
+  'themes-new',
 ];
 
 let failed = 0;

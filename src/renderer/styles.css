@@ -2847,6 +2847,133 @@ input[type="range"]::-webkit-slider-thumb {
   --lift:       rgba(255, 255, 255, 0.05);
 }
 
+/* ── five more ────────────────────────────────────────────────────────────
+   Chosen against the other thirty and then MEASURED against them, because
+   "that looks different to me" is not a fact about a palette.
+
+   The honest claim is not that these hues are unused — with thirty themes,
+   every hue has a neighbour a few degrees away. It is that the PAIRINGS are
+   unused, and that the distance holds up: comparing each new theme to all
+   thirty on ground and accent together (CIE76 over --paper and --signal), the
+   closest new one lands 29.7 away, while the closest pair already shipping —
+   ember and wilson — sit 7.7 apart. So the tightest thing added here is
+   roughly four times further from its nearest neighbour than two themes the
+   app already treats as distinct.
+
+   Each changes the GROUND as well as the accent. Two themes that differ only
+   in accent read as the same theme twice, which is how cobalt started: gold
+   on near-black was 17 from midnight, and the navy had to become properly
+   blue before it was its own room. */
+
+/* Warm light in a cold room. Every other blue theme pairs a cold ground with
+   a colder accent (oceanic, orbital, slate, arctic), which is one note played
+   twice; gold against navy is the pairing none of them make. */
+:root[data-theme="cobalt"] {
+  --paper:      #06183d;
+  --paper-lift: #0d2455;
+  --paper-high: #14336f;
+  --ink:        #e6edfb;
+  --ink-mute:   #93a9d4;
+  --ink-faint:  #62789f;
+  --signal:      #f5b301;
+  --signal-soft: rgba(245, 179, 1, 0.68);
+  --signal-wash: rgba(245, 179, 1, 0.10);
+  --hair:       rgba(230, 237, 251, 0.14);
+  --hair-soft:  rgba(230, 237, 251, 0.07);
+  --lift:       rgba(230, 237, 251, 0.05);
+}
+
+/* The one hue with no dark theme at all. Lilac is light and 01 puts lime on
+   purple; violet as the SIGNAL, on a ground tinted the same way, is unclaimed.
+   Kept desaturated so it reads as ink rather than as neon — vhs and neon
+   already own the loud end of this side of the wheel. */
+:root[data-theme="iris"] {
+  --paper:      #0d0a16;
+  --paper-lift: #171227;
+  --paper-high: #221a38;
+  --ink:        #ece7f7;
+  --ink-mute:   #9c92b8;
+  --ink-faint:  #6b6288;
+  --signal:      #a78bfa;
+  --signal-soft: rgba(167, 139, 250, 0.70);
+  --signal-wash: rgba(167, 139, 250, 0.10);
+  --hair:       rgba(236, 231, 247, 0.14);
+  --hair-soft:  rgba(236, 231, 247, 0.07);
+  --lift:       rgba(236, 231, 247, 0.05);
+}
+
+/* Oxidised copper. Teal exists once in the whole set and only on a LIGHT
+   theme (clay), so a dark one is genuinely new — and the ground is warm grey
+   rather than black, which keeps it away from bench and greenbox. */
+:root[data-theme="patina"] {
+  --paper:      #101312;
+  --paper-lift: #1a1f1d;
+  --paper-high: #252c29;
+  --ink:        #e4ece8;
+  --ink-mute:   #8fa39c;
+  --ink-faint:  #64756f;
+  --signal:      #2ec4a6;
+  --signal-soft: rgba(46, 196, 166, 0.68);
+  --signal-wash: rgba(46, 196, 166, 0.10);
+  --hair:       rgba(228, 236, 232, 0.14);
+  --hair-soft:  rgba(228, 236, 232, 0.07);
+  --lift:       rgba(228, 236, 232, 0.05);
+}
+
+/* Wine, and a rose that is deliberately NOT hot. The three pinks already here
+   are all high-chroma (neon, vhs, kawaii); this one is dusty, and it sits on
+   the only wine-toned ground in the set — crimson is near-black. */
+:root[data-theme="bordeaux"] {
+  --paper:      #180a10;
+  --paper-lift: #26121b;
+  --paper-high: #351b26;
+  --ink:        #f6e6ec;
+  --ink-mute:   #b8949f;
+  --ink-faint:  #856572;
+  --signal:      #e8919f;
+  --signal-soft: rgba(232, 145, 159, 0.70);
+  --signal-wash: rgba(232, 145, 159, 0.10);
+  --hair:       rgba(246, 230, 236, 0.14);
+  --hair-soft:  rgba(246, 230, 236, 0.07);
+  --lift:       rgba(246, 230, 236, 0.05);
+}
+
+/* The new LIGHT one. The eight that exist are orange, pink, pale blue, mint,
+   lavender, cream, grey-blue and tan — no muted olive, and no deep indigo
+   anywhere in the set as an accent. Light themes carry their own shadow and
+   rim tokens, because the dark defaults are invisible on a pale ground. */
+:root[data-theme="sage"] {
+  --paper:      #d9ddca;
+  --paper-lift: #e4e7d8;
+  --paper-high: #eef0e6;
+  --ink:        #232a1c;
+  --ink-mute:   rgba(35, 42, 28, 0.62);
+  --ink-faint:  rgba(35, 42, 28, 0.38);
+  --signal:      #2f3a8c;
+  --signal-soft: rgba(47, 58, 140, 0.62);
+  --signal-wash: rgba(47, 58, 140, 0.10);
+  --hair:       rgba(35, 42, 28, 0.18);
+  --hair-soft:  rgba(35, 42, 28, 0.09);
+  --lift:       rgba(35, 42, 28, 0.05);
+  --rim:  inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --e-1:  0 1px 2px rgba(35, 42, 28, 0.10);
+  --e-2:  0 2px 6px rgba(35, 42, 28, 0.08), 0 12px 32px rgba(35, 42, 28, 0.10);
+  --e-3:  0 4px 12px rgba(35, 42, 28, 0.12), 0 32px 72px rgba(35, 42, 28, 0.16);
+}
+/* Over the PICTURE the ground is black, not sage, so the deep indigo that
+   works on a pale panel disappears. Same carve-out clay and the other light
+   themes already use. */
+:root[data-theme="sage"] .chrome,
+:root[data-theme="sage"] .bumper,
+:root[data-theme="sage"] .welcome,
+:root[data-theme="sage"] .scanning,
+:root[data-theme="sage"] .trackmenu,
+:root[data-theme="sage"] .skipask,
+:root[data-theme="sage"] .toast {
+  --signal:      #8fa2ff;
+  --signal-soft: rgba(143, 162, 255, 0.62);
+}
+
 /* ── library mode ─────────────────────────────────────────────────────────
    Built entirely from the existing tokens, so all 26 themes come free and no
    theme can restyle a component — the same rule as everywhere else.

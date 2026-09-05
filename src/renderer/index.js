@@ -2131,12 +2131,13 @@ const THEMES = [
   'midnight', 'signal', 'foundry', 'siren', 'mono',
   'teletext',
   'slate', 'bone', 'clay', 'arctic', '78',
+  'sage',
   'ember', 'searchlight', 'nitrate', 'crimson', 'marigold',
-  'wilson', '02',
-  'greenbox', 'forest', 'mint', 'oceanic', 'orbital',
-  'bench',
+  'wilson', '02', 'bordeaux',
+  'greenbox', 'forest', 'mint', 'bench', 'patina',
+  'oceanic', 'orbital', 'cobalt',
   '01', 'neon', 'vhs', 'sunset', 'lilac',
-  'kawaii',
+  'kawaii', 'iris',
 ];
 
 /**
@@ -2158,7 +2159,7 @@ const THEME_ALIASES = { grape: '01', unit02: '02' };
  * attribute — inverted type over the picture, outlines on cards that would
  * otherwise be tone on tone.
  */
-const LIGHT_THEMES = ['marigold', 'kawaii', 'arctic', 'mint', 'lilac', 'bone', '78', 'clay'];
+const LIGHT_THEMES = ['marigold', 'kawaii', 'arctic', 'mint', 'lilac', 'bone', '78', 'clay', 'sage'];
 
 /** The theme actually in force, following any rename, falling back to midnight. */
 function resolveTheme(wanted) {
@@ -5063,10 +5064,19 @@ function onGlobalKey(event) {
   }
 
   if (browseOpen()) {
-    if (event.key === 'Escape') {
+    /**
+     * Escape and L both leave, and both peel ONE layer — the show card first,
+     * then the page — which is how Escape already works everywhere else here.
+     *
+     * They go to the SIDEBAR, not back to the picture. backFromBrowse resumes
+     * whatever was paused, which is right for the Back button (it means
+     * "return me to what was on screen") and wrong for a key that is the
+     * other half of the key that opened this page.
+     */
+    if (event.key === 'Escape' || event.key === 'l' || event.key === 'L') {
       event.preventDefault();
       if (detailOpen()) closeDetail();
-      else backFromBrowse();
+      else backToSidebar();
     }
     return;
   }
@@ -5132,14 +5142,15 @@ function onGlobalKey(event) {
     case 'f': case 'F': case 'F11': event.preventDefault(); toggleFullscreen(); break;
     case 'n': case 'N': askSkip(); break;
     case 'l': case 'L':
-      // A toggle, because that is what a single key on a panel should be —
-      // and stepping back out resumes exactly what was paused rather than
-      // advancing the channel.
-      if (app.dataset.view === 'ready') {
-        if (canResumeInPlace()) resumeInPlace(); else playNext();
-      } else if (app.dataset.view === 'playing') {
-        openLibrary();
-      }
+      /**
+       * L is one key walking one line: picture -> sidebar -> library page,
+       * and back out the same way (the browse arm above handles the return).
+       *
+       * From the sidebar it used to RESUME, which made the same key mean
+       * "show me more" in one place and "put it away" in the other.
+       */
+      if (app.dataset.view === 'playing') openLibrary();
+      else if (app.dataset.view === 'ready') openBrowse();
       break;
     case 'm': case 'M':
       el('btnMute').click();
@@ -5280,7 +5291,17 @@ function openBrowse() {
   renderGenreFilter();
   renderBrowse();
   el('browseBody').scrollTop = browseSavedScroll;
-  el('browseSearch').focus();
+  /**
+   * The search box is NOT focused on open, and that is deliberate.
+   *
+   * L opens this page and L closes it again. Form fields own their letter
+   * keys — they have to, or you could not type — so an autofocused search box
+   * would swallow every L and the toggle would only ever work in one
+   * direction. Special-casing the letter is not available either: "Lazarus"
+   * and "Lupin" both start with it.
+   *
+   * Click the box or Tab to it to search.
+   */
 }
 
 function closeBrowse() {
@@ -5308,6 +5329,22 @@ function browseOpen() {
  * from might be a library movie, a library episode or the channel. Resuming
  * in place is the only answer that is true in all three.
  */
+/**
+ * Leave the library page for the sidebar it was opened from.
+ *
+ * The keyboard's way out. Deliberately does NOT resume what was paused, which
+ * is the one thing that separates it from backFromBrowse below: L opened this
+ * page from the sidebar, so L and Escape put it back to the sidebar. Landing
+ * on the picture instead would make the key mean something different
+ * depending on what happened to be loaded.
+ */
+function backToSidebar() {
+  closeBrowse();
+  setView(shows.length ? 'ready' : 'welcome');
+  if (shows.length) renderReady();
+  renderSidebar();
+}
+
 function backFromBrowse() {
   closeBrowse();
   if (canResumeInPlace()) { resumeInPlace(); return; }

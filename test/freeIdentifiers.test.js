@@ -35,6 +35,7 @@ const GLOBALS = new Set([
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame',
   'cancelAnimationFrame', 'queueMicrotask', 'fetch', 'URL', 'URLSearchParams', 'Blob',
   'FileReader', 'File', 'FormData', 'Image', 'Audio', 'Option', 'Event', 'CustomEvent',
+  'KeyboardEvent', 'MouseEvent', 'DragEvent',
   'AbortController', 'IntersectionObserver', 'ResizeObserver', 'MutationObserver',
   'localStorage', 'sessionStorage', 'performance', 'crypto', 'structuredClone',
   'getComputedStyle', 'matchMedia', 'alert', 'HTMLElement', 'Node', 'Element', 'CSS',
