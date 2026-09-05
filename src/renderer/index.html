@@ -58,11 +58,44 @@
            shows themselves. -->
     </header>
 
-    <!-- The only scrolling region. Everything below stays put, so the schedule
-         and the marathon picker never scroll out of reach. -->
+    <!-- Which running order is in force, and — since it also decides WHICH
+         SHOWS the list below contains — it sits directly above that list
+         rather than down in the footer. A filter has to be next to the thing
+         it filters, or the list looks like it lost shows on its own.
+
+         It doubles as the marathon's status line: while one is running this
+         goes quiet and reads "<show> — marathon playing", and picking a
+         schedule from it is what ends the marathon. One control for "what
+         decides the order", rather than two that can disagree. -->
+    <label class="field field--schedule" id="scheduleField">
+      <!-- "Programming", not "Schedule". It is the broadcast term for what
+           this control actually decides — what the channel plays and in what
+           order — and this app is a channel. The saved orders are still
+           called schedules everywhere they are EDITED, which is the right
+           place for the plainer word. -->
+      <span class="field__label mono">Programming</span>
+      <span class="field__control">
+        <select class="select" id="scheduleSelect" aria-label="Programming"></select>
+      </span>
+    </label>
+
+    <!-- The count belongs to the PICKER, not to the list.
+         It answers "what did that choice leave me", so it stays with the
+         control that caused it and closes the fixed block — which also means
+         it never scrolls away. A count you have to scroll back up to read is
+         not a count, it is a caption on the first card.
+
+         No schedule name here: the picker directly above already says which
+         one is in force, and repeating it under its own control is the word
+         twice. The number is the part that changes, so it is all this says. -->
+    <h2 class="sectionhead sectionhead--count" id="showCount"></h2>
+
+    <!-- The only scrolling region. Everything above and below stays put, so
+         the schedule, the count and the marathon picker never scroll out of
+         reach. -->
     <div class="sidebar__scroll">
-      <h2 class="sectionhead"><span>Shows</span><span id="showCount" class="sectionhead__n"></span></h2>
       <ul class="shows" id="showList"></ul>
+      <p class="emptyshows" id="showsEmpty" hidden></p>
     </div>
 
     <footer class="sidebar__foot">
@@ -77,19 +110,8 @@
         <span class="filmnext__name" id="scheduleMovieName"></span>
         <span class="filmnext__when mono" id="scheduleMovieWhen"></span>
       </p>
-      <!-- Which running order is in force. Sits exactly where the marathon
-           picker used to, so "Up next" above it is undisturbed.
-
-           It doubles as the marathon's status line: while one is running this
-           goes quiet and reads "<show> — marathon playing", and picking a
-           schedule from it is what ends the marathon. One control for "what
-           decides the order", rather than two that can disagree. -->
-      <label class="field" id="scheduleField">
-        <span class="field__label mono">Schedule</span>
-        <span class="field__control">
-          <select class="select" id="scheduleSelect" aria-label="Set schedule"></select>
-        </span>
-      </label>
+      <!-- The schedule picker used to sit here. It moved above the show list,
+           because it decides what that list contains. -->
 
       <div class="footactions">
         <!-- Marathon is a question, not a toggle: it has to know WHICH show, so
@@ -119,19 +141,10 @@
           </svg>
         </button>
 
-        <!-- Between shuffle and library: the two ways of deciding what plays
-             next sit together, and browsing is a different question. -->
-        <button class="settingsbtn" id="btnSchedule" type="button"
-                aria-haspopup="dialog" aria-label="Set schedules" title="Set schedules">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M8.5 6h12M8.5 12h12M8.5 18h12" />
-            <circle cx="3.8" cy="6" r="1.3" />
-            <circle cx="3.8" cy="12" r="1.3" />
-            <circle cx="3.8" cy="18" r="1.3" />
-          </svg>
-        </button>
-
+        <!-- No schedule button here any more: the Programming dropdown at the
+             top of the sidebar carries "Create new…", and Settings opens the
+             editor for one that already exists. A third door to the same room,
+             sitting in the row about what plays next, was the odd one out. -->
         <button class="settingsbtn" id="btnBrowse" type="button"
                 aria-haspopup="dialog" aria-label="Browse the library" title="Browse the library">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
@@ -180,6 +193,25 @@
       <h2 class="browse__title">Library</h2>
       <input class="browse__search" id="browseSearch" type="search"
              placeholder="Search shows and movies" aria-label="Search the library" />
+
+      <!-- Genre filter. Hidden until something in the library is tagged: a
+           control whose menu can only be empty is worse than no control. -->
+      <div class="genrefilter" id="genreFilter" hidden>
+        <button class="genrefilter__btn" id="btnGenreFilter" type="button"
+                aria-haspopup="listbox" aria-expanded="false"
+                aria-controls="genreMenu" aria-label="Filter by genre">
+          <span id="genreFilterLabel">All genres</span>
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 6.5l4 4 4-4" />
+          </svg>
+        </button>
+        <div class="genremenu" id="genreMenu" role="listbox" aria-multiselectable="true" hidden>
+          <div class="genremenu__list" id="genreMenuList"></div>
+          <button class="genremenu__clear" id="btnGenreClear" type="button">Clear</button>
+        </div>
+      </div>
+
       <span class="browse__count mono" id="browseCount"></span>
       <!-- Back to what was on screen, whatever that is. It used to say "Back to
            channel", which is a false statement half the time: open the gallery
@@ -214,7 +246,9 @@
   <!-- ── stage ──────────────────────────────────────────────────────────── -->
   <main class="stage" id="stage">
 
-    <video id="player" class="player" preload="auto" crossorigin="anonymous"></video>
+    <!-- The picture is the video PLANE behind this window; this div is the
+         transparent click/hover surface standing where <video> stood. -->
+    <div id="playerSurface" class="player"></div>
 
     <!-- first run -->
     <section class="welcome">
@@ -244,8 +278,7 @@
       </div>
 
       <footer class="bumper__foot">
-        <span class="mono bumper__skip" id="bumperSkip">Any key to start now</span>
-        <span class="mono bumper__prep" id="bumperPrep" hidden></span>
+        <span class="mono bumper__skip">Any key to start now</span>
         <span class="mono bumper__count" id="bumperCount"></span>
       </footer>
       <div class="timer" aria-hidden="true"><i id="bumperTimerFill"></i></div>
@@ -258,15 +291,9 @@
          minutes to rebuild. The toast that used to announce this expired
          after sixty seconds and left thirty-nine minutes of silence, which
          reads as the app having given up. -->
-    <section class="prepping" id="prepping" hidden aria-live="polite">
-      <div class="prepping__inner">
-        <p class="eyebrow mono">Preparing</p>
-        <h2 class="prepping__title" id="preppingTitle"></h2>
-        <div class="prepping__bar"><i id="preppingFill"></i></div>
-        <p class="prepping__count mono" id="preppingCount"></p>
-        <p class="prepping__note" id="preppingNote"></p>
-      </div>
-    </section>
+    <!-- The preparing panel stood here: the honest wait screen for a
+         conversion running in front of the viewer. mpv plays the library
+         directly, so there is nothing to wait for and nothing to explain. -->
 
     <!-- player chrome -->
     <div class="chrome">
@@ -280,7 +307,7 @@
 
       <div class="chrome__bottom">
         <div class="scrub" id="scrub">
-          <div class="scrub__track"><i class="scrub__buffer" id="scrubBuffer"></i><i class="scrub__fill" id="scrubFill"></i></div>
+          <div class="scrub__track"><i class="scrub__fill" id="scrubFill"></i></div>
         </div>
         <div class="transport">
           <!-- Seeded, because the JS only fills this in on the first play or
@@ -379,28 +406,17 @@
           </div>
 
           <h4 class="setsub">New additions</h4>
-          <!-- Lit only while a scan has brought titles the ledger has not
-               seen; grey means "nothing new", which is an answer, not a
-               broken button. -->
+          <!-- No button. Ingest is now only artwork capture, and it runs
+               itself after every scan when — and only when — the scan turned
+               up something the ledger has not seen. A button for work the app
+               can decide on its own is a chore, not a control; this line is
+               the status of that work, not a prompt to start it. -->
           <p class="modes__note" id="ingestNote">Checking for new titles…</p>
-          <div class="setrow">
-            <button class="btn" id="btnIngest" type="button" disabled>
-              Ingest new additions
-            </button>
-          </div>
 
           <h4 class="setsub">The library table</h4>
-          <p class="modes__note">Every show and movie — what needs converting, what has artwork, and where to set a movie's card image.</p>
+          <p class="modes__note">Every show and movie — what has artwork, and where to set a movie's card image.</p>
           <div class="setrow">
             <button class="btn btn--opens" id="btnOpenMedia" type="button" aria-haspopup="dialog">Open the library table</button>
-          </div>
-
-          <h4 class="setsub">Prepared files</h4>
-          <p class="modes__note" id="cacheNote">Checking…</p>
-          <div class="setrow">
-            <button class="btn" id="btnCleanupCache" type="button">
-              Clean up unfinished conversions
-            </button>
           </div>
 
           <h4 class="setsub">Watch history</h4>
@@ -412,7 +428,37 @@
           </div>
         </section>
 
+        <!-- One section: all three are about where each show has got to and
+             what is allowed to play next. Split apart, the checkpoint sat two
+             headings away from the reset it exists to undo. Ordered gently to
+             destructively, which is also roughly how often each is wanted. -->
         <section class="setgroup">
+          <h3 class="setgroup__head">Continuity</h3>
+
+          <h4 class="setsub">Play order</h4>
+          <p class="modes__note" id="lockSummary"></p>
+          <div class="setrow">
+            <button class="btn btn--opens" id="btnOpenLocks" type="button" aria-haspopup="dialog">Open the play-order table</button>
+            <button class="btn btn--quiet" id="btnResetUnlocks" type="button">Reset unlocks</button>
+          </div>
+
+          <h4 class="setsub">Saved progress</h4>
+          <p class="modes__note" id="manualSaveNote"></p>
+          <div class="setrow">
+            <button class="btn" id="btnManualSave" type="button">Save progress now</button>
+            <button class="btn btn--quiet" id="btnManualLoad" type="button">Load saved progress</button>
+          </div>
+
+          <h4 class="setsub">Start over</h4>
+          <p class="modes__note">Clears every show's place and the library's watch history. Nothing on disk is touched.</p>
+          <div class="setrow">
+            <button class="btn btn--danger" id="btnResetAll" type="button">
+              Reset every show to episode 1
+            </button>
+          </div>
+        </section>
+
+                <section class="setgroup">
           <h3 class="setgroup__head">Interface</h3>
 
           <!-- No sub-heading here: the field below is already labelled Theme,
@@ -430,19 +476,26 @@
                 <option value="foundry">Foundry — dark grey, burnt orange</option>
                 <option value="siren">Siren — red, black and white</option>
                 <option value="mono">Monochrome — black and white</option>
+                <option value="teletext">Teletext — pure black, yellow and cyan</option>
                 <option value="slate">Slate — neutral grey, soft blue</option>
                 <option value="bone">Bone — warm paper, rust</option>
                 <option value="clay">Clay — sand and deep teal</option>
                 <option value="arctic">Arctic — daylight, ice blue</option>
                 <option value="78">78 — white, blue, red, gold</option>
+                <option value="sage">Sage — olive paper, deep indigo</option>
                 <option value="ember">Ember — embers on black</option>
                 <option value="searchlight">Searchlight — gold on a red night</option>
                 <option value="nitrate">Nitrate — old film stock</option>
                 <option value="crimson">Crimson — late-night horror</option>
                 <option value="marigold">Marigold — orange, black type</option>
+                <option value="wilson">Wilson — warm stone, burnt orange</option>
+                <option value="02">02 — armour red, orange trim</option>
+                <option value="bordeaux">Bordeaux — wine, dusty rose</option>
                 <option value="greenbox">Green Box — black, console green</option>
                 <option value="forest">Forest — deep green, gold</option>
                 <option value="mint">Mint — pale green, magenta</option>
+                <option value="bench">Bench — machined grey, signal green</option>
+                <option value="patina">Patina — warm charcoal, jade</option>
                 <option value="oceanic">Oceanic — cyan on navy</option>
                 <option value="orbital">Orbital — hull black, cyan and orange</option>
                 <option value="01">01 — aubergine, lime, ember</option>
@@ -451,10 +504,44 @@
                 <option value="sunset">Sunset — plum and coral</option>
                 <option value="lilac">Lilac — pale lavender, purple</option>
                 <option value="kawaii">Kawaii — all pink</option>
+                <option value="iris">Iris — violet on near-black</option>
               </select>
             </span>
           </label>
           <p class="modes__note" id="themeNote"></p>
+
+          <!-- Two fields because the app genuinely sets two faces: the
+               wordmark and headings in one, everything that is prose in the
+               other. Offering a single "font" would quietly flatten that
+               pairing, which is most of the app's character.
+
+               Episode codes, counts and timecodes are NOT covered here — they
+               are monospaced so columns line up, and making that settable
+               would be a downgrade dressed as a preference. -->
+          <h4 class="setsub">Fonts</h4>
+          <label class="field">
+            <span class="field__label mono">Titles</span>
+            <span class="field__control">
+              <select class="select" id="fontDisplaySelect"></select>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field__label mono">Body text</span>
+            <span class="field__control">
+              <select class="select" id="fontBodySelect"></select>
+            </span>
+          </label>
+          <p class="modes__note">Codes and timings stay monospaced so they keep lining up.</p>
+
+          <!-- Scoped to LOOK, not to everything. A blanket "reset settings"
+               next to a colour picker is a trap: it would also throw away the
+               rotation, the movie clock and the lock rules, none of which the
+               person adjusting a font was thinking about. This puts back the
+               theme and the two faces, and says so. -->
+          <p class="resetline">
+            <button class="btn btn--quiet" id="btnResetLook" type="button">Reset appearance</button>
+            <span class="resetline__note">Puts the theme and both fonts back to how the app ships. Nothing else changes.</span>
+          </p>
 
           <h4 class="setsub">Player text &amp; controls</h4>
           <label class="field">
@@ -526,37 +613,7 @@
           </label>
         </section>
 
-        <!-- One section: all three are about where each show has got to and
-             what is allowed to play next. Split apart, the checkpoint sat two
-             headings away from the reset it exists to undo. Ordered gently to
-             destructively, which is also roughly how often each is wanted. -->
-        <section class="setgroup">
-          <h3 class="setgroup__head">Continuity</h3>
-
-          <h4 class="setsub">Play order</h4>
-          <p class="modes__note" id="lockSummary"></p>
-          <div class="setrow">
-            <button class="btn btn--opens" id="btnOpenLocks" type="button" aria-haspopup="dialog">Open the play-order table</button>
-            <button class="btn btn--quiet" id="btnResetUnlocks" type="button">Reset unlocks</button>
-          </div>
-
-          <h4 class="setsub">Saved progress</h4>
-          <p class="modes__note" id="manualSaveNote"></p>
-          <div class="setrow">
-            <button class="btn" id="btnManualSave" type="button">Save progress now</button>
-            <button class="btn btn--quiet" id="btnManualLoad" type="button">Load saved progress</button>
-          </div>
-
-          <h4 class="setsub">Start over</h4>
-          <p class="modes__note">Clears every show's place and the library's watch history. Nothing on disk is touched.</p>
-          <div class="setrow">
-            <button class="btn btn--danger" id="btnResetAll" type="button">
-              Reset every show to episode 1
-            </button>
-          </div>
-        </section>
-
-        <section class="setgroup">
+<section class="setgroup">
           <h3 class="setgroup__head mono">Rotation</h3>
           <div class="modes" id="modeGroup" role="group" aria-label="Rotation mode">
             <button class="mode" data-mode="deck" type="button">One each</button>
@@ -685,6 +742,61 @@
      instantly and an unchecked title honestly says so instead of a spinner
      pretending to know. Same furniture as the play-order table on purpose:
      one way to read a table of titles, learned once. -->
+<!-- ── card image picker ──────────────────────────────────────────────
+     Two ways in, because both are natural and neither is obviously first:
+     dropping a file you already have open, or browsing for one. The
+     requirements are stated IN the window rather than left to be discovered
+     by a rejection — an aspect ratio is not something anyone can guess. -->
+<!-- The genre editor, opened from a row in the library table.
+     A popover rather than a modal on purpose: tagging a library is a repeated
+     action down a column, and a full sheet that has to be dismissed between
+     every row turns twenty titles into forty extra clicks. It floats over the
+     table, the row underneath stays visible, and Escape or a click anywhere
+     else closes it. -->
+<div class="tagpop" id="tagPop" hidden role="dialog" aria-label="Genres">
+  <div class="tagpop__chips" id="tagPopChips"></div>
+  <input class="tagpop__input" id="tagPopInput" type="text" autocomplete="off"
+         spellcheck="false" placeholder="Search or create…" aria-label="Search or create a genre" />
+  <div class="tagpop__list" id="tagPopList" role="listbox" aria-label="Genres"></div>
+  <p class="tagpop__hint" id="tagPopHint"></p>
+</div>
+
+<div class="modal modal--narrow" id="artModal" hidden>
+  <div class="modal__backdrop" id="artBackdrop"></div>
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="artTitle">
+    <header class="modal__head">
+      <h2 class="modal__title" id="artTitle">Card image</h2>
+      <button class="iconbtn" id="btnCloseArt" type="button" aria-label="Close">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <p class="artpick__for" id="artFor"></p>
+
+      <div class="artdrop" id="artDrop" tabindex="0" role="button"
+           aria-describedby="artRules">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 16V4" /><path d="M7.5 8.5L12 4l4.5 4.5" />
+          <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
+        </svg>
+        <span class="artdrop__lead">Drop an image here</span>
+        <span class="artdrop__or">or</span>
+        <button class="btn" id="btnArtBrowse" type="button">Choose a file…</button>
+      </div>
+
+      <ul class="artrules" id="artRules">
+        <li><b>16:9</b> — the same shape as the cards. Anything else is cropped to fit.</li>
+        <li><b>1280 × 720</b> is ideal. Smaller than <b>640 × 360</b> will look soft; wider is scaled down to 640.</li>
+        <li>PNG, JPG, WEBP, GIF or BMP, up to <b>12 MB</b>.</li>
+      </ul>
+
+      <p class="artpick__err" id="artError" hidden></p>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="mediaModal" hidden>
   <div class="modal__backdrop" id="mediaBackdrop"></div>
 
@@ -907,7 +1019,6 @@
 </div>
 
 <!-- Rewritten whenever subtitle settings change; ::cue cannot be styled inline. -->
-<style id="cueStyle"></style>
 
 <script src="bundle.js"></script>
 </body>

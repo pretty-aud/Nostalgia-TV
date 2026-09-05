@@ -66,7 +66,35 @@
      * Those branches only ever run against the real file.
      */
     loadState: async () => (window.__PREVIEW_STATE__
-      || { version: 1, rootPath: 'D:/TVandFilms', cursors: {}, queue: [], deck: [], history: [] }),
+      || {
+        version: 1,
+        rootPath: 'D:/TVandFilms',
+        cursors: {},
+        queue: [],
+        deck: [],
+        history: [],
+        /**
+         * Tagged on purpose. The genre column, the chips, and the filter
+         * menu all render from this — with an untagged fixture every design
+         * shot of the feature would be a picture of an empty column and a
+         * hidden dropdown, and nothing would fail to tell anyone why.
+         */
+        tags: {
+          shows: {
+            'scavengers-reign': ['Animation', 'Drama', 'Sci-Fi'],
+            'men-in-black': ['Action', 'Animation', 'Comedy'],
+            samuraix: ['Action', 'Anime', 'Animation', 'Drama'],
+            'night-raid-1931': ['Anime', 'Animation', 'Mystery', 'Supernatural'],
+            'the-office': ['Comedy'],
+          },
+          movies: {
+            'MOVIES/Blade Runner.mkv': ['Sci-Fi', 'Thriller'],
+            'MOVIES/Akira.mkv': ['Anime', 'Animation', 'Sci-Fi'],
+            'MOVIES/The Thing.mkv': ['Horror', 'Sci-Fi'],
+          },
+          custom: ['Isekai'],
+        },
+      }),
     // Counted so a test can assert what the REAL boot path did, rather than
     // what it looks like it should have done from reading the source.
     saveState: async () => { window.__tvCalls.saveState += 1; return { ok: true }; },
@@ -101,23 +129,61 @@
     },
     putThumb: async () => ({ ok: true }),
     setFullscreen: async () => false,
-    capabilities: async () => ({ ffmpeg: true, ffmpegPath: 'ffmpeg' }),
-    inspect: async () => ({ ok: true, plan: { tier: 'direct', needsWork: false } }),
-    ensurePlayable: async (absPath) => ({ ok: true, playablePath: absPath, mediaUrl: '', tier: 'direct' }),
-    cancelPrepare: async () => ({ cancelled: false }),
-    pinPrepared: async () => ({ ok: true }),
-    cacheInfo: async () => ({ count: 0, bytes: 0, budget: 0, jobs: [] }),
     ingestStatus: async () => ({ newCount: 0, newShows: 0, newEpisodes: 0, newMovies: 0 }),
     ingestRun: async () => ({ ok: true, ingested: 0, captured: 0, needConversion: 0, shows: 0, episodes: 0, movies: 0 }),
     onIngestProgress: () => () => {},
-    ingestEntries: async () => ({}),
     artworkStats: async (items) => (items || []).map(() => false),
     getArtwork: async () => null,
     chooseArtwork: async () => ({ ok: false, cancelled: true }),
-    cleanupPrepared: async () => ({ ok: true, removedParts: 0, reclaimedBytes: 0, evicted: 0, totalBytes: 0 }),
-    onPrepareProgress: () => () => {},
-    listTracks: async () => ({ ok: true, audio: [], subtitles: [], defaultAudioIndex: 0 }),
-    subtitleText: async () => ({ ok: false }),
+    setArtworkFromData: async () => ({ ok: false, error: 'not in the preview' }),
+
+    /**
+     * The window verbs and the crop probe. A browser has no window to
+     * minimise and no ffmpeg to ask, so these are inert — but the renderer
+     * subscribes to onWindowState during boot and wires the buttons to the
+     * rest, so their ABSENCE is what would break the page.
+     */
+    minimizeWindow: () => {},
+    toggleMaximizeWindow: () => {},
+    closeWindow: () => {},
+    onWindowState: () => () => {},
+    detectCrop: async () => null,
+
+    /**
+     * The mpv surface. Not optional, and not decoration.
+     *
+     * The renderer builds its player at MODULE SCOPE — `createMpvFacade(
+     * window.tv)` — and that call immediately subscribes to all five onMpv*
+     * feeds. Without them the very first line of the bundle throws, the whole
+     * renderer never boots, and this page renders blank. Which is exactly
+     * what it did: the switchover added the facade and nobody taught the
+     * stub about it, so every design screenshot silently became a picture of
+     * nothing, and shoot-all/shoot-state kept "succeeding".
+     *
+     * The subscribe verbs must return an unsubscribe function, because that
+     * is what the real preload returns and what the facade stores.
+     */
+    onMpvProp: () => () => {},
+    onMpvEvent: () => () => {},
+    onMpvDied: () => () => {},
+    onMpvRestarted: () => () => {},
+    onMpvDown: () => () => {},
+
+    // The command verbs. Design work never drives real playback, so these are
+    // inert — but they must EXIST, for the same reason as above.
+    mpvOpen: async () => ({ ok: true }),
+    mpvSetPause: async () => ({ ok: true }),
+    mpvStop: async () => ({ ok: true }),
+    mpvSeek: async () => ({ ok: true }),
+    mpvSetVolume: async () => ({ ok: true }),
+    mpvSetMute: async () => ({ ok: true }),
+    mpvSetAudioTrack: async () => ({ ok: true }),
+    mpvSetSubTrack: async () => ({ ok: true }),
+    mpvSetSubVisibility: async () => ({ ok: true }),
+    mpvSetSubStyle: async () => ({ ok: true }),
+    mpvSetVideoCrop: async () => ({ ok: true }),
+    mpvSetVideoZoom: async () => ({ ok: true }),
+    mpvTrackList: async () => ([]),
   };
 
   // Open whichever surface the query string asks for, once boot has settled.
@@ -141,7 +207,6 @@
         document.getElementById('timeLabel').textContent = '12:04 / 24:31';
         document.getElementById('chromeUpNext').textContent = 'Next: Trigun S01E04';
         document.getElementById('scrubFill').style.width = '49%';
-        document.getElementById('scrubBuffer').style.width = '63%';
       }
     }, 400);
   });

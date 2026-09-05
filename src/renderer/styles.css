@@ -65,6 +65,12 @@
   --hair-soft:  rgba(244, 241, 234, 0.055);
   --lift:       rgba(244, 241, 234, 0.035);   /* hover plane */
 
+  /* The show card's edge at rest. Transparent everywhere but 02, whose whole
+     look is panels with black lines between them — a theme cannot add a
+     border to a component, so the component reads a token and the theme
+     fills it in. */
+  --card-edge: transparent;
+
   --grotesque: "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
   --display: "Space Grotesk", "Inter", system-ui, sans-serif;   /* wordmark only */
@@ -133,8 +139,21 @@
 
 html, body, #app { height: 100%; }
 
+/**
+ * THE INTERFACE PLANE IS A PANE OF GLASS.
+ *
+ * This document floats in a transparent window OVER the video plane, so
+ * anything it paints hides the picture. It used to paint --paper across the
+ * whole window, which was right when the <video> element lived in the page
+ * and drew over it — and which, after the switchover, meant a perfect black
+ * rectangle over a perfectly playing episode: sound, clock, no picture.
+ *
+ * So the plane paints nothing, and every SURFACE paints itself: .sidebar,
+ * .browse, .bumper and the modals already carry their own backgrounds, and
+ * the two view backdrops that relied on the body get them below.
+ */
 body {
-  background: var(--paper);
+  background: transparent;
   color: var(--ink);
   font-family: var(--grotesque);
   font-size: var(--t-body);
@@ -172,21 +191,27 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
    it, rather than a full-width block hard against the panel edge. */
 .sidebar__scroll,
 .modal__body,
-.trackmenu {
+.trackmenu,
+.tagpop__list,
+.genremenu__list {
   scrollbar-width: thin;                              /* Firefox and the standard */
   scrollbar-color: var(--ink-mute) transparent;
 }
 
 .sidebar__scroll::-webkit-scrollbar,
 .modal__body::-webkit-scrollbar,
-.trackmenu::-webkit-scrollbar {
+.trackmenu::-webkit-scrollbar,
+.tagpop__list::-webkit-scrollbar,
+.genremenu__list::-webkit-scrollbar {
   width: 11px;
   height: 11px;
 }
 
 .sidebar__scroll::-webkit-scrollbar-track,
 .modal__body::-webkit-scrollbar-track,
-.trackmenu::-webkit-scrollbar-track {
+.trackmenu::-webkit-scrollbar-track,
+.tagpop__list::-webkit-scrollbar-track,
+.genremenu__list::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -196,7 +221,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
    all that is wanted here — only the colour is being set. */
 .sidebar__scroll::-webkit-scrollbar-thumb,
 .modal__body::-webkit-scrollbar-thumb,
-.trackmenu::-webkit-scrollbar-thumb {
+.trackmenu::-webkit-scrollbar-thumb,
+.tagpop__list::-webkit-scrollbar-thumb,
+.genremenu__list::-webkit-scrollbar-thumb {
   /* --ink-mute, not --ink-faint: the faint tint vanished on a light panel and
      was barely there on a dark one, and a scrollbar you cannot find is not a
      scrollbar. */
@@ -209,14 +236,18 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 .sidebar__scroll::-webkit-scrollbar-thumb:hover,
 .modal__body::-webkit-scrollbar-thumb:hover,
-.trackmenu::-webkit-scrollbar-thumb:hover {
+.trackmenu::-webkit-scrollbar-thumb:hover,
+.tagpop__list::-webkit-scrollbar-thumb:hover,
+.genremenu__list::-webkit-scrollbar-thumb:hover {
   background-color: var(--ink);
 }
 
 /* The little square where two bars meet, which otherwise stays default grey. */
 .sidebar__scroll::-webkit-scrollbar-corner,
 .modal__body::-webkit-scrollbar-corner,
-.trackmenu::-webkit-scrollbar-corner {
+.trackmenu::-webkit-scrollbar-corner,
+.tagpop__list::-webkit-scrollbar-corner,
+.genremenu__list::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -258,15 +289,23 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   position: absolute;
   inset: 0;
   min-width: 0;
-  background: #000;
+  /* Transparent: the picture is behind this window, not inside it. */
+  background: transparent;
   overflow: hidden;
 }
 
 /* ── sidebar head ─────────────────────────────────────────────────────── */
 
+/* Padding sized for what is LEFT here. This block used to carry the library
+   path, the counts and two folder buttons; they moved to Settings and the
+   generous frame stayed, leaving the wordmark floating in a hole.
+
+   Almost no padding at the BOTTOM, because there is no longer a rule under
+   it: the space was holding the wordmark off a line, and with the line gone
+   it was just a gap. The wordmark and the picker below it now read as one
+   head, which is what removing the rule was for. */
 .sidebar__head {
-  padding: calc(var(--u) * 3) var(--gutter);
-  border-bottom: 1px solid var(--hair);
+  padding: calc(var(--u) * 2.5) var(--gutter) 0;
 }
 
 .ident { display: flex; align-items: center; gap: 11px; margin-bottom: calc(var(--u) * 2.25); }
@@ -297,9 +336,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   line-height: 1;
 }
 
-
-
-
 .btn {
   padding: 9px 14px;
   border: 1px solid var(--hair);
@@ -329,6 +365,17 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 .sidebar__scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
+
+/* Said when a schedule names no show the library still has. Without it the
+   list is simply blank, which reads as the app having lost them. */
+.emptyshows {
+  margin: 0 var(--gutter);
+  padding: calc(var(--u) * 2) 0;
+  font-size: var(--t-micro);
+  line-height: 1.5;
+  color: var(--ink-mute);
+}
+
 .sectionhead {
   display: flex;
   justify-content: space-between;
@@ -341,9 +388,27 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   text-transform: none;
   color: var(--ink-mute);
 }
+/* The count line carries no name, so it does not need the space-between that
+   pushed a heading and a number apart — it is one short phrase, set left, and
+   sits closer to the list it counts. */
+/* Sits in the FIXED block with the picker, not in the scroller, so it is
+   always above the cards rather than scrolling away with them. The rule
+   underneath is what closes that block off from the list. */
+.sectionhead--count {
+  display: block;
+  flex: 0 0 auto;
+  padding: calc(var(--u) * 2) var(--gutter);
+  color: var(--ink-mute);
+  border-bottom: 1px solid var(--hair);
+}
+/* Only the NUMBER takes the accent: it is the part that changes when the
+   schedule does, and colouring the noun with it would say the whole phrase
+   was the variable. */
+.sectionhead--count .sectionhead__n { color: var(--signal-soft); font-weight: 600; }
+
 .sectionhead__n { color: var(--ink-mute); letter-spacing: var(--tr-label); }
 
-.shows { list-style: none; padding-bottom: var(--u); }
+.shows { list-style: none; padding-top: calc(var(--u) * 1.5); padding-bottom: var(--u); }
 
 /* Hairline rules, not cards. Common Region is satisfied by the rule plus the
    shared left margin — a card would add weight for nothing. */
@@ -354,7 +419,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   margin: 0 var(--gutter) 6px;
   padding: calc(var(--u) * 1.5) calc(var(--u) * 2);
   background: rgba(244, 241, 234, 0.022);
-  border: 1px solid transparent;
+  border: 1px solid var(--card-edge);
   border-radius: var(--r-md);
   cursor: pointer;
   transition: background var(--fast), border-color var(--fast), transform var(--fast);
@@ -372,6 +437,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   white-space: nowrap;
 }
 
+/* Inside a schedule the toggle is gone, so the column it lived in has to go
+   too: the card auto-places its children, and an empty second track would
+   pull the meta line up beside the show's name instead of under it. */
+.shows[data-toggles="false"] .show { grid-template-columns: 1fr; }
+
 .show__toggle {
   grid-row: span 2;
   align-self: center;
@@ -385,7 +455,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   color: var(--signal-soft);
   transition: background var(--fast), border-color var(--fast), color var(--fast);
 }
-
 
 /* Switched ON is the state worth seeing across a list of two dozen rows, so
    it is filled rather than outlined. Built from --signal on --paper so it
@@ -488,7 +557,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .field[data-on="true"] .field__label { color: var(--signal); }
 
 /* Rotation is inert during a marathon; dimming says so without hiding it. */
-
 
 /* Same idea for a field whose setting does not currently apply — block length
    while another rotation is selected, box opacity with the box switched off. */
@@ -598,6 +666,23 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
    browser was dropping the block regardless. Removed rather than repaired —
    the copy that actually does the work is the one below. */
 
+/* Button and its explanation on one line, the note taking the quiet ink: what
+   a reset does NOT touch is the part worth reading, so it sits beside the
+   control rather than under it where it would be scrolled past. */
+.resetline {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 1.5);
+  flex-wrap: wrap;
+  padding: calc(var(--u) * 2) var(--gutter) 0;
+}
+.resetline__note {
+  flex: 1 1 200px;
+  font-size: var(--t-micro);
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+
 .modes__note {
   padding: var(--u) var(--gutter) 0;
   font-size: var(--t-meta);
@@ -607,6 +692,20 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 }
 
 .field { display: block; padding: calc(var(--u) * 1.5) var(--gutter) 0; }
+
+/* The schedule picker sits between the head and the list it filters, and must
+   never be squeezed by a long library — it is how you get back to All Shows.
+
+   It MUST come after .field: that rule's shorthand ends in `0`, so a
+   padding-bottom set earlier in the file lost on source order and the select
+   sat almost on the hairline below it — a box touching a rule reads as a
+   mistake rather than a boundary. Equal space above and below makes this a
+   band of its own. */
+.field--schedule {
+  flex: 0 0 auto;
+  padding-top: calc(var(--u) * 2.5);
+  padding-bottom: 0;
+}
 .field__label {
   display: block;
   font-family: var(--grotesque);
@@ -660,9 +759,13 @@ input[type="range"]::-webkit-slider-thumb {
 .eyebrow--signal { color: var(--signal); }
 
 .welcome, .scanning, .bumper { position: absolute; inset: 0; display: none; }
-.app[data-view="welcome"]  .welcome  { display: grid; place-items: center; }
+/* The two views with NO picture behind them paint their own paper — with a
+   transparent plane they would otherwise show the empty video plane, which
+   is black in every theme including the light ones. Ready is deliberately
+   NOT in this list: its scrim over the paused picture is the design. */
+.app[data-view="welcome"]  .welcome  { display: grid; place-items: center; background: var(--paper); }
 .app[data-view="ready"]    .welcome  { display: grid; place-items: center; }
-.app[data-view="scanning"] .scanning { display: grid; place-content: center; justify-items: center; gap: var(--u); }
+.app[data-view="scanning"] .scanning { display: grid; place-content: center; justify-items: center; gap: var(--u); background: var(--paper); }
 .app[data-view="bumper"]   .bumper   { display: block; }
 
 /* A scrim behind the words. The library now sits over a PAUSED PICTURE, and
@@ -708,10 +811,16 @@ input[type="range"]::-webkit-slider-thumb {
    resize. This is the whole aspect-ratio policy: no fit/fill switch, no zoom.
    Both existed here briefly and were the wrong answer, because every variant
    either hides part of the frame or lets it be set wrong. */
+/**
+ * Not the picture any more — the transparent region you see it THROUGH, and
+ * the click/hover target the <video> element used to be. It keeps its size
+ * and its display rules so every view-scoped rule below still applies; it
+ * loses `object-fit` (meaningless on a div — mpv fits the frame itself) and
+ * its black fill, which would hide the very picture it stands in front of.
+ */
 .player {
   width: 100%; height: 100%;
-  object-fit: contain;
-  background: #000;
+  background: transparent;
   display: none;
 }
 .app[data-view="playing"] .player { display: block; }
@@ -763,8 +872,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* Fitts: the scrub target is 20px tall even though the rule reads as 3px. */
 .scrub { padding: 9px 0; cursor: pointer; }
 .scrub__track { position: relative; height: 3px; background: rgba(244, 241, 234, 0.2); }
-.scrub__buffer, .scrub__fill { position: absolute; inset: 0 auto 0 0; display: block; }
-.scrub__buffer { background: rgba(244, 241, 234, 0.22); }
+.scrub__fill { position: absolute; inset: 0 auto 0 0; display: block; }
 .scrub__fill { background: var(--signal); }
 .scrub__fill::after {
   content: "";
@@ -890,23 +998,9 @@ input[type="range"]::-webkit-slider-thumb {
 .bumper__skip { color: var(--ink-faint); letter-spacing: var(--tr-label); text-transform: uppercase; }
 .bumper__count { color: var(--signal); font-size: var(--t-body); }
 
-/* Shown only when the countdown has run out and the next episode is still
-   converting. It replaces the "any key" hint rather than joining it, because at
-   that moment the honest thing to say is what we are waiting for. */
-.bumper__prep {
-  color: var(--signal);
-  letter-spacing: var(--tr-label);
-  text-transform: uppercase;
-}
-
 /* A depleting rule reads from across a room; a spinner would not. */
 .timer { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(244, 241, 234, 0.1); }
 .timer i { display: block; height: 100%; width: 100%; background: var(--signal); transform-origin: left center; }
-
-/* Held past the countdown: the rule pulses instead of sitting full, so a wait
-   never looks like a frozen screen. */
-.bumper__prep:not([hidden]) { animation: prep-pulse 1.6s ease-in-out infinite; }
-@keyframes prep-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
 /* ── scaling ──────────────────────────────────────────────────────────── */
 
@@ -1026,6 +1120,316 @@ input[type="range"]::-webkit-slider-thumb {
 .modal__close:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
 
 .modal__body { overflow-y: auto; padding: 0 calc(var(--u) * 3) calc(var(--u) * 3); }
+
+/* ── card image picker ────────────────────────────────────────────────────
+   Narrower than the other sheets, because it holds one decision and three
+   lines of guidance and nothing else worth looking at. */
+.modal--narrow .modal__panel { width: min(460px, 100%); }
+
+/* Every sheet shares z-index 90, so which one is on top is decided by source
+   order — and this one opens FROM two of them (the library table, and a
+   show's settings). Said outright rather than by where it happens to sit in
+   the markup: it was written above the table and painted underneath it, a
+   dialog that opened invisibly and swallowed the next click. */
+#artModal { z-index: 92; }
+
+.artpick__for {
+  margin: calc(var(--u) * 2) 0 var(--u);
+  font-size: var(--t-meta);
+  color: var(--ink-mute);
+}
+
+/* The whole zone is the target, not just the button inside it (Fitts) — and
+   dashed box plus "or choose a file" is the pattern every upload anyone has
+   used already looks like (Jakob), so it costs nothing to learn. */
+.artdrop {
+  display: grid;
+  justify-items: center;
+  gap: var(--u);
+  padding: calc(var(--u) * 4) calc(var(--u) * 3);
+  border: 1px dashed var(--ink-faint);
+  border-radius: var(--r-md);
+  background: var(--lift);
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: border-color var(--fast), background var(--fast), color var(--fast);
+}
+.artdrop:hover { border-color: var(--ink-mute); color: var(--ink); }
+.artdrop:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+/* Held while a file is over the zone, so letting go is visibly the right move. */
+.artdrop[data-over] {
+  border-color: var(--signal);
+  border-style: solid;
+  background: var(--signal-wash);
+  color: var(--ink);
+}
+.artdrop__lead { font-size: var(--t-body); color: var(--ink); }
+.artdrop__or { font-size: var(--t-meta); color: var(--ink-faint); }
+
+/* The rules sit under the zone and STAY there. They are what a refused file
+   gets corrected against, so they have to still be on screen at the moment
+   the second attempt is being chosen (Working Memory) — which is also why the
+   refusal below is a line in this dialog and not a toast that floats away. */
+.artrules {
+  list-style: none;
+  margin: calc(var(--u) * 2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: calc(var(--u) * 0.75);
+  font-size: var(--t-meta);
+  color: var(--ink-mute);
+  line-height: 1.5;
+}
+.artrules li { position: relative; padding-left: calc(var(--u) * 1.5); }
+.artrules li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.66em;
+  width: 5px;
+  height: 1px;
+  background: var(--ink-faint);
+}
+.artrules b { color: var(--ink); font-weight: 500; }
+
+.artpick__err {
+  margin: calc(var(--u) * 2) 0 0;
+  font-size: var(--t-meta);
+  line-height: 1.5;
+  color: #ff8f6b;
+}
+
+/* ── genre tags ───────────────────────────────────────────────────────────
+   ONE look for every tag. Notion and Airtable give each option its own hue
+   and it genuinely helps them scan — but this app is three inks by design,
+   ships twelve themes including four light ones and one whose whole identity
+   is black hairlines, and a generated palette would have to survive all of
+   them. Tags are told apart by their WORD, which is what carries the meaning;
+   they look alike because they ARE alike (Law of Similarity), and the signal
+   colour stays reserved for what it already means here: this one is on. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.5);
+  padding: 2px calc(var(--u) * 0.875);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: var(--lift);
+  color: var(--ink-mute);
+  font-size: var(--t-micro);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.chip--removable { padding-right: calc(var(--u) * 0.5); }
+.chip__x {
+  border: 0;
+  padding: 0 2px;
+  background: none;
+  color: var(--ink-faint);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--fast);
+}
+.chip__x:hover { color: var(--ink); }
+.chip__x:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+
+/* The whole cell is the target, not a button beside the chips (Fitts), and
+   an untagged row still needs something to aim at — that is the em dash. */
+.mediarow__genres { max-width: 260px; }
+.genrecell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--u) * 0.5);
+  width: 100%;
+  padding: calc(var(--u) * 0.75);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--fast), background var(--fast);
+}
+.genrecell:hover { border-color: var(--hair); background: var(--lift); }
+.genrecell:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.genrecell__empty { color: var(--ink-faint); font-size: var(--t-meta); }
+
+/* FIXED, not absolute: the table scrolls inside .modal__body, and an
+   absolutely positioned popover inside a scroll container is clipped by it —
+   which is the version of this bug where rows near the bottom open a menu
+   nobody can see. Above the sheet it belongs to, hence 95 over 90. */
+.tagpop {
+  position: fixed;
+  z-index: 95;
+  width: 260px;
+  padding: calc(var(--u) * 1.25);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  background: var(--paper-high);
+  box-shadow: var(--e-3), var(--rim);
+  animation: modal-in var(--fast) both;
+}
+.tagpop__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--u) * 0.5);
+  margin-bottom: var(--u);
+}
+.tagpop__none { color: var(--ink-faint); font-size: var(--t-micro); }
+.tagpop__input {
+  width: 100%;
+  padding: calc(var(--u) * 0.75) var(--u);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-meta);
+}
+.tagpop__input::placeholder { color: var(--ink-faint); }
+.tagpop__input:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.tagpop__list {
+  max-height: 232px;
+  overflow-y: auto;
+  margin-top: var(--u);
+}
+.tagpop__hint {
+  margin: var(--u) 0 0;
+  color: var(--ink-faint);
+  font-size: var(--t-micro);
+  line-height: 1.5;
+}
+
+.tagopt {
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-sm);
+}
+/* Keyboard highlight and mouse hover are the same look on purpose: two
+   different "this one" marks on screen at once is two cursors. */
+.tagopt:hover,
+.tagopt[data-active="true"] { background: var(--lift); }
+.tagopt__pick {
+  flex: 1 1 auto;
+  padding: calc(var(--u) * 0.75) var(--u);
+  border: 0;
+  background: none;
+  color: var(--ink-mute);
+  font: inherit;
+  font-size: var(--t-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.tagopt:hover .tagopt__pick,
+.tagopt[data-active="true"] .tagopt__pick { color: var(--ink); }
+/* Selected is marked by a bar AND the ink, never by colour alone. */
+.tagopt[data-on="true"] .tagopt__pick { color: var(--ink); box-shadow: inset 2px 0 0 var(--signal); }
+/* Restated at every state, not just at rest. `.tagopt--create .tagopt__pick`
+   alone is 0-2-0 and loses to the `.tagopt:hover` / `.tagopt[data-active]`
+   rules above (0-3-0) — so the amber "this makes something new" colour was
+   present only while nothing was pointing at it. That is the worst possible
+   moment to lose it: typing a genuinely new name makes the Create row rows[0]
+   and therefore data-active, so it was plain ink at exactly the instant of
+   choosing. Third rule in this block to be inert this way. */
+.tagopt--create .tagopt__pick,
+.tagopt--create:hover .tagopt__pick,
+.tagopt--create[data-active="true"] .tagopt__pick { color: var(--signal); }
+.tagopt__drop {
+  flex: 0 0 auto;
+  padding: 0 var(--u);
+  border: 0;
+  background: none;
+  color: transparent;           /* revealed on hover: destructive, not decorative */
+  font-size: 9px;
+  cursor: pointer;
+  transition: color var(--fast);
+}
+.tagopt:hover .tagopt__drop { color: var(--ink-faint); }
+/* Two classes, not one. A pointer on the ✕ is by definition also inside
+   .tagopt, so a bare `.tagopt__drop:hover` (0-2-0) loses to the row rule
+   above it (0-3-0) no matter what order they sit in — and the ONE control
+   that strips a genre from every title in the library gave no danger colour
+   at all, reading identically to hovering the row. */
+.tagopt:hover .tagopt__drop:hover { color: #ff8f6b; }
+.tagopt__drop:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; color: var(--ink-faint); }
+
+/* ── the genre filter, beside the library search ──────────────────────── */
+.genrefilter { position: relative; flex: 0 0 auto; }
+.genrefilter__btn {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.75);
+  padding: calc(var(--u) * 0.875) calc(var(--u) * 1.25);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-mute);
+  font: inherit;
+  font-size: var(--t-meta);
+  cursor: pointer;
+  transition: color var(--fast), border-color var(--fast);
+}
+.genrefilter__btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+.genrefilter__btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+/* The one place the signal is spent here: a filter is ON and the page you are
+   looking at is not the whole library (Von Restorff). */
+.genrefilter[data-on="true"] .genrefilter__btn { color: var(--signal); border-color: var(--signal-soft); }
+/* Restated at equal specificity, because the rule above (0-3-0) outranks the
+   plain :hover (0-2-0) — so once a filter was on, the button gave no pointer
+   feedback at all, at exactly the moment it is most likely to be reached for
+   again to change or clear the selection. */
+.genrefilter[data-on="true"] .genrefilter__btn:hover { border-color: var(--signal); }
+
+.genremenu {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 220px;
+  padding: calc(var(--u) * 0.75);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  background: var(--paper-high);
+  box-shadow: var(--e-3), var(--rim);
+  animation: modal-in var(--fast) both;
+}
+.genremenu__list { max-height: 300px; overflow-y: auto; }
+.genreopt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--u);
+  width: 100%;
+  padding: calc(var(--u) * 0.75) var(--u);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-mute);
+  font: inherit;
+  font-size: var(--t-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.genreopt:hover { background: var(--lift); color: var(--ink); }
+.genreopt:focus-visible { outline: 1px solid var(--signal); outline-offset: -1px; }
+.genreopt[data-on="true"] { color: var(--ink); box-shadow: inset 2px 0 0 var(--signal); }
+.genreopt__count { color: var(--ink-faint); font-size: var(--t-micro); }
+.genremenu__clear {
+  width: 100%;
+  margin-top: calc(var(--u) * 0.75);
+  padding: calc(var(--u) * 0.75);
+  border: 0;
+  border-top: 1px solid var(--hair-soft);
+  border-radius: 0;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: var(--t-micro);
+  cursor: pointer;
+  transition: color var(--fast);
+}
+.genremenu__clear:hover { color: var(--ink); }
+.genremenu__clear:focus-visible { outline: 1px solid var(--signal); outline-offset: -1px; }
 
 /* ── play order ───────────────────────────────────────────────────────────
    A wider sheet than Settings, because a row here carries a title plus three
@@ -1212,13 +1616,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-mute);
 }
 
-/* Subtitles sit above the chrome rather than behind it. */
-video::cue {
-  background: rgba(8, 7, 12, 0.78);
-  color: var(--ink);
-  font-family: var(--grotesque);
-}
-
 /* ── toast ────────────────────────────────────────────────────────────── */
 
 .toast {
@@ -1262,7 +1659,6 @@ video::cue {
   .bumper__foot { left: calc(var(--u) * 5); right: calc(var(--u) * 5); }
 }
 
-
 /* ── skip dialog ──────────────────────────────────────────────────────────
 
    Sits over the player rather than in the sidebar: it is asked mid-episode,
@@ -1304,7 +1700,6 @@ video::cue {
    scanned as a pair of similar buttons. */
 .skipask__actions { display: flex; flex-direction: column; gap: var(--u); }
 .skipask__actions .btn { width: 100%; text-align: center; padding: 11px 14px; }
-
 
 /* ── restored and added: fixed footer, sound, shared section labels ────── */
 
@@ -1392,7 +1787,6 @@ video::cue {
 }
 .volume[data-silent="true"] input[type="range"]::-webkit-slider-thumb { background: var(--ink-faint); }
 
-
 /* ── restored: segmented rotation control ─────────────────────────────── */
 
 /* A seated track with pills inside, rather than three abutting boxes. Used by
@@ -1475,7 +1869,6 @@ video::cue {
    orange type and orange accents on the dark gradients that are already there.
    Re-declaring the tokens on these containers re-themes everything within. */
 
-
 /* ── themes, second set ───────────────────────────────────────────────── */
 
 /* All pink. A light panel, so it needs the same over-video inversion the other
@@ -1494,7 +1887,6 @@ video::cue {
   --hair-soft:  rgba(61, 7, 34, 0.12);
   --lift:       rgba(61, 7, 34, 0.06);
 }
-
 
 /* Magenta on deep violet. */
 :root[data-theme="neon"] {
@@ -1734,11 +2126,6 @@ video::cue {
 :root[data-light="true"] .trackmenu,
 :root[data-light="true"] .skipask,
 :root[data-light="true"] .toast,
-/* The conversion-wait overlay is an over-video surface like everything above
-   it. Left off this list it drew PANEL ink over its own near-black scrim on
-   every light theme — unreadable during exactly the wait it exists to
-   explain, which the stylesheet itself warns can be forty minutes. */
-:root[data-light="true"] .prepping,
 /* The window buttons belong here too. The top-right corner is over the STAGE
    in every view — the sidebar only ever reaches 340px from the left — so they
    are an over-video surface like the rest of this list, not a panel one.
@@ -2366,6 +2753,213 @@ video::cue {
   --signal-soft: rgba(63, 216, 198, 0.62);
 }
 
+/* Grey as the ROOM, green as the only saturated thing in it — a well-made
+   instrument on a bench, not a hacker terminal. Distinct from greenbox (black
+   ground, phosphor green) because the greys are genuinely grey, and from
+   forest because there is no second accent competing with the green. */
+:root[data-theme="bench"] {
+  --paper:      #1c1e1e;
+  --paper-lift: #262929;
+  --paper-high: #313535;
+  --ink:        #e9edec;
+  --ink-mute:   #8b9491;
+  --ink-faint:  #666f6d;
+  --signal:      #47c86a;
+  --signal-soft: rgba(71, 200, 106, 0.62);
+  --signal-wash: rgba(71, 200, 106, 0.10);
+  --hair:       rgba(233, 237, 236, 0.14);
+  --hair-soft:  rgba(233, 237, 236, 0.07);
+  --lift:       rgba(233, 237, 236, 0.05);
+}
+
+/* Drawn from WILSON, the sibling app: its own burnt orange on its own warm
+   stone greys, read from its stylesheet rather than guessed. The warmth is the
+   point — every neutral tints toward brown, which is what keeps it a workshop
+   rather than the cockpit that ember and foundry already are.
+
+   ONE accent, deliberately. An amber second accent was tried and taken back
+   out: --signal-alt drives the show progress bars and the checkboxes, so it
+   put YELLOW bars on an orange theme. WILSON is orange. */
+:root[data-theme="wilson"] {
+  --paper:      #14110f;
+  --paper-lift: #221e1a;
+  --paper-high: #322c27;
+  --ink:        #f0e9e1;
+  --ink-mute:   #a8a29e;
+  --ink-faint:  #6f645e;
+  --signal:      #ea580c;
+  --signal-soft: rgba(234, 88, 12, 0.78);
+  --signal-wash: rgba(234, 88, 12, 0.10);
+  --hair:       rgba(240, 233, 225, 0.14);
+  --hair-soft:  rgba(240, 233, 225, 0.07);
+  --lift:       rgba(240, 233, 225, 0.05);
+}
+
+/* 02.
+
+   Asuka's unit is RED, and the first attempt got that wrong: it kept the app
+   near-black with a red accent, which reads as "a dark theme" rather than as
+   the machine. The red belongs in the SURFACES — the sidebar is the thing you
+   actually look at — with orange for the trim and white for the type.
+
+   --paper stays dark all the same, because that is the plane video plays on
+   and a red field would fight every frame. So the picture sits on near-black
+   while the interface around it is armour. */
+:root[data-theme="02"] {
+  --paper:      #200706;
+  --paper-lift: #6b1a14;
+  --paper-high: #8a2018;
+  --ink:        #ffffff;
+  --ink-mute:   #e8c3bd;
+  --ink-faint:  #b3877f;
+  --signal:      #ff8c2b;
+  --signal-soft: rgba(255, 140, 43, 0.72);
+  --signal-wash: rgba(255, 140, 43, 0.10);
+  /* BLACK rules, not white ones. Unit-02 is red plate divided by black
+     panel lines, and on a scarlet ground a black hairline reads as a seam
+     where a white one reads as a highlight. This is the only theme in the
+     set whose hairlines are darker than the surface they sit on. */
+  --hair:       rgba(0, 0, 0, 0.62);
+  --hair-soft:  rgba(0, 0, 0, 0.34);
+  --lift:       rgba(0, 0, 0, 0.18);
+  --card-edge:  rgba(0, 0, 0, 0.55);
+}
+
+/* Ceefax at six in the morning. Pure #000 is correct exactly here and nowhere
+   else in the set, with the saturated primaries a teletext decoder could
+   actually produce: broadcast yellow live, cyan for the second rail, white
+   type. Not vhs — there is no magenta anywhere — and not midnight's amber,
+   which is orange-brown beside this. */
+:root[data-theme="teletext"] {
+  --paper:      #000000;
+  --paper-lift: #0e0e0e;
+  --paper-high: #1a1a1a;
+  --ink:        #ffffff;
+  --ink-mute:   #a2a2a2;
+  --ink-faint:  #6b6b6b;
+  --signal:      #ffff00;
+  --signal-soft: rgba(255, 255, 0, 0.72);
+  --signal-wash: rgba(255, 255, 0, 0.10);
+  --signal-alt:  #00ffff;
+  --signal-alt-soft: rgba(0, 255, 255, 0.85);
+  --hair:       rgba(255, 255, 255, 0.14);
+  --hair-soft:  rgba(255, 255, 255, 0.07);
+  --lift:       rgba(255, 255, 255, 0.05);
+}
+
+/* ── five more ────────────────────────────────────────────────────────────
+   Chosen against the other thirty and then MEASURED against them, because
+   "that looks different to me" is not a fact about a palette.
+
+   The honest claim is not that these hues are unused — with thirty themes,
+   every hue has a neighbour a few degrees away. It is that the PAIRINGS are
+   unused, and that the distance holds up: comparing each new theme to all
+   thirty on ground and accent together (CIE76 over --paper and --signal), the
+   closest new one lands 29.7 away, while the closest pair already shipping —
+   ember and wilson — sit 7.7 apart. So the tightest thing added here is
+   roughly four times further from its nearest neighbour than two themes the
+   app already treats as distinct.
+
+   Each changes the GROUND as well as the accent, because two themes that
+   differ only in accent read as the same theme twice. A fifth, cobalt, was
+   built and then removed at her request. */
+
+/* cobalt (gold on navy) lived here and was removed at Audrey's request — she
+   did not like it. Deleted outright rather than aliased: an alias is for a
+   theme that was RENAMED, and a saved name that no longer exists correctly
+   falls back to midnight. */
+
+/* The one hue with no dark theme at all. Lilac is light and 01 puts lime on
+   purple; violet as the SIGNAL, on a ground tinted the same way, is unclaimed.
+   Kept desaturated so it reads as ink rather than as neon — vhs and neon
+   already own the loud end of this side of the wheel. */
+:root[data-theme="iris"] {
+  --paper:      #0d0a16;
+  --paper-lift: #171227;
+  --paper-high: #221a38;
+  --ink:        #ece7f7;
+  --ink-mute:   #9c92b8;
+  --ink-faint:  #6b6288;
+  --signal:      #a78bfa;
+  --signal-soft: rgba(167, 139, 250, 0.70);
+  --signal-wash: rgba(167, 139, 250, 0.10);
+  --hair:       rgba(236, 231, 247, 0.14);
+  --hair-soft:  rgba(236, 231, 247, 0.07);
+  --lift:       rgba(236, 231, 247, 0.05);
+}
+
+/* Oxidised copper. Teal exists once in the whole set and only on a LIGHT
+   theme (clay), so a dark one is genuinely new — and the ground is warm grey
+   rather than black, which keeps it away from bench and greenbox. */
+:root[data-theme="patina"] {
+  --paper:      #101312;
+  --paper-lift: #1a1f1d;
+  --paper-high: #252c29;
+  --ink:        #e4ece8;
+  --ink-mute:   #8fa39c;
+  --ink-faint:  #64756f;
+  --signal:      #2ec4a6;
+  --signal-soft: rgba(46, 196, 166, 0.68);
+  --signal-wash: rgba(46, 196, 166, 0.10);
+  --hair:       rgba(228, 236, 232, 0.14);
+  --hair-soft:  rgba(228, 236, 232, 0.07);
+  --lift:       rgba(228, 236, 232, 0.05);
+}
+
+/* Wine, and a rose that is deliberately NOT hot. The three pinks already here
+   are all high-chroma (neon, vhs, kawaii); this one is dusty, and it sits on
+   the only wine-toned ground in the set — crimson is near-black. */
+:root[data-theme="bordeaux"] {
+  --paper:      #180a10;
+  --paper-lift: #26121b;
+  --paper-high: #351b26;
+  --ink:        #f6e6ec;
+  --ink-mute:   #b8949f;
+  --ink-faint:  #856572;
+  --signal:      #e8919f;
+  --signal-soft: rgba(232, 145, 159, 0.70);
+  --signal-wash: rgba(232, 145, 159, 0.10);
+  --hair:       rgba(246, 230, 236, 0.14);
+  --hair-soft:  rgba(246, 230, 236, 0.07);
+  --lift:       rgba(246, 230, 236, 0.05);
+}
+
+/* The new LIGHT one. The eight that exist are orange, pink, pale blue, mint,
+   lavender, cream, grey-blue and tan — no muted olive, and no deep indigo
+   anywhere in the set as an accent. Light themes carry their own shadow and
+   rim tokens, because the dark defaults are invisible on a pale ground. */
+:root[data-theme="sage"] {
+  --paper:      #d9ddca;
+  --paper-lift: #e4e7d8;
+  --paper-high: #eef0e6;
+  --ink:        #232a1c;
+  --ink-mute:   rgba(35, 42, 28, 0.62);
+  --ink-faint:  rgba(35, 42, 28, 0.38);
+  --signal:      #2f3a8c;
+  --signal-soft: rgba(47, 58, 140, 0.62);
+  --signal-wash: rgba(47, 58, 140, 0.10);
+  --hair:       rgba(35, 42, 28, 0.18);
+  --hair-soft:  rgba(35, 42, 28, 0.09);
+  --lift:       rgba(35, 42, 28, 0.05);
+  --rim:  inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --e-1:  0 1px 2px rgba(35, 42, 28, 0.10);
+  --e-2:  0 2px 6px rgba(35, 42, 28, 0.08), 0 12px 32px rgba(35, 42, 28, 0.10);
+  --e-3:  0 4px 12px rgba(35, 42, 28, 0.12), 0 32px 72px rgba(35, 42, 28, 0.16);
+}
+/* Over the PICTURE the ground is black, not sage, so the deep indigo that
+   works on a pale panel disappears. Same carve-out clay and the other light
+   themes already use. */
+:root[data-theme="sage"] .chrome,
+:root[data-theme="sage"] .bumper,
+:root[data-theme="sage"] .welcome,
+:root[data-theme="sage"] .scanning,
+:root[data-theme="sage"] .trackmenu,
+:root[data-theme="sage"] .skipask,
+:root[data-theme="sage"] .toast {
+  --signal:      #8fa2ff;
+  --signal-soft: rgba(143, 162, 255, 0.62);
+}
+
 /* ── library mode ─────────────────────────────────────────────────────────
    Built entirely from the existing tokens, so all 26 themes come free and no
    theme can restyle a component — the same rule as everywhere else.
@@ -2423,17 +3017,202 @@ video::cue {
   padding: calc(var(--u) * 3) calc(var(--u) * 5) calc(var(--u) * 8);
 }
 
-.browsesec { margin-bottom: calc(var(--u) * 5); }
+.browsesec { margin-bottom: calc(var(--u) * 6); }
+.browsesec:last-child { margin-bottom: 0; }
 .browsesec__head {
   display: flex;
   align-items: baseline;
   gap: calc(var(--u) * 1.5);
-  margin-bottom: calc(var(--u) * 2);
+  /* Closer to its tiles than to the section above: proximity is what makes a
+     heading belong to the row under it rather than float between two. */
+  margin-bottom: calc(var(--u) * 2.25);
 }
-.browsesec__title {
-  font-size: var(--t-title);
+
+/* ── the resume rail ──────────────────────────────────────────────────────
+
+   Full-bleed, and deliberately the ONLY thing on this page that is. The page
+   had three identical grids and therefore no primary; the one row that
+   answers "what was I watching" now differs in every dimension that reads at
+   a glance — size, count, axis, and the fact that it runs off both edges.
+
+   The negative margin cancels .browse__body's padding exactly. Written from
+   the same token, so the two cannot drift apart. */
+.browsesec--rail {
+  position: relative;
+  margin-left: calc(var(--u) * -5);
+  margin-right: calc(var(--u) * -5);
+}
+.browsesec--rail .browsesec__head { padding: 0 calc(var(--u) * 5); }
+/* The head is inset with the page; the strip beneath it is not. */
+.browsesec--rail .rail { scroll-padding-inline: 0; }
+
+.rail {
+  display: flex;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  /* Snapping aligns a tile to the SCROLLPORT edge, which is the window edge
+     here — so without this the snap pulled the row flush against the frame and
+     ate the page margin, every time, undoing whatever scrollLeft had just been
+     set to. Measured: the position was landing 40px out, exactly the padding.
+     scroll-padding tells the snap where the content actually starts. */
+  scroll-padding-inline: calc(var(--u) * 5);
+  /* The scrollbar is noise under a row that has arrows and drags. */
+  scrollbar-width: none;
+  /* Tiles are sized against THIS box, not the window: the page's own vertical
+     scrollbar makes 100vw wider than the rail, and the third tile spilled off
+     the right edge by exactly that much. */
+  container-type: inline-size;
+}
+.rail::-webkit-scrollbar { display: none; }
+
+/* No gaps and no padding. The row is a strip of picture running off both
+   edges of the window — the moment a margin or a gutter appears, it reads as
+   three cards on a page rather than a continuous band, which is the whole
+   difference between this and the grid below. */
+.rail__track {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+/* Exactly a third of the rail, so three fill it edge to edge with nothing
+   sliced. cqw rather than vw: the page's own scrollbar makes the window wider
+   than this box, and that difference spilled the third card off the right. */
+.rail__track > .railcard {
+  flex: 0 0 calc(100cqw / 3);
+  scroll-snap-align: start;
+}
+
+/* ── the rail card ────────────────────────────────────────────────────────
+   The picture IS the card. Title over the lower third, episode code under it,
+   progress along the bottom edge, and nothing else — this row exists to
+   resume one thing, and every caption is a line to read first. */
+.railcard {
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+}
+/* Two-class selector on purpose. The card reuses .tile__art for the image
+   sizing and the initials fallback, and that rule is defined LATER in this
+   file — at equal specificity it was winning, so the rounded corners and the
+   hairline border kept coming back however many times they were set here. */
+.railcard .railcard__art {
+  aspect-ratio: 16 / 9;
+  /* Square and unbordered: the row is a continuous strip of picture, and a
+     radius cuts a notch of background between neighbours while a border draws
+     a grid over what should read as one band. */
+  border-radius: 0;
+  border: 0;
+}
+
+.railcard__scrim {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 62%;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.55) 38%, transparent 100%);
+  pointer-events: none;
+}
+.railcard__text {
+  position: absolute;
+  left: calc(var(--u) * 2.5);
+  right: calc(var(--u) * 2.5);
+  bottom: calc(var(--u) * 2.25);
+  pointer-events: none;
+}
+.railcard__title {
+  font-size: var(--t-sub);
   font-weight: 600;
+  line-height: var(--lh-name);
   letter-spacing: var(--tr-tight);
+  color: #fff;                       /* over a photograph, not over the theme's paper */
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.railcard__code {
+  margin-top: 2px;
+  font-size: var(--t-micro);
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.6);
+}
+.railcard:hover .railcard__art img,
+.railcard:focus-visible .railcard__art img { transform: scale(1.03); }
+.railcard__art img { transition: transform var(--med) ease-out; }
+.railcard:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+
+/* ── page dots ──────────────────────────────────────────────────────────── */
+.raildots {
+  display: flex;
+  justify-content: center;
+  gap: var(--u);
+  padding-top: calc(var(--u) * 1.75);
+}
+.raildot {
+  width: 22px;
+  height: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--hair);
+  cursor: pointer;
+  transition: background var(--fast), width var(--fast);
+}
+.raildot[data-on="true"] { background: var(--signal); width: 34px; }
+.raildot:hover { background: var(--ink-mute); }
+
+@media (prefers-reduced-motion: reduce) {
+  .railcard__art img { transition: none; }
+  .raildot { transition: none; }
+}
+
+/* Full height at the very edge. Fitts: the cursor is already travelling to
+   the edge to scroll, and a floating circle over artwork is a smaller target
+   in a worse place. The scrim is what keeps the glyph legible over a bright
+   frame without putting a box around it. */
+.rail__arrow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--u) * 6);
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--fast);
+}
+.rail__arrow--prev {
+  left: 0;
+  background: linear-gradient(to right, var(--paper) 35%, transparent);
+}
+.rail__arrow--next {
+  right: 0;
+  background: linear-gradient(to left, var(--paper) 35%, transparent);
+}
+/* Shown on hover, and ALWAYS on focus — a control that only exists under a
+   pointer is a control a keyboard cannot find. */
+.browsesec--rail:hover .rail__arrow,
+.rail__arrow:focus-visible { opacity: 1; }
+.rail__arrow:hover { color: var(--signal); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rail { scroll-behavior: auto; }
+}
+/* 1.5x the panel-title size: 30px. At 20px these sat at the same weight as
+   the card captions under them, so the page read as one long undifferentiated
+   list; a section head has to win against a row of artwork. Double (40px) won
+   it too easily and started competing with the cards themselves. Tighter
+   tracking and leading keep the size from feeling loose. */
+.browsesec__title {
+  font-size: calc(var(--t-title) * 1.5);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 .browsesec__n { color: var(--ink-faint); font-size: var(--t-micro); font-family: var(--mono); }
 
@@ -2441,8 +3220,11 @@ video::cue {
    holding three titles stretches them across the whole window like a banner. */
 .tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: calc(var(--u) * 2.5) calc(var(--u) * 2);
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  /* More air between ROWS than between columns. A tile's own caption sits
+     under its art, so an equal gap both ways lets the caption read as if it
+     belonged to the tile beneath it. */
+  gap: calc(var(--u) * 4) calc(var(--u) * 2);
   list-style: none;
 }
 
@@ -2655,58 +3437,6 @@ video::cue {
  */
 .browsectl { display: none; }
 .app[data-browsing="true"] .browsectl { display: block; }
-
-/* ── waiting on a conversion ──────────────────────────────────────────────
-   Sits over the stage while a file is being rebuilt. Not a toast: the wait
-   can be forty minutes, and a message that expires after sixty seconds turns
-   a working app into one that appears to have given up. */
-.prepping {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  display: grid;
-  place-items: center;
-  background: rgba(4, 3, 7, 0.82);
-  animation: fade-in var(--fast) both;
-}
-.prepping__inner {
-  width: min(520px, 82%);
-  text-align: left;
-}
-.prepping__title {
-  margin-top: 6px;
-  font-family: var(--display);
-  font-size: var(--t-sub);
-  font-weight: 600;
-  letter-spacing: var(--tr-tight);
-  line-height: var(--lh-name);
-}
-.prepping__bar {
-  margin-top: calc(var(--u) * 2.5);
-  height: 4px;
-  border-radius: var(--r-pill);
-  background: rgba(244, 241, 234, 0.16);
-  overflow: hidden;
-}
-.prepping__bar i {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--signal);
-  border-radius: var(--r-pill);
-  transition: width var(--med) linear;
-}
-.prepping__count {
-  margin-top: var(--u);
-  font-size: var(--t-meta);
-  color: var(--signal-soft);
-}
-.prepping__note {
-  margin-top: calc(var(--u) * 2);
-  font-size: var(--t-meta);
-  color: var(--ink-mute);
-  line-height: 1.5;
-}
 
 /* ---------------------------------------------------------------------------
    Set schedules
@@ -2934,7 +3664,11 @@ video::cue {
   margin: 0;
   padding: calc(var(--u) * 0.5) 0 calc(var(--u) * 0.5) calc(var(--u) * 2);
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  /* TWO columns, because each row now has two cells. The rows are
+     `display: contents`, so the count here is what actually lays them out —
+     leave a third track behind after dropping the conversion verdict and the
+     NEXT episode's label slides up into it, scrambling the whole list. */
+  grid-template-columns: 1fr auto;
   gap: 2px calc(var(--u) * 2);
   font-size: var(--t-meta);
 }

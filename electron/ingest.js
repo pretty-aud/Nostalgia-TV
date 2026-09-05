@@ -16,7 +16,6 @@
  */
 
 const path = require('node:path');
-const { entryConverts } = require('../src/shared/mediaStatus.js');
 const fsp = require('node:fs/promises');
 
 let ledgerPath = null;
@@ -120,12 +119,11 @@ async function run(items, deps) {
 }
 
 async function runLocked(items, deps) {
-  const { artwork, inspect, shouldPause, onProgress } = deps;
+  const { artwork, shouldPause, onProgress } = deps;
   const { entries } = await load();
   const fresh = newItems(items, entries);
 
   let done = 0;
-  let needConversion = 0;
   let captured = 0;
 
   for (const item of fresh) {
@@ -143,9 +141,19 @@ async function runLocked(items, deps) {
 
     const record = { at: Date.now() };
     let gotArt = false;
-    let gotVerdict = false;
 
-    if (item.absPath) {
+    /**
+     * ARTWORK ONLY. The conversion verdict is gone from here.
+     *
+     * Every new title used to cost a full ffprobe on top of the frame grab,
+     * to work out which tier it would need converting to. mpv plays
+     * everything, so nothing reads that verdict any more — and once this run
+     * stopped being a button and started following every scan, it became an
+     * unattended ffprobe of every new file on a USB drive that has dropped
+     * off the bus under sustained reads before now. Dead work is bad; dead
+     * work nobody asked for, on that drive, is worse.
+     */
+    if (item.absPath && item.kind !== 'show') {
       try {
         if (await artwork.has(item.kind, item.id)) {
           gotArt = true;
@@ -157,39 +165,17 @@ async function runLocked(items, deps) {
           }
         }
       } catch { /* art is best-effort */ }
-
-      // Shows are containers — their conversion story is their episodes'.
-      if (item.kind !== 'show') {
-        try {
-          const plan = await inspect(item.absPath, {
-            preferLanguage: typeof item.preferLanguage === 'string' ? item.preferLanguage : undefined,
-          });
-          record.tier = plan.tier;
-          record.needsWork = Boolean(plan.needsWork);
-          // Which track the plan chose: what separates "remux because the
-          // language is wrong" (a real conversion) from "remux because the
-          // planner never promises Matroska" (plays natively in practice).
-          record.audioIndex = Number.isInteger(plan.audioIndex) ? plan.audioIndex : 0;
-          if (Number.isFinite(item.size)) record.size = item.size;
-          gotVerdict = true;
-          if (entryConverts(record) === true) needConversion += 1;
-        } catch { /* unreadable right now */ }
-      } else {
-        gotVerdict = true;   // a show row has no file of its own to judge
-      }
     }
 
-    // No file at all means nothing will ever be here to take in; recording it
-    // is what stops an empty folder lighting the button forever.
-    if (!item.absPath) gotVerdict = true;
-
     /**
-     * A title whose file was unreachable for BOTH halves is NOT ingested —
-     * writing it would permanently record "taken in, with nothing", and a
-     * drive dropping off mid-run would swallow every remaining title that
-     * way. Left out of the ledger, it simply stays new for the next press.
+     * A show row and a row with no file have nothing to capture, so they are
+     * recorded on sight. An EPISODE or MOVIE whose file was unreachable is
+     * not: writing it would permanently record "taken in, with nothing", and
+     * a drive dropping off mid-run would swallow every remaining title that
+     * way. Left out of the ledger, it simply stays new for the next scan.
      */
-    if (gotArt || gotVerdict) {
+    const nothingToCapture = !item.absPath || item.kind === 'show';
+    if (gotArt || nothingToCapture) {
       entries[keyOf(item)] = record;
       done += 1;
     }
@@ -202,7 +188,6 @@ async function runLocked(items, deps) {
     ok: true,
     ingested: done,
     captured,
-    needConversion,
     shows: fresh.filter((i) => i.kind === 'show').length,
     episodes: fresh.filter((i) => i.kind === 'episode').length,
     movies: fresh.filter((i) => i.kind === 'movie').length,
@@ -213,9 +198,4 @@ async function runLocked(items, deps) {
  * A read-only copy of the ledger for the library table. A COPY on purpose:
  * the table must never hold a live reference to the object run() mutates.
  */
-async function entriesSnapshot() {
-  const { entries } = await load();
-  return JSON.parse(JSON.stringify(entries));
-}
-
-module.exports = { init, status, run, newItems, keyOf, entriesSnapshot };
+module.exports = { init, status, run, newItems, keyOf };

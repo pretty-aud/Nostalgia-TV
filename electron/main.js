@@ -1,6 +1,8 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, protocol, shell } = require('electron');
+const {
+  app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, screen,
+} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -10,6 +12,9 @@ const { Readable } = require('node:stream');
 const { buildLibrary, isVideoFile } = require('../src/shared/parseEpisode.js');
 const { digestCursors, describeChange } = require('../src/shared/progressJournal.js');
 const prepare = require('./prepare.js');
+const { createPlanes } = require('./planeManager.js');
+const { startMpvPlayer } = require('./mpvPlayer.js');
+const { createMpvHost } = require('./mpvHost.js');
 const artwork = require('./artwork.js');
 const ingest = require('./ingest.js');
 
@@ -32,7 +37,15 @@ const MAX_FILES = 20000;
  *
  * Must run before anything calls getPath('userData').
  */
-app.setPath('userData', path.join(app.getPath('appData'), 'shuffle-tv'));
+/**
+ * NTV_PROFILE points the WHOLE profile somewhere else — state, caches,
+ * single-instance lock and all. Test-only: it is how a smoke run boots a
+ * scratch copy of the app on the same machine as a live one without the two
+ * sharing a lock or, far worse, a state file. Never set it for real use.
+ */
+app.setPath('userData', process.env.NTV_PROFILE
+  ? process.env.NTV_PROFILE
+  : path.join(app.getPath('appData'), 'shuffle-tv'));
 
 let mainWindow = null;
 /** Roots the user has actually chosen. Media requests outside these are refused. */
@@ -324,6 +337,38 @@ function locateLibrary(previousPath) {
   return { ok: false };
 }
 
+/**
+ * The last scan's sweep plan, so the sweep can be RESUMED.
+ *
+ * An ingest cancels the sweep — two ffmpegs against this drive is what
+ * neither should cause — and used to leave it cancelled until the next scan.
+ * That was fine while ingest was a button someone pressed. Now that it
+ * follows every scan, "the next scan restarts it" became "it never runs on
+ * any boot that found something new", which is exactly the boot where the
+ * library has the most art missing.
+ */
+let lastSweepPlan = null;
+
+/**
+ * Fill in missing artwork behind the scan, one file at a time.
+ *
+ * Fire-and-forget on purpose: the scan result must not wait on hundreds of
+ * frame grabs. Cancels any previous sweep so two never interleave,
+ * skip-existing makes it resumable, and it stands down whenever anything is
+ * playing — background art never competes for the disk with a viewer.
+ */
+function startArtworkSweep(shows, movies) {
+  if (shows || movies) lastSweepPlan = artwork.planFor({ shows: shows || [], movies: movies || [] });
+  if (!lastSweepPlan) return;
+  artwork.cancelSweep();
+  artwork.sweep(lastSweepPlan, {
+    // The VIEWER owns the disk: on a drive that has dropped off the bus under
+    // sustained reads, background frame-grabs while an episode streams are how
+    // the picture stutters and the drive dies.
+    shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive() || !mpvIdleActive,
+  }).catch(() => { /* art is best-effort; the library works without it */ });
+}
+
 async function scanLibrary(rootPath) {
   const exists = fs.existsSync(rootPath);
   if (!exists) return { ok: false, error: `Folder not found: ${rootPath}` };
@@ -344,21 +389,7 @@ async function scanLibrary(rootPath) {
     clip.mediaUrl = mediaUrlFor(clip.absPath);
   }
 
-  /**
-   * Fill in missing artwork behind the scan, one file at a time.
-   *
-   * Fire-and-forget on purpose: the scan result must not wait on hundreds of
-   * frame grabs. A rescan cancels the previous sweep so two never interleave,
-   * skip-existing makes it resumable, and it stands down whenever a conversion
-   * is running — background art never competes for the disk with a viewer.
-   */
-  artwork.cancelSweep();
-  artwork.sweep(artwork.planFor({ shows, movies }), {
-    // A conversion owns the disk, and so does the VIEWER: on a drive that has
-    // dropped off the bus under sustained reads, background frame-grabs while
-    // an episode streams are how the picture stutters and the drive dies.
-    shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive(),
-  }).catch(() => { /* art is best-effort; the library works without it */ });
+  startArtworkSweep(shows, movies);
 
   return {
     ok: true,
@@ -595,69 +626,205 @@ function thumbPathFor(absPath) {
 // window
 // ---------------------------------------------------------------------------
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 720,
-    minHeight: 480,
-    backgroundColor: '#08070c',
-    show: false,
-    autoHideMenuBar: true,
-    title: 'Nostalgia TV',
-    /**
-     * No system title bar. The window buttons are drawn by the renderer and
-     * float over the picture instead, which buys back the ~32px strip a title
-     * bar costs — on a player, that strip is the picture.
-     *
-     * Two things now have to come from the renderer that the frame used to
-     * provide for free, and both are easy to lose: somewhere to DRAG the window
-     * (a -webkit-app-region: drag strip) and the buttons themselves. Lose them
-     * and the window cannot be moved or closed at all.
-     */
-    frame: false,
-    webPreferences: {
+/**
+ * The two planes. `videoWindow` is the OS window — mpv renders into it, and
+ * every window VERB (minimise, maximise, fullscreen, close, drag) acts on
+ * it. `mainWindow` is the transparent interface plane glued exactly over it,
+ * carrying the ENTIRE renderer — every webContents.send and dialog parent in
+ * this file keeps working against it unchanged, which is why it keeps the
+ * name. The design and its traps are proven end to end by
+ * scripts/mpv-embed-proof.cjs; the plumbing lives in planeManager.js.
+ */
+let videoWindow = null;
+let mpvPlayerHandle = null;
+/**
+ * Is anybody actually watching right now? Background work (the artwork sweep,
+ * ingest) stands down during playback, and playback no longer flows through
+ * media:// — the open-stream count that used to answer this is silent under
+ * mpv, so mpv's own property answers it instead.
+ *
+ * The property is `core-idle`, NOT `idle-active`, and the difference is the
+ * whole behaviour. `idle-active` means "no file is loaded at all", which this
+ * app makes true exactly once: at boot. From the first episode onward a file
+ * is always loaded — keep-open holds the last frame, and the next item opens
+ * immediately — so `idle-active` went false and NEVER came back, latching the
+ * background work off for the rest of the session. Posters stopped filling in
+ * after the first episode and an ingest started later sat at "waiting"
+ * forever, with no error and no progress line moving.
+ *
+ * `core-idle` means "not actively playing" — false while playing, true while
+ * paused, seeking, or sitting on the library screen. That is what main's
+ * open-stream count measured (a stream was open only while bytes were being
+ * read for playback), so it is the faithful replacement.
+ *
+ * True until told otherwise: at boot, nothing is playing.
+ */
+let mpvIdleActive = true;
+
+function watchMpvActivity(player) {
+  const subscribe = () => player.observe('core-idle', (value) => {
+    mpvIdleActive = Boolean(value);
+  }).catch(() => {});
+  subscribe();
+  // Observers die with a crashed process; re-arm with each replacement.
+  player.on('restarted', subscribe);
+  /**
+   * A dead player reports nothing, so the last value it sent would stand
+   * forever — and the last value before a mid-episode death is "playing".
+   * That is the same latch by another route: mpv dies, and the artwork sweep
+   * and ingest stay suppressed for the rest of the session. Nobody is
+   * watching a player that is not running.
+   */
+  const release = () => { mpvIdleActive = true; };
+  player.on('down', release);
+  player.on('died', release);
+}
+
+async function createWindow() {
+  if (videoWindow) return;   // 'activate' re-entry: the pair already exists
+  const { video, overlay, showVideo, showOverlay } = createPlanes({
+    videoOptions: {
+      width: 1280,
+      height: 800,
+      minWidth: 720,
+      minHeight: 480,
+      backgroundColor: '#08070c',
+      autoHideMenuBar: true,
+      title: 'Nostalgia TV',
+      /**
+       * No system title bar. The window buttons are drawn by the renderer
+       * and float over the picture — on a player, that strip is the picture.
+       * The drag strip and the buttons live in the INTERFACE plane; the
+       * planeManager's reverse glue makes dragging the strip carry the video
+       * window along underneath.
+       */
+      frame: false,
+    },
+    overlayWebPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
     },
   });
+  videoWindow = video;
+  mainWindow = overlay;
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
-  mainWindow.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'));
+  /**
+   * The video plane goes up BEFORE mpv is spawned into it. mpv takes its
+   * surface size from the window it is handed at creation, so spawning into
+   * an unshown window left it rendering into nothing until the first resize
+   * — audio, a running clock, and a black rectangle until you maximised.
+   * The plane is empty black; showing it early costs nothing to look at.
+   */
+  showVideo();
 
-  mainWindow.on('closed', () => { mainWindow = null; });
+  /**
+   * Test-only placement, and the APP does it because only the app knows
+   * where its own planes are.
+   *
+   * Hunting the window from outside kept getting it wrong: the pair is a
+   * frameless owner plus an owned transparent child, MainWindowHandle comes
+   * back 0, and an enumeration that picked the child moved half a window —
+   * leaving the picture a monitor away while a pixel check sampled someone
+   * else's browser through the transparent interface and called the player
+   * black. Placing it from in here cannot pick the wrong window.
+   *
+   * Always-on-top so the check reads THIS app rather than whatever was
+   * already on that screen; never focused, so it cannot steal a keystroke
+   * from somebody working. Never set in normal use.
+   */
+  if (process.env.NTV_SMOKE_PLACE === 'secondary') {
+    // Straight after the show, never inside a `once('show')` — the plane is
+    // already up by this line, so a listener waiting for that event would
+    // never fire and the window would sit on the primary monitor, in the
+    // way, which is the one thing this hook exists to avoid.
+    const primary = screen.getPrimaryDisplay();
+    const other = screen.getAllDisplays().find((d) => d.id !== primary.id) || primary;
+    video.setPosition(other.workArea.x + 120, other.workArea.y + 120);
+    video.setAlwaysOnTop(true);
+    overlay.setAlwaysOnTop(true);
+  }
+
+
+  video.on('closed', () => { videoWindow = null; mainWindow = null; });
+
+  /**
+   * mpv and its typed handlers come up BEFORE the renderer does. The boot
+   * sequence writes volume and subtitle style within its first frames, and
+   * an invoke on an unregistered channel rejects — harmless to the facade,
+   * but a boot that races its own player is exactly the ordering debt the
+   * bridge work paid off elsewhere. Loading the page last removes the race
+   * instead of tolerating it.
+   */
+  const player = await startMpvPlayer({
+    hwnd: video.getNativeWindowHandle().readBigUInt64LE(0).toString(),
+    logFile: path.join(app.getPath('userData'), 'mpv.log'),
+  });
+  mpvPlayerHandle = player;
+  watchMpvActivity(player);
+
+  /**
+   * Keep mpv on top of Chromium's compositor child, for the life of the
+   * window. Every one of these events makes Chromium re-create or re-assert
+   * that child, and each time it lands ABOVE mpv — which looks exactly like
+   * a broken player: audio, a running clock and a black rectangle.
+   */
+  for (const event of ['resize', 'move', 'restore', 'maximize', 'unmaximize', 'focus',
+    'enter-full-screen', 'leave-full-screen', 'show']) {
+    video.on(event, player.raise);
+  }
+  overlay.webContents.on('did-finish-load', player.raise);
+  /**
+   * The paint that re-asserts Chromium's child lands AFTER did-finish-load,
+   * so one raise at load time is a raise too early. A short ladder covers
+   * the first seconds without polling forever — every later re-assert has a
+   * window event behind it, and those are wired above.
+   */
+  for (const delay of [500, 1200, 2500, 5000]) setTimeout(player.raise, delay);
+  const host = createMpvHost({
+    player,
+    send: (...args) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(...args);
+    },
+    isInsideAllowedRoot,
+  });
+  for (const [channel, handler] of Object.entries(host.handlers)) ipcMain.handle(channel, handler);
+  await host.ready;
+
+  overlay.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'));
+  // The interface plane last, once it has painted: no half-drawn UI.
+  overlay.webContents.once('did-finish-load', showOverlay);
 
   /**
    * Tell the renderer what the window is doing.
    *
    * The maximise button has to show a different glyph once maximised, and the
-   * window can be maximised without the button — a double-click on the drag
-   * strip, Win+Up, or a snap — so asking once at startup would leave the glyph
-   * lying for the rest of the session. Fullscreen rides along because the
-   * buttons hide in it: there is no window to restore, and drawing a close
-   * button over a fullscreen picture is just something to hit by accident.
+   * window can be maximised without the button — Win+Up, or a snap — so asking
+   * once at startup would leave the glyph lying for the rest of the session.
+   * Fullscreen rides along because the buttons hide in it. The events come
+   * from the VIDEO window (the OS window); the report goes to the interface.
    */
   const reportWindowState = () => {
+    if (!videoWindow || videoWindow.isDestroyed()) return;
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.send('window:state', {
-      maximized: mainWindow.isMaximized(),
-      fullscreen: mainWindow.isFullScreen(),
+      maximized: videoWindow.isMaximized(),
+      fullscreen: videoWindow.isFullScreen(),
     });
   };
   for (const event of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) {
-    mainWindow.on(event, reportWindowState);
+    video.on(event, reportWindowState);
   }
-  mainWindow.webContents.on('did-finish-load', reportWindowState);
+  overlay.webContents.on('did-finish-load', reportWindowState);
 
   // Anything trying to open a new window or navigate away is not part of this
   // app; send external links to the real browser instead.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  overlay.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
   });
-  mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  overlay.webContents.on('will-navigate', (event) => event.preventDefault());
 }
 
 // ---------------------------------------------------------------------------
@@ -739,8 +906,7 @@ function registerIpc() {
       artwork.cancelSweep();
       return await ingest.run(Array.isArray(items) ? items : [], {
         artwork,
-        inspect: (absPath, options) => prepare.inspect(absPath, options),
-        shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive(),
+        shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive() || !mpvIdleActive,
         onProgress: (progress) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('ingest:progress', progress);
@@ -749,12 +915,11 @@ function registerIpc() {
       });
     } catch (error) {
       return { ok: false, error: String(error && error.message ? error.message : error) };
+    } finally {
+      // Hand the disk back. The ingest covered the NEW titles' art; everything
+      // else that is missing one is still the sweep's job, and it is resumable.
+      startArtworkSweep();
     }
-  });
-
-  /** The ingest ledger, read-only, for the library table. */
-  ipcMain.handle('ingest:entries', async () => {
-    try { return await ingest.entriesSnapshot(); } catch { return {}; }
   });
 
   /** Which of these titles have artwork — booleans in input order. */
@@ -793,6 +958,30 @@ function registerIpc() {
     }
   });
 
+  /**
+   * The same store, from bytes the renderer read off a dropped file.
+   *
+   * Capped, because this crosses IPC: a card image is a few hundred KB and
+   * anything remotely near this ceiling is somebody dropping the wrong file.
+   * Refusing with a reason beats serialising a 4GB video into the main
+   * process to find out it is not a picture.
+   */
+  const MAX_ART_BYTES = 12 * 1024 * 1024;
+  ipcMain.handle('artwork:setFromData', async (_event, kind, id, bytes) => {
+    if (!['show', 'movie'].includes(kind) || typeof id !== 'string') {
+      return { ok: false, error: 'Bad request' };
+    }
+    if (!bytes || typeof bytes.byteLength !== 'number') return { ok: false, error: 'No image data' };
+    if (bytes.byteLength > MAX_ART_BYTES) {
+      return { ok: false, error: 'That image is over 12 MB. Try a smaller one.' };
+    }
+    try {
+      return await artwork.setFromBuffer(kind, id, bytes);
+    } catch (error) {
+      return { ok: false, error: String(error && error.message ? error.message : error) };
+    }
+  });
+
   ipcMain.handle('thumb:get', async (_event, absPath) => {
     try {
       const buf = await fsp.readFile(thumbPathFor(absPath));
@@ -815,8 +1004,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('window:setFullscreen', (_event, value) => {
-    if (mainWindow) mainWindow.setFullScreen(Boolean(value));
-    return Boolean(mainWindow && mainWindow.isFullScreen());
+    if (videoWindow) videoWindow.setFullScreen(Boolean(value));
+    return Boolean(videoWindow && videoWindow.isFullScreen());
   });
 
   // The window buttons. With no system frame these are the ONLY way to minimise
@@ -824,14 +1013,14 @@ function registerIpc() {
   // — a click landing during teardown would otherwise throw on a destroyed
   // window and leave the app unclosable.
   ipcMain.handle('window:minimize', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+    if (videoWindow && !videoWindow.isDestroyed()) videoWindow.minimize();
   });
 
   ipcMain.handle('window:toggleMaximize', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return false;
-    if (mainWindow.isMaximized()) mainWindow.unmaximize();
-    else mainWindow.maximize();
-    return mainWindow.isMaximized();
+    if (!videoWindow || videoWindow.isDestroyed()) return false;
+    if (videoWindow.isMaximized()) videoWindow.unmaximize();
+    else videoWindow.maximize();
+    return videoWindow.isMaximized();
   });
 
   ipcMain.handle('window:close', () => {
@@ -839,97 +1028,34 @@ function registerIpc() {
     // ran — 'window-all-closed' and 'before-quit', which is where saveStateSync
     // lives. destroy() tears the window down without either, so every episode
     // watched since the last rolling save would be lost on the way out.
+    // Through the OVERLAY, not the video window: the renderer's
+    // beforeunload final-save lives there, and the plane manager cascades
+    // the close to the pair either way.
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
   });
 
 
-  // -- preparing unplayable files ------------------------------------------
-
-  // What the player could actually decode, measured rather than guessed.
-  ipcMain.handle('prepare:verdict', async (_event, absPath) => (
-    isInsideAllowedRoot(absPath) ? prepare.readVerdict(absPath) : null
-  ));
-
-  ipcMain.handle('prepare:saveVerdict', async (_event, absPath, verdict) => (
-    isInsideAllowedRoot(absPath) ? prepare.writeVerdict(absPath, verdict) : { ok: false }
-  ));
-
-  ipcMain.handle('prepare:capabilities', async () => ({
-    ffmpeg: prepare.hasFfmpeg(),
-    ffmpegPath: prepare.findFfmpeg(),
-  }));
-
-  /** Read a file's codecs and say what would have to happen for it to play. */
-  ipcMain.handle('prepare:inspect', async (_event, absPath, options) => {
-    if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
-    const preferLanguage = options && typeof options.preferLanguage === 'string'
-      ? options.preferLanguage
-      : undefined;
-    try {
-      return { ok: true, plan: await prepare.inspect(absPath, { preferLanguage }) };
-    } catch (error) {
-      return { ok: false, error: String(error && error.message ? error.message : error) };
-    }
-  });
-
   /**
-   * Convert if needed and return something playable. Safe to call twice for the
-   * same file: the second caller joins the running job rather than starting a
-   * second ffmpeg against the same output.
+   * -- the ffmpeg surface, what is LEFT of it --------------------------------
+   *
+   * This section used to expose the whole conversion pipeline to the renderer:
+   * verdict/saveVerdict (what could Chromium decode), capabilities, inspect,
+   * tracks, subtitle (WebVTT for a <track> element), ensure (the conversion
+   * itself, with a progress push), cancel and pin. mpv decodes everything and
+   * reports its own tracks, so every one of those lost its caller at the
+   * switchover — and stayed exposed, with a live handler behind it, including
+   * `prepare:ensure`, which would still have spawned a full ffmpeg conversion
+   * for anything that asked.
+   *
+   * ONE remains: crop, the auto-crop measurement, which is still genuinely
+   * ffmpeg's job. cacheInfo and cleanup went when their settings panel did —
+   * the cache is empty, nothing can write to it again, and the boot sweep
+   * below clears any remainder without being asked.
+   *
+   * The prepare MODULE stays: ingest reads codecs through prepare.inspect,
+   * artwork needs findFfmpeg, the cache sweep and the shutdown cancel are
+   * still wired, and activeJobs still answers "is ffmpeg busy" for shouldPause.
    */
-  /** Audio and subtitle tracks, labelled for the player's track menu. */
-  ipcMain.handle('prepare:tracks', async (_event, absPath, options) => {
-    if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
-    const preferLanguage = options && typeof options.preferLanguage === 'string'
-      ? options.preferLanguage
-      : undefined;
-    try {
-      return await prepare.listTracks(absPath, { preferLanguage });
-    } catch (error) {
-      return { ok: false, audio: [], subtitles: [], error: String(error && error.message ? error.message : error) };
-    }
-  });
-
-  /**
-   * Subtitles come back as WebVTT TEXT rather than a URL: the renderer turns it
-   * into a blob for the <track> element, so the media:// protocol stays a
-   * video-only surface rather than growing a second file type to guard.
-   */
-  ipcMain.handle('prepare:subtitle', async (_event, absPath, index) => {
-    if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
-    if (!Number.isInteger(index) || index < 0) return { ok: false, error: 'Bad track index' };
-    try {
-      const result = await prepare.extractSubtitle(absPath, index);
-      if (!result.ok) return result;
-      return { ok: true, vtt: await fsp.readFile(result.path, 'utf8') };
-    } catch (error) {
-      return { ok: false, error: String(error && error.message ? error.message : error) };
-    }
-  });
-
-  ipcMain.handle('prepare:ensure', async (_event, absPath, forceTier, audioIndex, preferLanguage) => {
-    if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
-    try {
-      const result = await prepare.ensurePlayable(absPath, {
-        forceTier: typeof forceTier === 'string' ? forceTier : undefined,
-        audioIndex: Number.isInteger(audioIndex) ? audioIndex : undefined,
-        preferLanguage: typeof preferLanguage === 'string' ? preferLanguage : undefined,
-        onProgress: ({ outMs, totalMs }) => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('prepare:progress', { absPath, outMs, totalMs });
-          }
-        },
-      });
-      return {
-        ...result,
-        // The renderer only ever plays through media://, so hand back a URL
-        // rather than a path it would have to know how to encode.
-        mediaUrl: result.playablePath ? mediaUrlFor(result.playablePath) : null,
-      };
-    } catch (error) {
-      return { ok: false, error: String(error && error.message ? error.message : error) };
-    }
-  });
 
   /**
    * The real picture inside a frame with bars baked in.
@@ -944,38 +1070,6 @@ function registerIpc() {
     try { return await prepare.detectCrop(absPath, { cachedOnly }); } catch { return null; }
   });
 
-  ipcMain.handle('prepare:cancel', async (_event, absPath) => ({ cancelled: prepare.cancel(absPath) }));
-
-  /** Keep the playing and next-up conversions; everything else may be evicted. */
-  ipcMain.handle('prepare:pin', async (_event, paths) => {
-    prepare.unpinAllExcept(Array.isArray(paths) ? paths : []);
-    for (const p of Array.isArray(paths) ? paths : []) prepare.pin(p);
-    return { ok: true };
-  });
-
-  ipcMain.handle('prepare:cacheInfo', async () => {
-    const entries = await prepare.cacheEntries();
-    return {
-      count: entries.length,
-      bytes: entries.reduce((n, e) => n + e.size, 0),
-      budget: prepare.DEFAULT_CACHE_BUDGET,
-      jobs: prepare.activeJobs(),
-    };
-  });
-
-  /**
-   * The settings button: sweep abandoned .part fragments and re-enforce the
-   * budget. Deliberately does NOT cancel running jobs — cleaning up must never
-   * kill the conversion someone is waiting on; live fragments are skipped by
-   * their fresh mtime instead.
-   */
-  ipcMain.handle('prepare:cleanup', async () => {
-    try {
-      return { ok: true, ...(await prepare.cleanupCache()) };
-    } catch (error) {
-      return { ok: false, error: String(error && error.message ? error.message : error) };
-    }
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -986,13 +1080,14 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+    if (videoWindow) {
+      if (videoWindow.isMinimized()) videoWindow.restore();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus();
     }
   });
 
   app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
     prepareCacheRoot = path.join(app.getPath('userData'), 'prepared');
     prepare.setCacheDir(prepareCacheRoot);
     /**
@@ -1015,7 +1110,13 @@ if (!app.requestSingleInstanceLock()) {
 
     protocol.handle('media', serveMedia);
     registerIpc();
-    createWindow();
+    createWindow().catch((error) => {
+      // Without this an mpv that cannot start leaves a windowless process:
+      // nothing on screen, nothing on the taskbar, no way to quit.
+      dialog.showErrorBox('Nostalgia TV could not start its player',
+        String(error && error.message ? error.message : error));
+      app.quit();
+    });
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1028,11 +1129,12 @@ if (!app.requestSingleInstanceLock()) {
   // Closing the window is the most common way this app ends, and the renderer's
   // last debounced save has usually not landed yet — so flush synchronously on
   // every shutdown path rather than trusting one of them to fire.
-  app.on('before-quit', () => { saveStateSync(); prepare.cancelAll(); });
+  app.on('before-quit', () => { saveStateSync(); prepare.cancelAll(); if (mpvPlayerHandle) mpvPlayerHandle.close(); });
 
   app.on('window-all-closed', () => {
     saveStateSync();
     prepare.cancelAll();
+    if (mpvPlayerHandle) mpvPlayerHandle.close();
     if (process.platform !== 'darwin') app.quit();
   });
 }

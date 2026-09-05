@@ -75,14 +75,34 @@ async function read(kind, id) {
 }
 
 /**
+ * A file DROPPED on the window, decoded from bytes rather than a path.
+ *
+ * Electron removed File.path, so a dropped file cannot be handed over as
+ * something to open — the renderer reads it and sends the bytes. Both routes
+ * meet at storeImage below, so a dropped image and a chosen one cannot end up
+ * stored differently.
+ */
+async function setFromBuffer(kind, id, buffer) {
+  return storeImage(kind, id, nativeImage.createFromBuffer(Buffer.from(buffer)));
+}
+
+/** An image picked through the OS file dialog, which does give a path. */
+async function setFromImage(kind, id, sourcePath) {
+  return storeImage(kind, id, nativeImage.createFromPath(sourcePath));
+}
+
+/**
  * Store a user-chosen image, whatever format it arrived in.
  *
  * nativeImage decodes anything Chromium can (png/jpg/webp/gif first frame) and
  * hands back a PNG, so the store stays one format. Downscaled to card size —
  * a 12 MP photo as a gallery card is 30x the bytes for zero extra pixels drawn.
+ *
+ * An undecodable file arrives here as an EMPTY image rather than a throw, so
+ * the refusal has to be checked for; without it a PDF would be written as a
+ * zero-byte PNG and the card would go permanently blank.
  */
-async function setFromImage(kind, id, sourcePath) {
-  const image = nativeImage.createFromPath(sourcePath);
+async function storeImage(kind, id, image) {
   if (image.isEmpty()) return { ok: false, error: 'That file is not a readable image.' };
 
   const size = image.getSize();
@@ -263,4 +283,6 @@ async function stats(items) {
   return out;
 }
 
-module.exports = { init, read, has, stats, setFromImage, capture, sweep, cancelSweep, planFor, keyFor };
+module.exports = {
+  init, read, has, stats, setFromImage, setFromBuffer, capture, sweep, cancelSweep, planFor, keyFor,
+};

@@ -22,11 +22,21 @@ const read = (f) => fs.readFileSync(path.join(here, '..', 'electron', f), 'utf8'
 
 const preload = read('preload.js');
 const main = read('main.js');
+const mpvHost = read('mpvHost.js');
 
+// mpvHost declares its channels as object keys and registers them in a loop,
+// so its half of the contract is the KEY literal, not an ipcMain.handle call.
+// Its pushes go through an injected `send`, scanned the same way.
 const invoked = [...preload.matchAll(/ipcRenderer\.invoke\(\s*'([^']+)'/g)].map((m) => m[1]);
-const handled = [...main.matchAll(/ipcMain\.handle\(\s*'([^']+)'/g)].map((m) => m[1]);
+const handled = [
+  ...[...main.matchAll(/ipcMain\.handle\(\s*'([^']+)'/g)].map((m) => m[1]),
+  ...[...mpvHost.matchAll(/'(mpv:[^']+)':/g)].map((m) => m[1]),
+];
 
-const sent = [...main.matchAll(/webContents\.send\(\s*'([^']+)'/g)].map((m) => m[1]);
+const sent = [
+  ...[...main.matchAll(/webContents\.send\(\s*'([^']+)'/g)].map((m) => m[1]),
+  ...[...mpvHost.matchAll(/send\(\s*'(mpv:[^']+)'/g)].map((m) => m[1]),
+];
 const listened = [...preload.matchAll(/ipcRenderer\.on\(\s*'([^']+)'/g)].map((m) => m[1]);
 
 describe('ipc channels', () => {
@@ -39,6 +49,19 @@ describe('ipc channels', () => {
 
   it('has a handler for everything the renderer invokes', () => {
     expect(invoked.filter((channel) => !handled.includes(channel))).toEqual([]);
+  });
+
+  it('registers every mpv channel through the host loop', () => {
+    // The switchover's registration is a LOOP over host.handlers, invisible
+    // to the literal scan above — so this pin holds the two halves of that
+    // contract explicitly: the loop must exist in main.js, and every mpv:*
+    // channel the preload invokes must be a key mpvHost.js declares. Any
+    // non-mpv channel still needs its literal ipcMain.handle in main.js.
+    expect(/host\.handlers/.test(main)).toBe(true);
+    const declaredByHost = [...mpvHost.matchAll(/'(mpv:[^']+)':/g)].map((m) => m[1]);
+    const mpvInvoked = invoked.filter((c) => c.startsWith('mpv:'));
+    expect(mpvInvoked.length).toBeGreaterThan(5);   // the extraction found them
+    expect(mpvInvoked.filter((c) => !declaredByHost.includes(c))).toEqual([]);
   });
 
   it('has a listener for everything main pushes', () => {

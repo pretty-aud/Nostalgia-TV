@@ -23,24 +23,50 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const installer = join(root, 'dist', 'Nostalgia TV Setup.exe');
-const builtAsar = join(root, 'dist', 'win-unpacked', 'resources', 'app.asar');
-const installedAsar = join(
+const builtResources = join(root, 'dist', 'win-unpacked', 'resources');
+const installedResources = join(
   process.env.LOCALAPPDATA || '',
-  'Programs', 'nostalgia-tv', 'resources', 'app.asar',
+  'Programs', 'nostalgia-tv', 'resources',
 );
 
 const hash = (file) => (existsSync(file)
   ? createHash('sha1').update(readFileSync(file)).digest('hex').slice(0, 16)
   : null);
 
+/**
+ * What actually has to arrive, not just the JavaScript.
+ *
+ * This used to hash app.asar and nothing else, which made the check blind to
+ * the largest and most load-bearing part of the payload: mpv and ffmpeg ship
+ * as extraResources, OUTSIDE the asar. So a stale, partial or missing
+ * resources/mpv gave an identical asar hash, this script printed "matches the
+ * build", and the app then booted straight to an error dialog and quit —
+ * mpvPlayer looks for mpv.exe at resources/mpv and has deliberately no
+ * system-hunt fallback. A deploy check that cannot see the player is not a
+ * deploy check.
+ *
+ * A missing file hashes to null and simply differs from the built side, which
+ * is exactly the failure we want to catch.
+ */
+const PAYLOAD = [
+  'app.asar',
+  join('mpv', 'mpv.exe'),
+  join('ffmpeg', 'ffmpeg.exe'),
+  join('ffmpeg', 'ffprobe.exe'),
+];
+
+const payloadHashes = (base) => PAYLOAD.map((rel) => `${rel}=${hash(join(base, rel)) ?? '(missing)'}`);
+const payloadDigest = (base) => createHash('sha1').update(payloadHashes(base).join('|')).digest('hex').slice(0, 16);
+
 if (!existsSync(installer)) {
   console.error(`No installer at ${installer}. Run "npm run dist" first.`);
   process.exit(1);
 }
 
-const wanted = hash(builtAsar);
-console.log(`built    ${wanted}`);
-console.log(`installed ${hash(installedAsar) ?? '(not installed)'} — installing…`);
+const wanted = payloadDigest(builtResources);
+console.log(`built     ${wanted}`);
+for (const line of payloadHashes(builtResources)) console.log(`            ${line}`);
+console.log(`installed ${existsSync(installedResources) ? payloadDigest(installedResources) : '(not installed)'} — installing…`);
 
 // /S is NSIS silent mode. The installer returns before it has finished writing,
 // so the check below polls rather than assuming.
@@ -49,12 +75,13 @@ execFileSync(installer, ['/S'], { stdio: 'inherit' });
 const deadline = Date.now() + 90000;
 let got = null;
 while (Date.now() < deadline) {
-  got = hash(installedAsar);
+  got = existsSync(installedResources) ? payloadDigest(installedResources) : null;
   if (got === wanted) break;
   execFileSync(process.execPath, ['-e', 'setTimeout(()=>{},1500)']); // ~1.5s pause
 }
 
 if (got !== wanted) {
+  for (const line of payloadHashes(installedResources)) console.error(`  installed ${line}`);
   console.error(`\nInstall did NOT take. installed=${got} wanted=${wanted}`);
   console.error('The shortcuts still launch the old build. Do not report this as shipped.');
   process.exit(1);

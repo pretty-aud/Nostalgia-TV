@@ -128,6 +128,14 @@ const DEFAULT_SETTINGS = {
    */
   theme: 'midnight',   // one of THEMES in the renderer; anything else falls back
 
+  /**
+   * Which face the interface is drawn in, as ids from FONT_CHOICES in the
+   * renderer — `display` for the wordmark and headings, `body` for prose.
+   * An unknown id falls back rather than blanking the interface, so a file
+   * written by a later version cannot leave the app unreadable.
+   */
+  fonts: { display: 'grotesk', body: 'inter' },
+
   autoCrop: true,
   interstitialZoom: 100,    // scale % for bumpers/promos ONLY, to crop baked-in bars
   uiScale: 100,             // scale % for player text and controls
@@ -190,6 +198,14 @@ function createState(rootPath) {
      * hydrates with { ...createState(), ...saved }.
      */
     library: { shows: {}, movies: {}, seeded: false },
+    /**
+     * Genre tags, set by hand. Declared here for the same reason `library`
+     * is, and kept OUT of settings on purpose: settings describe how the
+     * channel behaves, and these describe the library itself. Shows are keyed
+     * by show.id and movies by relPath, matching every other per-title store.
+     * Never pruned against a scan — see src/shared/genres.js.
+     */
+    tags: { shows: {}, movies: {}, custom: [] },
     settings: { ...DEFAULT_SETTINGS },
   };
 }
@@ -277,13 +293,19 @@ function pruneQueue(shows, queue) {
 }
 
 /**
- * Marathon mode deliberately OVERRIDES the disabled list rather than
- * intersecting with it: explicitly choosing a show to marathon is a stronger
- * statement than having switched it off at some point in the past, and an empty
- * channel would be the only other outcome.
+ * Who may play, in one place — every rotation mode, the deck, the queue and
+ * the bumper inherit it from here rather than each asking separately.
  *
- * Putting it here rather than at each call site means every rotation mode, the
- * deck, the queue and the bumper all inherit it from one place.
+ * The precedence, highest first:
+ *
+ *   1. MARATHON. Asking for one show by name is the most explicit instruction
+ *      there is, and it overrides everything including a lock — the only other
+ *      outcome is a channel that stops dead on a request the viewer just made.
+ *   2. PLAY ORDER. A lock is a promise not to spoil a sequel, and it holds
+ *      under a schedule as much as under the shuffle.
+ *   3. THE SCHEDULE, when one is set: it decides membership outright, and the
+ *      library's tick boxes are not consulted.
+ *   4. THE TICK BOXES, when no schedule is set.
  */
 function isEnabled(show, settings, lockedIds) {
   // Marathon is checked FIRST, which is also what makes it an override: asking
@@ -291,18 +313,28 @@ function isEnabled(show, settings, lockedIds) {
   if (settings.marathonShowId) return show.id === settings.marathonShowId;
 
   /**
-   * A set schedule is the same kind of statement, so it overrides the same
-   * things. Naming a show in a schedule you built by hand outranks having
-   * switched it off at some point, and outranks a lock — which is a default
-   * for a rotation nobody has specified, not a veto over one you have.
+   * PLAY ORDER APPLIES EVERYWHERE. A lock says "do not play this until that
+   * has played", and that is true of a schedule as much as of the shuffled
+   * rotation — a schedule decides WHAT is in the running order, never that a
+   * sequel may be spoiled. It used to sit below the schedule check, so
+   * selecting any schedule quietly switched every lock off.
+   */
+  if (lockedIds && lockedIds.has(show.id)) return false;
+
+  /**
+   * A schedule is the SOURCE OF TRUTH for membership.
    *
-   * It also NARROWS: under a schedule the only shows that play are the ones on
-   * it, so a show left out is out whether or not it is switched on.
+   * Naming a show in a running order you built by hand outranks having
+   * switched it off at some point — the tick boxes belong to the whole
+   * library, and under a schedule they are not the question being asked.
+   *
+   * It also NARROWS: the only shows that play are the ones on it, so a show
+   * left out is out whether or not it is switched on.
    */
   const schedule = activeSchedule(settings);
   if (schedule) return (schedule.items || []).includes(show.id);
 
-  if (lockedIds && lockedIds.has(show.id)) return false;
+  // No schedule: the tick boxes are the answer.
   return !(settings.disabledShows || []).includes(show.id);
 }
 
@@ -318,6 +350,28 @@ function activeSchedule(settings) {
   if (!id) return null;
   const found = (settings.schedules || []).find((s) => s && s.id === id);
   return found || null;
+}
+
+/**
+ * The shows a schedule actually contains, for the sidebar to list.
+ *
+ * `items` is an ORDERED list that may name the same show more than once —
+ * that is how a show gets two blocks in one rotation — so membership is a
+ * SET question and the answer is deduped by construction. Ids naming a show
+ * the library no longer has are simply absent from the result; a schedule
+ * outliving a deleted folder is ordinary, not an error.
+ *
+ * Library order is kept deliberately. The schedule decides WHICH shows are
+ * listed, not where each one sits, so finding a show by eye works the same
+ * way in every view.
+ *
+ * A null schedule means no schedule — every show.
+ */
+function showsInSchedule(shows, schedule) {
+  const all = Array.isArray(shows) ? shows : [];
+  if (!schedule) return all;
+  const wanted = new Set(schedule.items || []);
+  return all.filter((show) => show && wanted.has(show.id));
 }
 
 /** Episodes per block for whichever running order is in force. */
@@ -1099,6 +1153,7 @@ function applySettings(shows, state, patch, options = {}) {
 module.exports = {
   DEFAULT_SETTINGS,
   activeSchedule,
+  showsInSchedule,
   blockSizeFor,
   createState,
   reconcileCursors,

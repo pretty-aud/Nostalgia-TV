@@ -28,16 +28,8 @@ import {
   applySettings,
   formatEpisodeLabel,
   activeSchedule,
+  showsInSchedule,
 } from '../shared/scheduler.js';
-import { TIER, needsFallback, audioIndexFromInspect, matchesLanguage } from '../shared/playability.js';
-import { preparingCopy } from '../shared/prepProgress.js';
-import {
-  summarizeShow,
-  movieVerdict,
-  describeShowConversion,
-  describeMovieConversion,
-  describeEpisodeConversion,
-} from '../shared/mediaStatus.js';
 import {
   readyCopy,
   seedFromCursors,
@@ -62,6 +54,15 @@ import {
   setLock,
   resetUnlocks,
 } from '../shared/locks.js';
+import { createMpvFacade } from './mpvBridge.js';
+import { pickAudioTrackId, pickSubtitleTrackId, audioMenuFrom, subtitleMenuFrom } from '../shared/mpvTracks.js';
+import { subStyleProperties } from '../shared/mpvSubStyle.js';
+import { cropSpecFor } from '../shared/mpvCrop.js';
+import { FONT_CHOICES, DEFAULT_FONTS, fontStackFor } from '../shared/fonts.js';
+import {
+  tagsFor, withTags, allTags, tagsInUse, matchesGenres, narrowTags, offersCreate,
+  withCustomTag, withoutTag, countTagged, cleanTag, keyFor, hasTag,
+} from '../shared/genres.js';
 
 // ---------------------------------------------------------------------------
 // module state
@@ -69,7 +70,21 @@ import {
 
 const el = (id) => document.getElementById(id);
 const app = el('app');
-const player = el('player');
+
+/**
+ * THE PLAYER IS MPV, WEARING THE ELEMENT'S FACE.
+ *
+ * Every permanent listener, every currentTime read for a save, every paused
+ * check in the transport keeps working against the same surface — the
+ * facade mirrors mpv's property stream and translates writes into the typed
+ * IPC. What used to be <video id="player"> in the markup is now the video
+ * PLANE behind this whole window: a separate native window mpv renders
+ * into, with this entire document floating transparently above it
+ * (electron/planeManager.js). `el('playerSurface')` is the transparent
+ * region you see the picture through — the click-and-hover target the
+ * element used to be.
+ */
+const player = createMpvFacade(window.tv);
 
 let state = createState(null);
 let shows = [];
@@ -175,11 +190,6 @@ function toast(message, ms = 3200) {
  * because we do not know how long the job will take, so finishing early has to
  * take it down explicitly or it hangs around over the episode it announced.
  */
-function clearToast() {
-  clearTimeout(toastTimer);
-  el('toast').dataset.show = 'false';
-}
-
 /**
  * Saving.
  *
@@ -410,24 +420,91 @@ function renderSidebar() {
   el('libraryStats').textContent = shows.length
     ? `${shows.length} shows · ${episodeCount} episodes`
     : '';
-  el('showCount').textContent = shows.length ? String(shows.length) : '';
+  /**
+   * The list follows the schedule picker above it.
+   *
+   * With a schedule in force the sidebar shows THAT schedule's shows and
+   * nothing else — the question "what is on this channel" has a different
+   * answer once a running order is fixed, and scrolling the whole library to
+   * find out was answering the wrong one. "All Shows" is the way back.
+   *
+   * Library order, not schedule order: the membership changes, the place a
+   * show sits does not, so finding one by eye still works the same way. A
+   * schedule may list the same show twice — that is how it gets two blocks —
+   * so the set is deduped by construction.
+   */
+  const running = activeSchedule(state.settings);
+  const visible = showsInSchedule(shows, running);
+
+  /**
+   * The switch-off checkbox belongs to the whole library, not to a schedule.
+   *
+   * Inside a schedule the running order already decides what plays, so a tick
+   * box there would be a second, quieter answer to the same question — and
+   * switching a show off from a list that only exists because a schedule
+   * named it reads as removing it FROM the schedule, which it does not do.
+   * The card still plays on click; only the toggle goes.
+   */
+  const showToggles = !running;
+
+  /**
+   * "31 shows", with the NUMBER carrying the accent.
+   *
+   * The schedule's name used to head this line and was simply the picker
+   * above repeated. What the picker cannot tell you is how many shows the
+   * choice leaves, and that count is the part that moves when you change
+   * schedules — so it is coloured and the noun is not.
+   */
+  const count = el('showCount');
+  count.textContent = '';
+  const n = document.createElement('b');
+  n.className = 'sectionhead__n';
+  n.textContent = String(visible.length);
+  count.append(n, document.createTextNode(` show${visible.length === 1 ? '' : 's'}`));
 
   const list = el('showList');
   list.textContent = '';
+  // The card is a two-column grid built around the toggle, so dropping the
+  // toggle has to drop the column with it — otherwise the meta line
+  // auto-places into the empty second column and sits BESIDE the show's name
+  // instead of under it.
+  list.dataset.toggles = String(showToggles);
   const disabled = new Set(state.settings.disabledShows || []);
   const marathonId = state.settings.marathonShowId || null;
 
-  for (const show of shows) {
+  const empty = el('showsEmpty');
+  if (running && visible.length === 0) {
+    empty.hidden = false;
+    empty.textContent = (running.items || []).length
+      ? 'The shows in this schedule are not in the library any more.'
+      : 'This schedule has no shows in it yet.';
+  } else {
+    empty.hidden = true;
+  }
+
+  for (const show of visible) {
     const cursor = state.cursors[show.id] || { index: 0 };
     const position = Math.min(cursor.index, show.episodes.length);
     const nextEpisode = show.episodes[position % show.episodes.length];
-    const off = disabled.has(show.id);
+    /**
+     * Switched-off is an ALL SHOWS state, so it is only drawn there.
+     *
+     * Under a schedule the running order decides what plays and the tick
+     * boxes are not consulted — but the card still rendered greyed and
+     * collapsed from the same list, so a show the schedule had explicitly
+     * named looked excluded from the channel it was about to play on.
+     * showToggles is already "no schedule is running"; the look and the
+     * behaviour now come from the one flag.
+     */
+    const off = showToggles && disabled.has(show.id);
 
     const li = document.createElement('li');
     li.className = 'show';
     li.dataset.off = String(off);
     li.dataset.showId = show.id;
-    li.title = off ? 'Switched off — click to include' : 'Click to switch off';
+    li.title = showToggles
+      ? (off ? 'Switched off — click to include' : 'Click to switch off')
+      : 'Click to play this show now';
 
     const name = document.createElement('div');
     name.className = 'show__name';
@@ -479,7 +556,9 @@ function renderSidebar() {
     fill.style.width = `${show.episodes.length ? (position / show.episodes.length) * 100 : 0}%`;
     bar.append(fill);
 
-    li.append(name, toggle, meta, bar, showControls(show, marathonId === show.id));
+    li.append(name);
+    if (showToggles) li.append(toggle);
+    li.append(meta, bar, showControls(show, marathonId === show.id));
     list.append(li);
   }
 
@@ -698,10 +777,18 @@ function renderScheduleField() {
     select.append(status);
   }
 
-  const off = document.createElement('option');
-  off.value = '';
-  off.textContent = savedSchedules().length ? 'Off — shuffle the rotation' : 'No schedules yet';
-  select.append(off);
+  /**
+   * "All Shows" is the same choice the "Off — shuffle the rotation" entry
+   * was: no schedule in force. The label changed because this control now
+   * decides the LIST as well as the order, and from the list's side the
+   * honest name for "no schedule" is "everything". It is never "No schedules
+   * yet" any more either — with nothing saved, All Shows is still exactly
+   * what you are looking at, and Create new… below says what to do next.
+   */
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = 'All Shows';
+  select.append(all);
 
   for (const sc of savedSchedules()) {
     const option = document.createElement('option');
@@ -710,6 +797,17 @@ function renderScheduleField() {
     option.textContent = `${sc.name} · ${blocks} block${blocks === 1 ? '' : 's'}`;
     select.append(option);
   }
+
+  /**
+   * An ACTION in a list of states, which a <select> is not really for — but
+   * it belongs here: "make another one" is the same question as "which one",
+   * asked when the answer is none of these. It never becomes the value; the
+   * change handler opens the editor and puts the selection straight back.
+   */
+  const create = document.createElement('option');
+  create.value = '__create__';
+  create.textContent = savedSchedules().length ? 'Create new…' : 'Create a schedule…';
+  select.append(create);
 
   select.value = marathonShow ? '__marathon__' : (running ? running.id : '');
   select.disabled = shows.length === 0;
@@ -816,6 +914,29 @@ function renderSettings() {
 
   const theme = resolveTheme(state.settings.theme);
   el('themeSelect').value = theme;
+
+  // Built from FONT_CHOICES rather than written into the markup, so a face is
+  // added in one place and cannot drift out of step with what applyFonts can
+  // actually resolve.
+  const fonts = state.settings.fonts || {};
+  for (const [id, chosen, fallback] of [
+    ['fontDisplaySelect', fonts.display, DEFAULT_FONTS.display],
+    ['fontBodySelect', fonts.body, DEFAULT_FONTS.body],
+  ]) {
+    const select = el(id);
+    if (!select.options.length) {
+      for (const font of FONT_CHOICES) {
+        const option = document.createElement('option');
+        option.value = font.id;
+        option.textContent = font.label;
+        // Show each choice IN itself: the label is the only preview there is,
+        // and reading "handwritten" in Inter tells you nothing.
+        option.style.fontFamily = font.stack;
+        select.append(option);
+      }
+    }
+    select.value = FONT_CHOICES.some((f) => f.id === chosen) ? chosen : fallback;
+  }
   el('themeNote').textContent = LIGHT_THEMES.includes(theme)
     ? 'Panels take the theme; over the picture the type stays legible against the video.'
     : '';
@@ -924,47 +1045,12 @@ async function showBumper(onDone, leadOverride) {
   });
 
   /**
-   * Start converting the episode this card is announcing, and hold the card up
-   * until it is ready.
-   *
-   * This is the point of having an interstitial at all: the countdown is dead
-   * time we were spending anyway, so any conversion that has not finished gets
-   * to finish HERE, in front of something worth looking at, instead of after
-   * the countdown against a black screen that reads as the app having frozen.
+   * A pure countdown. The card used to start the next episode's conversion
+   * here and HOLD past its own timer until the file was ready — sometimes
+   * minutes, with progress copy and promo filler to spend the wait on. mpv
+   * plays the library directly, so the card is back to being what it looks
+   * like: a breath between programmes, skippable by any key.
    */
-  let leadReady = false;
-  let waitingShown = false;
-  prepareItem(lead).then(() => { leadReady = true; });
-
-  // Everything behind it keeps warming too, so a burst of skipping later does
-  // not land straight back on a wait.
-  prepareAhead();
-
-  const prepLabel = el('bumperPrep');
-  prepLabel.hidden = true;
-  let convertedMs = 0;
-  const stopProgress = window.tv.onPrepareProgress
-    ? window.tv.onPrepareProgress((payload) => {
-      if (payload && payload.absPath === lead.episode.absPath) convertedMs = payload.outMs || 0;
-    })
-    : null;
-
-  /** When the card actually started waiting, as opposed to counting down. */
-  let waitingSince = 0;
-
-  /** Swap the "any key" hint for honest progress once we are actually waiting. */
-  const showWaiting = () => {
-    if (waitingShown) return;
-    waitingShown = true;
-    waitingSince = performance.now();
-    el('bumperSkip').hidden = true;
-    prepLabel.hidden = false;
-  };
-
-  // A conversion that has gone wrong must not strand the channel on this card.
-  const HOLD_LIMIT_MS = 240000;
-  const holdStartedAt = performance.now();
-
   const seconds = Math.max(1, state.settings.bumperSeconds);
   const startedAt = performance.now();
   const fill = el('bumperTimerFill');
@@ -980,10 +1066,6 @@ async function showBumper(onDone, leadOverride) {
     bumperCleanup = null;
     document.removeEventListener('keydown', onKey, true);
     el('bumper').removeEventListener('click', onClick);
-    if (stopProgress) stopProgress();
-    // Restore the card's resting state, or the next one opens mid-wait.
-    el('bumperSkip').hidden = false;
-    prepLabel.hidden = true;
   };
   bumperCleanup = teardown;
 
@@ -1010,35 +1092,7 @@ async function showBumper(onDone, leadOverride) {
     const remaining = Math.max(0, seconds - elapsed);
     fill.style.transform = `scaleX(${remaining / seconds})`;
     countLabel.textContent = `${Math.ceil(remaining)}`;
-    if (remaining > 0) return;
-
-    if (leadReady) { finish(); return; }
-
-    // Countdown is spent but the episode is not ready. Hold, and say why —
-    // a card that visibly waits is honest; a black screen is a bug report.
-    showWaiting();
-    prepLabel.textContent = convertedMs > 0
-      ? `Preparing — ${formatTime(convertedMs / 1000)} converted`
-      : 'Preparing the next episode…';
-    countLabel.textContent = '';
-    fill.style.transform = 'scaleX(1)';
-
-    /**
-     * Hand the wait to a promo rather than sitting on a static card.
-     *
-     * Closing the card is safe: fillUntilReady runs immediately after it and
-     * puts a promo up while the conversion carries on. If there is no promo to
-     * spend, this does nothing and the card keeps holding as before, which is
-     * still better than a black screen.
-     */
-    if (performance.now() - waitingSince > FILLER_HANDOFF_MS && fillerPromoAvailable()) {
-      finish();
-      return;
-    }
-
-    // Give up eventually rather than sit here forever; loadAndPlay will report
-    // the real failure and move on.
-    if (performance.now() - holdStartedAt > HOLD_LIMIT_MS) finish();
+    if (remaining <= 0) finish();
   };
   tick();
   bumperTimer = setInterval(tick, 100);
@@ -1057,418 +1111,22 @@ function renderNowPlaying(item) {
 }
 
 /**
- * absPath -> media:// URL that actually plays.
+ * THE CONVERSION WORLD IS GONE.
  *
- * For most files this is the original URL. For an .mkv it is usually a prepared
- * MP4 sitting in the cache, put there while the previous episode was playing.
- */
-const playableUrls = new Map();
-
-/**
- * Guards against a slow conversion finishing after the user has moved on.
- * Without it, skipping during a two-minute re-encode starts the episode you
- * skipped, on top of the one you skipped to.
+ * This region used to hold ~500 lines of choreography that existed because
+ * Chromium could not play the library: the playable-URL cache and its
+ * generation gating, the measured decode verdicts, the wanted-audio ffprobe
+ * cache, prepare-ahead and its disk-yielding priority dance, the preparing
+ * panel. mpv decodes everything the library holds and switches tracks live,
+ * so playing an episode is now: open the file, from the resume point, and
+ * apply the show's preferences when metadata lands. The planner, the cache,
+ * the tiers — all of it main-process machinery the player simply no longer
+ * asks for.
+ *
+ * `playToken` SURVIVES: opens are near-instant but still async, and a rapid
+ * Next during one must discard the stragglers of the one it replaced.
  */
 let playToken = 0;
-
-/**
- * Get a URL that will actually play, converting first if the file needs it.
- * Returns null when the file cannot be made playable at all.
- */
-/**
- * Can the player decode this file as it stands?
- *
- * Measured, not looked up. The codec tables read stream ids and guess; this
- * plays a few seconds and reads webkitVideoDecodedByteCount and
- * webkitAudioDecodedByteCount, which count bytes that came out of a DECODER.
- * Loading metadata proves only that the container parsed.
- *
- * The gap between the two is not academic. Measured against a real library of
- * 4K remuxes, the tables called eleven of fourteen files unplayable; the
- * player decoded video in all fourteen, and audio in nine. Two of the files
- * being converted were 58GB and 44GB, and each would have taken about an hour
- * to copy before it could start.
- *
- * Seeks in first, because the opening seconds of a remux are often black and
- * silent, and "nothing decoded" there is true and meaningless.
- */
-const nativeVerdicts = new Map();
-
-async function canPlayNatively(item) {
-  const absPath = item.episode.absPath;
-  const url = item.episode.mediaUrl;
-  if (!absPath || !url || !window.tv.playbackVerdict) return null;
-  if (nativeVerdicts.has(absPath)) return nativeVerdicts.get(absPath);
-
-  const saved = await window.tv.playbackVerdict(absPath).catch(() => null);
-  if (saved) { nativeVerdicts.set(absPath, saved); return saved; }
-
-  const probe = document.createElement('video');
-  probe.muted = true;
-  probe.preload = 'auto';
-  probe.crossOrigin = 'anonymous';
-  let verdict = { video: false, audio: false };
-  try {
-    probe.src = url;
-    await waitFor(probe, 'loadedmetadata', 15000);
-    if (Number.isFinite(probe.duration) && probe.duration > 120) {
-      probe.currentTime = 60;
-      await waitFor(probe, 'seeked', 15000).catch(() => {});
-    }
-    await probe.play().catch(() => {});
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    verdict = {
-      video: (probe.webkitVideoDecodedByteCount || 0) > 0,
-      audio: (probe.webkitAudioDecodedByteCount || 0) > 0,
-    };
-  } catch {
-    verdict = { video: false, audio: false };
-  } finally {
-    probe.pause();
-    probe.removeAttribute('src');
-    probe.load();
-  }
-
-  nativeVerdicts.set(absPath, verdict);
-  if (window.tv.savePlaybackVerdict) window.tv.savePlaybackVerdict(absPath, verdict);
-  return verdict;
-}
-
-/**
- * Which audio track this file should be played with, per the plan.
- *
- * 0 means the first one, which is the only track the player can reach without
- * a conversion. Anything else means the file has to be rebuilt around the
- * right track, however large it is — a wrong-language episode is not a
- * cheaper version of the right one.
- *
- * Cached because it costs an ffprobe and is asked before every play.
- */
-const wantedAudio = new Map();
-
-/** This show's saved playback preferences, or an empty object. */
-function prefFor(showId) {
-  return (state.settings.showPrefs || {})[showId] || {};
-}
-
-/**
- * Bumped whenever any show's preference changes.
- *
- * The purge in saveShowPref clears the caches, but a conversion already IN
- * FLIGHT under the old preference finishes afterwards and writes its result
- * back — re-poisoning playableUrls with the old language for the rest of the
- * session. Every async path that caches a playable URL captures this counter
- * before its await and declines to cache when it moved.
- */
-let prefGeneration = 0;
-
-async function wantedAudioIndex(absPath, preferLanguage) {
-  // The preference is part of the QUESTION: "which track for Evangelion in
-  // Japanese" and "in English" are different answers about the same file.
-  const cacheKey = `${absPath}
-${preferLanguage || ''}`;
-  if (wantedAudio.has(cacheKey)) return wantedAudio.get(cacheKey);
-  if (!window.tv.inspect) return 0;
-
-  /**
-   * inspect() answers with an ENVELOPE — { ok, plan } — and the plan is one
-   * level down. Reading audioIndex off the envelope gives undefined for every
-   * file ever inspected, which collapses to 0, which means "track one is fine",
-   * which is how a Japanese first track came to be played under an English
-   * label. The guard in resolvePlayable exists to stop precisely that, and
-   * could never fire, because its input was a constant.
-   *
-   * The other call site (the ffmpeg-missing count) unwraps this correctly, so
-   * the shape was never in doubt — only this line was wrong.
-   */
-  const index = audioIndexFromInspect(await window.tv.inspect(
-    absPath,
-    preferLanguage ? { preferLanguage } : undefined,
-  ).catch(() => null));
-
-  /**
-   * No answer means no evidence, and a guess must not be remembered. A probe
-   * fails for reasons that have nothing to do with the file — an external
-   * drive dropping off mid-scan being the obvious one — and caching 0 would
-   * hold the wrong language for the rest of the session, long after the drive
-   * came back.
-   */
-  if (index === null) return 0;
-
-  wantedAudio.set(cacheKey, index);
-  return index;
-}
-
-async function resolvePlayable(item, token, forceTier) {
-  const episode = item.episode;
-  const absPath = episode.absPath;
-  if (!absPath || !window.tv.ensurePlayable) return episode.mediaUrl;
-
-  // Captured before any await: a preference change mid-flight means whatever
-  // this call produces is the OLD language and must not be remembered.
-  const generation = prefGeneration;
-
-  if (!forceTier && playableUrls.has(absPath)) {
-    /**
-     * The cache hit is the NORMAL path — prepare-ahead means almost every
-     * episode arrives here — and it used to skip every line that records
-     * which track is playing, leaving the menu to fall back to a default
-     * computed without the preference. That is the confidently-wrong-label
-     * bug wearing a new coat. The cached URL plays the track the plan chose,
-     * so ask the plan (cached after its first answer) and say so.
-     */
-    const url = playableUrls.get(absPath);
-    if (audioOverride !== null) {
-      playingAudioIndex = audioOverride;
-    } else {
-      /**
-       * Resolved WITHOUT blocking: this is the hottest path in the app — the
-       * prepared-ahead episode about to hit the screen — and an ffprobe here
-       * is seconds of black on a slow drive. The label lands moments later,
-       * token-guarded so a rapid Next cannot be stamped by a stale answer.
-       */
-      wantedAudioIndex(absPath, prefFor(item.showId).audio || undefined)
-        .then((heard) => { if (token === playToken) playingAudioIndex = heard; })
-        .catch(() => {});
-    }
-    return url;
-  }
-
-  /**
-   * Ask the player before asking ffmpeg — but only when the track we want is
-   * the FIRST one.
-   *
-   * Playing the original file means playing audio track 1, because Chromium
-   * has no way to switch. On a release with Japanese first and English fourth
-   * that is the wrong language, and the app went on labelling it English,
-   * which is worse than being slow: it was confidently wrong about what you
-   * were listening to.
-   *
-   * So the measurement decides whether the file CAN be played, and the plan
-   * decides whether it MAY be. Both have to agree.
-   *
-   * forceTier means somebody already overruled this from the audio menu, so
-   * the measurement is not worth repeating.
-   */
-  let wanted = null;
-  if (!forceTier) {
-    wanted = audioOverride === null
-      ? await wantedAudioIndex(absPath, prefFor(item.showId).audio || undefined)
-      : audioOverride;
-    if (token !== playToken) return null;
-
-    if (wanted === 0) {
-      const native = await canPlayNatively(item);
-      if (token !== playToken) return null;
-      if (native && native.video && native.audio) {
-        // Playing the file untouched means playing audio track one, whatever
-        // language that turns out to be. Record it, so the menu names the track
-        // actually being heard rather than the one the planner would prefer.
-        playingAudioIndex = 0;
-        if (generation === prefGeneration) playableUrls.set(absPath, episode.mediaUrl);
-        return episode.mediaUrl;
-      }
-    }
-  }
-
-  // Anything needing real work says so, because a silent gap before an
-  // episode starts reads as the app having frozen. Delayed slightly: most
-  // conversions are quick, and a panel that flashes up for half a second on
-  // every episode is its own kind of noise.
-  const slowNotice = setTimeout(() => {
-    if (token === playToken) showPreparing(item);
-  }, 600);
-
-  // From here the viewer is waiting. Everything else converting gets out of the
-  // way, and prepare-ahead stops starting new work until this is done.
-  foregroundPath = absPath;
-  foregroundSince = Date.now();
-  await yieldDiskTo(absPath);
-
-  let result;
-  try {
-    // Carry any audio override through, so a re-prepare (say, after a decode
-    // failure) does not quietly revert the language the viewer picked.
-    result = await window.tv.ensurePlayable(
-      absPath,
-      forceTier,
-      audioOverride === null ? undefined : audioOverride,
-      // The preference re-plans in the main process, so a forced tier or an
-      // explicit override still wins — the language only fills the default.
-      prefFor(item.showId).audio || undefined,
-    );
-  } catch (error) {
-    result = { ok: false, error: String(error) };
-  } finally {
-    clearTimeout(slowNotice);
-    hidePreparing();
-    if (foregroundPath === absPath) foregroundPath = null;
-  }
-
-  if (token !== playToken) return null; // superseded; caller discards this
-
-  if (result && result.ok && result.mediaUrl) {
-    // A prepared file has the chosen track mapped to position one, so what plays
-    // is what was asked for. Null when nothing decided it (a forced tier), which
-    // leaves the menu on the planner's preference as before.
-    playingAudioIndex = audioOverride !== null
-      ? audioOverride
-      : (Number.isInteger(wanted) ? wanted : null);
-    if (result.prepared) toast(`Ready — ${item.showName} ${item.label}`, 1800);
-    else clearToast();
-    if (generation === prefGeneration) playableUrls.set(absPath, result.mediaUrl);
-    return result.mediaUrl;
-  }
-
-  clearToast();
-  if (result && result.needsFfmpeg) {
-    toast(`${item.showName} ${item.label} needs converting, but ffmpeg is not installed.`, 6000);
-  } else if (result && result.lowDisk) {
-    toast('Not enough free disk space to prepare this episode.', 6000);
-  } else if (result && result.reason !== 'cancelled') {
-    toast(`Could not prepare ${item.showName} ${item.label}.`, 4500);
-  }
-  return null;
-}
-
-/** How many episodes ahead to keep converted. */
-const PREPARE_DEPTH = 3;
-
-/** In-flight preparations, so two callers never start the same job twice. */
-const preparing = new Map();
-
-/**
- * Ensure one item is converted, returning the playable URL (or null).
- *
- * Safe to call repeatedly for the same episode from anywhere — the promise is
- * shared, so the bumper waiting on it and the prepare-ahead loop starting it
- * are the same job rather than two.
- */
-function prepareItem(item) {
-  const absPath = item && item.episode ? item.episode.absPath : null;
-  if (!absPath || !window.tv.ensurePlayable) {
-    return Promise.resolve(item ? item.episode.mediaUrl : null);
-  }
-  if (playableUrls.has(absPath)) return Promise.resolve(playableUrls.get(absPath));
-  if (preparing.has(absPath)) return preparing.get(absPath);
-
-  const generation = prefGeneration;
-  const job = window.tv.ensurePlayable(
-    absPath, undefined, undefined,
-    prefFor(item.showId).audio || undefined,
-  )
-    .then((result) => {
-      preparing.delete(absPath);
-      if (result && result.ok && result.mediaUrl) {
-        // A preference change mid-conversion makes this the OLD language;
-        // deliver it to whoever is already waiting, but do not remember it.
-        if (generation === prefGeneration) playableUrls.set(absPath, result.mediaUrl);
-        return result.mediaUrl;
-      }
-      return null;
-    })
-    .catch(() => { preparing.delete(absPath); return null; });
-
-  preparing.set(absPath, job);
-  return job;
-}
-
-/**
- * Convert the next few episodes while this one plays.
- *
- * This is the whole reason the scheduler commits its queue in advance: we know
- * what is coming, so the work happens against a complete file with time to
- * spare instead of racing playback.
- *
- * Depth matters more than it looks. Preparing only ONE ahead is enough for
- * someone watching straight through, but anyone pressing Next outruns it
- * immediately and lands on the wait this exists to remove. Three deep survives
- * a burst of skipping.
- *
- * Jobs are started in order and NOT awaited together: converting three files at
- * once would have them contend for the same disk while an episode is playing
- * off it, making all three slower than doing them in turn.
- */
-/**
- * The file the viewer is actually waiting on, if any.
- *
- * There is no concurrency limit in the main process, so a background
- * conversion and the one being waited on run at the same time and halve each
- * other's throughput — which is exactly the "a show and a movie both sitting
- * there converting" case. While this is set, prepare-ahead stands down.
- */
-let foregroundPath = null;
-let foregroundSince = 0;
-
-/**
- * Is someone waiting on a conversion right now?
- *
- * Treated as stale after ten minutes rather than trusted indefinitely. A flag
- * that leaked would stop prepare-ahead for the rest of the session — turning a
- * fix for waiting into a much better generator of it — and no single
- * conversion this app performs runs that long.
- */
-function foregroundBusy() {
-  if (!foregroundPath) return false;
-  if (Date.now() - foregroundSince > 600000) { foregroundPath = null; return false; }
-  return true;
-}
-
-/**
- * Give the whole disk to one file, cancelling anything else mid-conversion.
- *
- * Cancelled work is discarded rather than resumed, which sounds wasteful — but
- * the alternative is the viewer waiting twice as long for the thing on screen
- * so that a file they will not see for twenty minutes can finish early. The
- * cancelled item is picked up again by the next prepare-ahead pass.
- */
-async function yieldDiskTo(absPath) {
-  if (!window.tv.cacheInfo || !window.tv.cancelPrepare) return;
-  const info = await window.tv.cacheInfo().catch(() => null);
-  for (const job of (info && info.jobs) || []) {
-    if (job.absPath && job.absPath !== absPath) {
-      preparing.delete(job.absPath);
-      await window.tv.cancelPrepare(job.absPath).catch(() => {});
-    }
-  }
-}
-
-async function prepareAhead(depth = PREPARE_DEPTH) {
-  // Whatever is on screen comes first; this can wait for the next call.
-  if (foregroundBusy()) return;
-
-  const upcoming = peek(shows, state, depth);
-
-  /**
-   * The movie goes SECOND, not last.
-   *
-   * It is the longest conversion this app ever performs, and it is the one
-   * with a hard deadline a few blocks out — but the episode immediately next
-   * is the one someone is about to sit and wait for, so that still goes first.
-   */
-  const movie = state.pendingMovie ? movieItem(state.pendingMovie) : null;
-  const order = movie
-    ? [upcoming[0], movie, ...upcoming.slice(1)].filter(Boolean)
-    : upcoming;
-  if (order.length === 0) return;
-
-  // Protect what is playing and what is queued from cache eviction.
-  const keep = [current, ...order]
-    .filter(Boolean)
-    .map((entry) => playableUrls.get(entry.episode && entry.episode.absPath))
-    .filter(Boolean)
-    .map((url) => decodeURIComponent(String(url).replace(/^media:\/\/local\//, '')));
-  if (window.tv.pinPrepared) window.tv.pinPrepared(keep);
-
-  for (const item of order) {
-    // Re-checked each time round: the viewer may have started waiting on
-    // something while the previous conversion was running.
-    if (foregroundBusy()) return;
-    // Not token-guarded: the result goes to the on-disk cache, so work is never
-    // wasted even if the user skips past this episode before it comes round.
-    await prepareItem(item);
-  }
-}
 
 async function loadAndPlay(item, seekTo = 0) {
   // Tear down a clip still on screen (the user pressed Next through it) without
@@ -1478,30 +1136,67 @@ async function loadAndPlay(item, seekTo = 0) {
   const token = ++playToken;
   current = item;
   setView('playing');
-  // NOT renderNowPlaying yet. Resolving a playable URL can take a while for a
-  // file that genuinely needs converting, and the previous episode is still
-  // on screen throughout — so naming the new one here put a movie title over
-  // a show that was still playing, sometimes for half an hour. The title
-  // changes when the picture does, further down.
-
-  // Every episode starts fresh: English audio, subtitles off. An override is a
-  // decision about the episode you are watching, not a setting that follows you
-  // into the next show.
-  audioOverride = null;
-  playingAudioIndex = null;
-  activeSubIndex = null;
-  clearSubtitles();
   toggleTrackMenu(false);
-  // Episodes are never zoomed — only the interstitials are.
-  applyPicture(false);
 
-  const url = await resolvePlayable(item, token);
-  if (token !== playToken) return;      // the user moved on while we prepared
+  /**
+   * The episode opens with NO interface over it. This used to call
+   * showChrome(), so every episode began with the transport fading in and
+   * out across the first couple of seconds of the picture — chrome is one
+   * hover or one press away, and the title is on the card that just played.
+   * (The old flow delayed the title too, because a conversion could hold the
+   * previous picture on screen for minutes; nothing holds anything any more.)
+   */
+  renderNowPlaying(item);
+  clearTimeout(chromeTimer);
+  app.dataset.chrome = 'off';
+  renderSidebar();
+  persist();
 
-  if (!url) {
-    // Skipping to the next episode is right for ONE bad file. But this path
-    // re-enters loadAndPlay, so a run of them recurses with nothing to stop it
-    // and locks the window solid. Give up after a few and say so.
+  /**
+   * Registered BEFORE the open, not after it.
+   *
+   * mpv can report the new file's duration before `open()`'s own IPC reply
+   * gets back to us, and this is a ONE-SHOT event: attaching afterwards
+   * meant it had already fired into an empty room. Nothing then applied the
+   * show's audio and subtitle preferences, nothing filled the track menus
+   * (a viewer with dual-audio anime opened the menu to find NOTHING to
+   * pick), nothing ran the auto-crop, and the failure breaker never reset.
+   * The <video> element never showed this because src=/load() could not
+   * outrun the next line of code; an IPC player can.
+   *
+   * Still token-guarded, and now for two reasons: a rapid Next must not land
+   * the old show's language on the new file, and moving the registration
+   * earlier means a stale firing is possible from THIS side of the open too.
+   */
+  player.addEventListener('loadedmetadata', () => {
+    if (token !== playToken) return;
+    /**
+     * REAL progress is what resets the failure breaker — not the open call,
+     * which resolves even for a missing file (mpv accepts the command and
+     * reports the failure later as an error event). Resetting on open made
+     * an unplugged drive an infinite skip loop that churned every cursor in
+     * the library at one episode per one-and-a-half seconds.
+     */
+    failedInARow = 0;
+    /**
+     * Both calls are async and neither is awaited — this handler must not
+     * hold anything up. So each carries its OWN catch, because an unawaited
+     * rejection in a renderer is INVISIBLE, and that is not hypothetical: a
+     * helper deleted by an unrelated cleanup (prefFor) made the first call
+     * throw a ReferenceError on every single episode. The menus opened
+     * empty, the show's language preference never applied, the crop never
+     * ran, and nothing anywhere said a word about it.
+     */
+    applyTrackPrefs(item).catch((error) => console.error('track preferences failed:', error));
+    loadCropForCurrent().catch((error) => console.error('auto-crop failed:', error));
+  }, { once: true });
+
+  try {
+    await player.open(item.episode.absPath, { startSeconds: seekTo > 0 ? seekTo : 0 });
+  } catch {
+    // Refused outright — mpv mid-restart, or a path outside the roots. The
+    // decode-failure path is onPlaybackError; this one never started.
+    if (token !== playToken) return;
     failedInARow += 1;
     if (failedInARow >= MAX_FAILURES_IN_A_ROW) {
       failedInARow = 0;
@@ -1514,58 +1209,13 @@ async function loadAndPlay(item, seekTo = 0) {
     playNext();
     return;
   }
-  failedInARow = 0;
-
-  renderNowPlaying(item);
-  player.src = url;
-  player.load();
-
-  const start = () => {
-    if (seekTo > 0 && Number.isFinite(player.duration)) {
-      player.currentTime = Math.min(seekTo, Math.max(0, player.duration - 5));
-    }
-    // The crop transform is computed from videoWidth/videoHeight, which are 0
-    // until metadata arrives. A cached crop resolves instantly — well before
-    // that — so applying it only when it arrives would silently do nothing.
-    // Re-applying here means whichever lands last is the one that counts.
-    applyPicture(false);
-    player.play().catch(() => {
-      toast('Could not start playback. Press space to try again.');
-    });
-  };
-  player.addEventListener('loadedmetadata', start, { once: true });
-
-  /**
-   * The episode opens with NO interface over it.
-   *
-   * This used to call showChrome(), so every episode began with the transport
-   * fading in and out across the first couple of seconds of the picture. The
-   * controls are one hover or one press away and the title is on the card that
-   * just played, so nothing here needs announcing over the opening shot.
-   */
-  clearTimeout(chromeTimer);
-  app.dataset.chrome = 'off';
-  renderSidebar();
-  persist();
-
-  // Read this episode's tracks so the menu is populated before it is opened —
-  // and then honour the show's subtitle preference, which can only be applied
-  // once the track list actually exists.
-  loadTracksForCurrent().then(() => {
-    if (token !== playToken) return;
-    applySubtitlePref(item);
-  });
-  loadCropForCurrent();
+  if (token !== playToken) return;      // the user moved on while we opened
+  player.play();
 
   // Warm the next bumper's thumbnail while this episode plays, so the
   // interstitial has a picture the moment it appears.
   const upcoming = peek(shows, state, 1)[0];
   if (upcoming) setTimeout(() => ensureThumb(upcoming.episode), 4000);
-
-  // Start converting the next episodes shortly in — long enough not to fight
-  // this episode's own startup for disk bandwidth, short enough that a 22
-  // minute episode leaves an enormous margin.
-  setTimeout(() => { if (token === playToken) prepareAhead(); }, 2000);
 }
 
 /**
@@ -1691,43 +1341,14 @@ const FADE_MS = 340;
 async function playClip(clip, onDone, kind = 'Bumper') {
   if (!clip) { onDone(); return; }
 
-  // Clips get the same codec treatment as episodes — an AC3 .mkv bumper is
-  // exactly as unplayable as an AC3 .mkv episode.
+  // A clip is a file like any other now: mpv opens it directly — no cache,
+  // no conversion, no language question. The OPEN happens at the very END of
+  // this function, after the flag and the listeners stand: the permanent
+  // ended/timeupdate handlers read `playingBumperClip` to stand down, and an
+  // open that runs before the flag is set lets the clip's first moments save
+  // a resume point for the FINISHED episode at the clip's timestamp — the
+  // exact bug the flag was built for.
   const token = ++playToken;
-  let url = clip.mediaUrl;
-  if (clip.absPath && window.tv.ensurePlayable) {
-    /**
-     * Same cache as the episodes — but ONLY for a clip that plays as itself.
-     *
-     * Clips used to bypass the cache entirely, which meant an IPC round-trip
-     * and an ffprobe between EVERY episode, all session. A native clip's URL
-     * points at the original file, which nothing ever evicts, so remembering
-     * it is free. A CONVERTED clip's URL points into the evictable cache, and
-     * remembering it would be a trap twice over: the cache-hit fast path
-     * skips ensurePlayable, which is the only thing that touches the file's
-     * atime — freezing the most-played clips at the bottom of the LRU order —
-     * and once the file IS evicted the remembered URL is dead, the error path
-     * below fires onDone, and that bumper never plays again all session
-     * (episodes recover in onPlaybackError; clips deliberately return early
-     * there). So converted clips keep paying the ensurePlayable call, which
-     * is what re-converts them transparently after an eviction — and with the
-     * probe memo it costs a stat, not a spawn. The write is generation-gated
-     * like every other async cache write here.
-     */
-    if (playableUrls.has(clip.absPath)) {
-      url = playableUrls.get(clip.absPath);
-    } else {
-      const generation = prefGeneration;
-      const result = await window.tv.ensurePlayable(clip.absPath).catch(() => null);
-      if (token !== playToken) return;          // superseded while preparing
-      if (result && result.ok && result.mediaUrl) {
-        url = result.mediaUrl;
-        if (result.playablePath === clip.absPath && generation === prefGeneration) {
-          playableUrls.set(clip.absPath, result.mediaUrl);
-        }
-      } else { onDone(); return; }              // not worth stalling the channel
-    }
-  }
 
   let done = false;
   let watchdog = null;
@@ -1752,15 +1373,7 @@ async function playClip(clip, onDone, kind = 'Bumper') {
     onDone();
   };
 
-  /**
-   * An erroring clip forgets its remembered URL before finishing, so the next
-   * deal re-resolves instead of replaying the same dead source forever. Cheap
-   * even when the error was transient: forgetting costs one re-ensure.
-   */
-  const failed = () => {
-    if (clip.absPath) playableUrls.delete(clip.absPath);
-    finish();
-  };
+  const failed = () => finish();   // a clip that errors just moves the channel on
 
   /**
    * Once the clip says how long it is, give it that long plus a margin.
@@ -1807,21 +1420,16 @@ async function playClip(clip, onDone, kind = 'Bumper') {
 
   player.addEventListener('ended', finish, { once: true });
   player.addEventListener('error', failed, { once: true });
-  player.src = url;
-  player.load();
-  player.play().catch(failed);
 
-  /**
-   * Convert the next episodes now the clip is actually rolling.
-   *
-   * Deliberately AFTER the clip's own preparation, not before it. Hoisting this
-   * above the await looks like it starts the work sooner, and does not:
-   * onEpisodeEnded already calls prepareAhead() before the first interstitial,
-   * so by here the job is running. All hoisting it achieved was running the
-   * episode's conversion CONCURRENTLY with the clip's own, which contends for
-   * the same disk — the thing prepareAhead's own sequencing exists to avoid.
-   */
-  prepareAhead();
+  // LAST, with everything above already standing (see the note at the top).
+  try {
+    await player.open(clip.absPath);
+  } catch {
+    failed();                       // refused outright: move the channel on
+    return;
+  }
+  if (token !== playToken) return;  // superseded while opening; cleanup ran
+  player.play();
 }
 
 /** Deal and play a bumper, or pass straight through when there is none. */
@@ -1860,80 +1468,11 @@ function playPromoClip(onDone) {
   playClip(picked.promo, onDone, 'Promo');
 }
 
-/**
- * How many promos may be spent covering a conversion that has run long.
- *
- * Bounded, because what a promo displaces is the episode. Three covers a slow
- * remux comfortably without turning the channel into a promo reel when
- * something is genuinely stuck — loadAndPlay still has its own preparing panel
- * for that case, and it reports real failures.
+/*
+ * The filler-promo machinery lived here: promos spent covering a conversion
+ * that outran the up-next card. Nothing converts any more, so the card's
+ * countdown is the whole wait and the machinery went with the pipeline.
  */
-const MAX_FILLER_PROMOS = 3;
-
-/**
- * How long the up-next card waits before handing off to a promo.
- *
- * Most conversions land within a second or two of the countdown ending, and
- * cutting to a promo for those would replace a short wait with a longer one.
- */
-const FILLER_HANDOFF_MS = 2500;
-
-/** Is there a promo available to spend on a wait? */
-function fillerPromoAvailable() {
-  const settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
-  return Boolean(settings.promosEnabled) && promoClips.length > 0;
-}
-
-/** Is this item playable this instant, with nothing left to wait for? */
-function readyToPlay(item) {
-  const absPath = item && item.episode ? item.episode.absPath : null;
-  if (!absPath) return true;              // nothing to prepare; let it through
-  return playableUrls.has(absPath);
-}
-
-/**
- * Is a conversion for this item actually RUNNING?
- *
- * "Not ready" is not the same as "worth waiting for". A preparation that has
- * already finished and failed leaves no job and no URL, and filling that with
- * promos would spend three of them delaying a failure the player is about to
- * report properly. Only an in-flight job is worth covering.
- */
-function stillPreparing(item) {
-  const absPath = item && item.episode ? item.episode.absPath : null;
-  return Boolean(absPath) && preparing.has(absPath);
-}
-
-/**
- * Cover a conversion that outlasted the transition, with promos.
- *
- * The transition already spends its bumper, promo and card on the conversion,
- * which is enough for almost everything — but a big remux on a slow disk can
- * outlast all three, and what the viewer got then was a static card reading
- * "Preparing…". Honest, and still someone sitting watching a progress line.
- *
- * A promo costs the wait nothing: the same seconds pass, the conversion keeps
- * running behind it, and there is something on screen instead. Deliberately
- * NOT counted against the promo schedule — this is covering a gap, not a promo
- * that was due, and letting it advance the counter would suppress a real one
- * later.
- *
- * Falls straight through when the episode is ready, when promos are off or
- * absent, or when the budget is spent.
- */
-function fillUntilReady(item, done, spent = 0) {
-  if (readyToPlay(item) || !stillPreparing(item)
-    || spent >= MAX_FILLER_PROMOS || !fillerPromoAvailable()) {
-    done();
-    return;
-  }
-
-  const picked = nextPromo(promoClips, state, {});
-  state = picked.state;
-  if (!picked.promo) { done(); return; }
-
-  playClip(picked.promo, () => fillUntilReady(item, done, spent + 1), 'Promo');
-}
 
 /**
  * Dress a movie up as something loadAndPlay understands.
@@ -2011,11 +1550,6 @@ function onEpisodeEnded() {
 
   state.resume = null;
 
-  // FIRST, before any of the interstitials. The whole transition — sting,
-  // promo, card — is time we are spending anyway, and the conversion for what
-  // comes next should be using all of it rather than starting part way in.
-  prepareAhead();
-
   // The seam between this show and the next drives both the promo rule and the
   // movie's lead, so it is computed once here.
   const upcoming = peek(shows, state, 1)[0];
@@ -2032,7 +1566,7 @@ function onEpisodeEnded() {
   if (!state.pendingMovie && shouldPlayMovie(state, movieFiles, {})) {
     const picked = scheduleMovie(movieFiles, state, {});
     state = picked.state;
-    if (picked.movie) { renderSidebar(); prepareAhead(); }
+    if (picked.movie) renderSidebar();
   }
 
   /**
@@ -2055,17 +1589,11 @@ function onEpisodeEnded() {
     playPromoClip(() => {
       const movieNow = movieIsDue(state);
       const leadOverride = movieNow ? movieItem(state.pendingMovie) : null;
-      // The same item the card headlines and prepareAhead converts first, so
-      // "is it ready" is asked about the thing that is actually next.
-      const lead = leadOverride || peek(shows, state, 1)[0];
       const after = () => (movieNow ? startMovie() : playNext());
-      // Anything still converting when the card closes is covered by promos
-      // rather than by a static card or a black screen.
-      const then = () => fillUntilReady(lead, after);
       if (state.settings.bumperEnabled && state.settings.bumperSeconds > 0) {
-        showBumper(then, leadOverride);
+        showBumper(after, leadOverride);
       } else {
-        then();
+        after();
       }
     });
   });
@@ -2289,10 +1817,17 @@ async function loadLibrary(rootPath) {
   presentationClips = result.presentations || [];
   state.rootPath = result.rootPath;
 
-  // A scan is exactly when "anything new?" changes its answer. The elements
-  // always exist (the settings sheet is merely hidden), so this is safe to
-  // refresh whether or not anyone is looking at it.
-  renderIngestStatus();
+  /**
+   * A scan is exactly when "anything new?" changes its answer — and it is
+   * every scan, so this covers the automatic one at boot, the Rescan button
+   * and picking a folder for the first time, without any of them knowing
+   * about ingest.
+   *
+   * NOT awaited. Capturing artwork for a whole new show is real minutes of
+   * one-at-a-time disk work, and the library must finish loading and start
+   * playing while that happens in the background.
+   */
+  autoIngest().catch((error) => console.error('artwork capture failed:', error));
   // A scan can mean a different library entirely — cached art from the old
   // one must not paint the new one's cards.
   artworkCache.clear();
@@ -2356,48 +1891,6 @@ async function loadLibrary(rootPath) {
     skippedCount ? `${count(skippedCount, 'file', 'files')} ignored` : null,
   ].filter(Boolean).join(' · '), 4200);
 
-  // Warm the front of the queue now, while the user is still reading the ready
-  // screen. Without this the very first episode of a session is the one that
-  // always waits, which is the worst possible first impression.
-  prepareAhead();
-
-  reportConversionNeeds();
-}
-
-/**
- * Say up front what this library will and will not be able to play.
- *
- * Without ffmpeg an AC3-audio episode fails at the moment it tries to start,
- * which reads as the app being broken rather than as a missing dependency. One
- * honest message after the scan is worth more than a skipped episode an hour
- * later, so this counts the files that would need converting and says so once.
- */
-async function reportConversionNeeds() {
-  if (!window.tv.capabilities) return;
-  const caps = await window.tv.capabilities();
-  if (caps.ffmpeg) return; // everything is convertible; nothing to warn about
-
-  // Only sample what is actually coming up — inspecting a 2000-episode library
-  // would read thousands of file headers to produce one sentence.
-  const upcoming = peek(shows, state, 12);
-  const seen = new Set();
-  let blocked = 0;
-
-  for (const item of upcoming) {
-    const absPath = item.episode && item.episode.absPath;
-    if (!absPath || seen.has(absPath)) continue;
-    seen.add(absPath);
-    const result = await window.tv.inspect(absPath).catch(() => null);
-    // remux is survivable without ffmpeg — the player is given a chance anyway.
-    if (result && result.ok && result.plan.needsWork && result.plan.tier !== TIER.REMUX) blocked += 1;
-  }
-
-  if (blocked > 0) {
-    toast(
-      `${blocked} of the next ${seen.size} episodes need converting (usually AC3 audio). Install ffmpeg to play them.`,
-      9000,
-    );
-  }
 }
 
 async function pickFolder() {
@@ -2450,55 +1943,18 @@ function rgba(hex, alpha) {
 }
 
 /**
- * Push subtitle appearance into the page.
+ * Push subtitle appearance onto the RENDERER THAT DRAWS THEM — mpv.
  *
- * ::cue is a pseudo-element, so it cannot be styled inline on the track — the
- * only way to reach it is a real stylesheet, rewritten whenever the settings
- * change.
+ * The settings object is unchanged; the ::cue stylesheet it used to rewrite
+ * is gone with the <video> element. mpv's model is an upgrade underneath:
+ * the box is a real border-style mode, image subs render, and ASS tracks
+ * deliberately keep their authored look (subStyleProperties documents the
+ * mapping and its earned traps). Fire-and-forget: a failed style write must
+ * not break playback, and the next settings change re-asserts everything.
  */
 function applySubtitleStyle() {
-  const cue = cueSettings();
-  const background = cue.background ? rgba('#000000', cue.backgroundOpacity / 100) : 'transparent';
-  // With no box behind it, text needs its own edge or it vanishes over a light
-  // scene. The shadow is only paid for when the box is off.
-  const shadow = cue.background
-    ? 'none'
-    : '0 2px 4px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,1)';
-
-  el('cueStyle').textContent = [
-    'video::cue {',
-    `  color: ${cue.color};`,
-    `  background-color: ${background};`,
-    `  font-family: ${CUE_FONTS[cue.font] || CUE_FONTS.sans};`,
-    `  font-size: ${cue.size}%;`,
-    `  text-shadow: ${shadow};`,
-    '}',
-  ].join('\n');
-
-  applyCuePlacement();
-}
-
-/**
- * Move the cues up or down the frame.
- *
- * Placement is not a CSS property — ::cue cannot be positioned. It is a
- * property of each CUE, so it has to be written onto every cue of every loaded
- * track, and again whenever a new track loads.
- */
-function applyCuePlacement() {
-  const position = cueSettings().position;
-  const line = position === 'top' ? 8 : position === 'middle' ? 48 : 88;
-  for (const track of player.textTracks) {
-    if (!track.cues) continue;
-    for (const cue of track.cues) {
-      try {
-        cue.snapToLines = false;   // makes `line` a percentage of the frame
-        cue.line = line;
-        cue.position = 50;
-        cue.align = 'center';
-      } catch { /* some cues refuse; leave them where they are */ }
-    }
-  }
+  if (!window.tv.mpvSetSubStyle) return;   // preview harness has no player
+  window.tv.mpvSetSubStyle(subStyleProperties(cueSettings())).catch(() => {});
 }
 
 /** The sample line in settings, styled the same way the real cues will be. */
@@ -2556,84 +2012,53 @@ function patchSubtitles(patch) {
 }
 
 /**
- * Scale bumpers and promos only, to crop bars baked INTO those files.
+ * Picture geometry, spoken to mpv.
  *
- * Episodes are never touched. Their shape is handled entirely by CSS
- * `object-fit: contain`, which already does the right thing: largest size that
- * fits, aspect intact, leftover space black on whichever axis has it, and
- * recomputed on every resize. A file with bars encoded into the picture is a
- * different problem — object-fit cannot see them as bars — so those get scaled
- * off the edge, and only there.
+ * Episodes: the auto-crop. detectCrop's cached, unioned fractions become a
+ * video-crop PIXEL BOX against the coded frame, and mpv re-fits the real
+ * picture at every window size — the CSS transform this replaces had to
+ * re-derive scale and translation from the window on every resize, which is
+ * why a resize listener no longer exists here.
+ *
+ * Interstitials: never cropped (detection belongs to episodes), but they
+ * keep her interstitial ZOOM — bars baked into a bumper are not detected,
+ * they are zoomed past by hand, and that setting predates the crop.
  */
 function applyPicture(isInterstitial) {
+  if (!window.tv.mpvSetVideoCrop) return;   // preview harness has no player
   const settings = state.settings || {};
-  const zoom = Math.max(100, Number(settings.interstitialZoom) || 100);
-  const crop = (!isInterstitial && settings.autoCrop !== false) ? currentCrop : null;
 
-  if (!crop || !crop.worthCropping) {
-    player.style.transform = isInterstitial && zoom > 100 ? `scale(${zoom / 100})` : '';
+  if (isInterstitial) {
+    const zoom = Math.max(100, Number(settings.interstitialZoom) || 100);
+    window.tv.mpvSetVideoCrop(null).catch(() => {});
+    window.tv.mpvSetVideoZoom(zoom > 100 ? Math.log2(zoom / 100) : 0).catch(() => {});
     return;
   }
 
-  const box = player.getBoundingClientRect();
-  const vw = player.videoWidth;
-  const vh = player.videoHeight;
-  if (!vw || !vh || !box.width || !box.height) { player.style.transform = ''; return; }
-
-  // The size object-fit: contain actually draws the frame at. Everything below
-  // is measured against that rather than the element, because the frame does
-  // not fill the element on the axis that has bars.
-  const fit = Math.min(box.width / vw, box.height / vh);
-  const drawnW = vw * fit;
-  const drawnH = vh * fit;
-
-  // The real picture inside that frame, and how far its centre sits from the
-  // frame's centre (zero for ordinary symmetrical pillarboxing).
-  const contentW = crop.fw * drawnW;
-  const contentH = crop.fh * drawnH;
-  const offsetX = ((crop.fx + crop.fw / 2) - 0.5) * drawnW;
-  const offsetY = ((crop.fy + crop.fh / 2) - 0.5) * drawnH;
-
-  // Grow the content to fill the window, still without changing its shape.
-  const scale = Math.min(box.width / contentW, box.height / contentH);
-
-  // scale() runs first and translate() second, so the shift is written in
-  // final, already-scaled pixels.
-  player.style.transform =
-    `translate(${(-offsetX * scale).toFixed(2)}px, ${(-offsetY * scale).toFixed(2)}px) `
-    + `scale(${scale.toFixed(4)})`;
+  window.tv.mpvSetVideoZoom(0).catch(() => {});
+  const crop = settings.autoCrop !== false ? currentCrop : null;
+  const spec = crop ? cropSpecFor(crop, player.codedWidth, player.codedHeight) : null;
+  window.tv.mpvSetVideoCrop(spec).catch(() => {});
 }
 
 /**
  * How long a fresh crop detection waits after an episode starts.
  *
- * The same courtesy prepare-ahead pays (its own 2 s delay a few lines from its
- * call site): detection is one ffprobe plus four ffmpeg sampling passes, and
- * firing those at the exact moment an episode starts contends with the
- * episode's own startup reads on the same disk. A KNOWN crop skips the wait
- * entirely — it comes from the cache and touches no tools.
+ * The courtesy survives the player swap: detection is one ffprobe plus four
+ * ffmpeg sampling passes against the drive the episode is PLAYING from. A
+ * KNOWN crop skips the wait entirely — it comes from the cache and touches
+ * no tools.
  */
 const CROP_DETECT_DELAY_MS = 2000;
 
-/**
- * Ask for the crop of the episode on screen and apply it.
- *
- * Two-step on purpose. The cached answer is asked for immediately and applies
- * the moment metadata arrives — a file measured before must not play its first
- * two seconds letterboxed. Only a file we have never measured waits out the
- * startup window before ffmpeg goes anywhere near the disk.
- *
- * `immediate` skips the wait: the settings toggle is a person asking now.
- */
 async function loadCropForCurrent(immediate = false) {
   currentCrop = null;
-  applyPicture(false);
+  applyPicture(playingBumperClip);
 
   const absPath = current && current.episode ? current.episode.absPath : null;
   if (!absPath || !window.tv.detectCrop || state.settings.autoCrop === false) return;
 
   let crop = await window.tv.detectCrop(absPath, { cachedOnly: true }).catch(() => null);
-  // The episode may have moved on while we asked.
   if (!current || current.episode.absPath !== absPath) return;
 
   if (!crop) {
@@ -2642,7 +2067,6 @@ async function loadCropForCurrent(immediate = false) {
       if (!current || current.episode.absPath !== absPath) return;
     }
     crop = await window.tv.detectCrop(absPath).catch(() => null);
-    // The episode may have moved on while ffmpeg looked.
     if (!current || current.episode.absPath !== absPath) return;
   }
 
@@ -2711,12 +2135,19 @@ function applyVolume() {
 }
 
 const THEMES = [
+  // Grouped by colour family, five to a row — the order the menu shows them
+  // in. A theme appended to the end lands next to whatever happened to be
+  // last, which is how a grey-and-green ended up beside Kawaii.
   'midnight', 'signal', 'foundry', 'siren', 'mono',
+  'teletext',
   'slate', 'bone', 'clay', 'arctic', '78',
+  'sage',
   'ember', 'searchlight', 'nitrate', 'crimson', 'marigold',
-  'greenbox', 'forest', 'mint', 'oceanic', 'orbital',
+  'wilson', '02', 'bordeaux',
+  'greenbox', 'forest', 'mint', 'bench', 'patina',
+  'oceanic', 'orbital',
   '01', 'neon', 'vhs', 'sunset', 'lilac',
-  'kawaii',
+  'kawaii', 'iris',
 ];
 
 /**
@@ -2728,7 +2159,7 @@ const THEMES = [
  * able from the setting not having saved, which is the exact complaint this
  * app has already been through once.
  */
-const THEME_ALIASES = { grape: '01' };
+const THEME_ALIASES = { grape: '01', unit02: '02' };
 
 /**
  * Themes whose panels are LIGHT.
@@ -2738,7 +2169,7 @@ const THEME_ALIASES = { grape: '01' };
  * attribute — inverted type over the picture, outlines on cards that would
  * otherwise be tone on tone.
  */
-const LIGHT_THEMES = ['marigold', 'kawaii', 'arctic', 'mint', 'lilac', 'bone', '78', 'clay'];
+const LIGHT_THEMES = ['marigold', 'kawaii', 'arctic', 'mint', 'lilac', 'bone', '78', 'clay', 'sage'];
 
 /** The theme actually in force, following any rename, falling back to midnight. */
 function resolveTheme(wanted) {
@@ -2756,6 +2187,25 @@ function applyTheme() {
   const theme = resolveTheme(String((state.settings || {}).theme || 'midnight'));
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.light = String(LIGHT_THEMES.includes(theme));
+}
+
+
+/**
+ * Set the two families the whole interface is drawn in.
+ *
+ * `--display` is the wordmark and headings; `--grotesque` is everything else
+ * that is prose. `--mono` is deliberately NOT settable: it carries episode
+ * codes, counts and timecodes, where columns lining up is the whole job, and
+ * a proportional face there would be a downgrade dressed as a preference.
+ *
+ * Written as inline custom properties on the root so they beat the :root
+ * defaults in the stylesheet while leaving every rule that reads the tokens
+ * untouched — the same trick applyUiScale uses for --ui-scale.
+ */
+function applyFonts() {
+  const fonts = (state.settings || {}).fonts || {};
+  document.documentElement.style.setProperty('--display', fontStackFor(fonts.display, DEFAULT_FONTS.display));
+  document.documentElement.style.setProperty('--grotesque', fontStackFor(fonts.body, DEFAULT_FONTS.body));
 }
 
 /** Player text and controls, for people who want them larger than the default. */
@@ -2796,41 +2246,108 @@ function ingestItems() {
   return items;
 }
 
-async function renderIngestStatus() {
+/**
+ * Is an ingest already in flight? Scans can arrive close together — boot,
+ * then a Rescan, then a folder change — and two runs against the same drive
+ * is exactly what the pause gate exists to avoid.
+ */
+let ingesting = false;
+
+/**
+ * Check for new titles after a scan, and capture their artwork if there are
+ * any. No button, and no asking.
+ *
+ * Ingest used to be a decision worth putting to the viewer, because it also
+ * measured which files needed converting and that could mean minutes of
+ * ffmpeg. Conversion is gone; what is left is grabbing a frame per new title
+ * for the library cards. That is a chore, not a choice, so the app does it
+ * itself — but only when a scan actually turned up something the ledger has
+ * not seen, which is what keeps it off the drive the rest of the time.
+ *
+ * It runs in the BACKGROUND: nothing awaits this, the note reports progress,
+ * and ingest.run stands down on its own while anything is playing.
+ */
+async function autoIngest() {
   const note = el('ingestNote');
-  const button = el('btnIngest');
-  if (!window.tv.ingestStatus) { note.textContent = ''; button.disabled = true; return; }
+  if (!window.tv.ingestStatus || !window.tv.ingestRun) { note.textContent = ''; return; }
 
-  const status = await window.tv.ingestStatus(ingestItems()).catch(() => null);
-  if (!status) { note.textContent = 'Could not check for new titles.'; button.disabled = true; return; }
-
-  if (status.newCount === 0) {
-    note.textContent = 'Nothing new since the last ingest.';
-    button.disabled = true;
-    return;
+  /**
+   * Claimed BEFORE the first await, and released in a finally.
+   *
+   * Checking the flag and then awaiting the status round-trip left a window
+   * wide enough for a second scan to walk straight through — boot followed
+   * by a Rescan is exactly that — and the loser would then clear the
+   * winner's flag on its way out, so a third could start on top of a running
+   * one. Two ingests against the same drive is precisely what the pause gate
+   * exists to prevent.
+   */
+  if (ingesting) return;
+  ingesting = true;
+  try {
+    await runIngest(note);
+  } finally {
+    ingesting = false;
   }
+}
+
+/**
+ * Write the note WITHOUT starting anything.
+ *
+ * autoIngest is the only writer of this line, and it only runs off a scan —
+ * so with no folder chosen, or a scan that found nothing because the drive is
+ * unplugged, the line sat on its HTML placeholder ("Checking for new
+ * titles…") forever. A status line that is permanently mid-sentence is worse
+ * than no line. Reading the status is a ledger comparison; it touches no
+ * media and spawns nothing.
+ */
+async function refreshIngestNote() {
+  const note = el('ingestNote');
+  if (!window.tv.ingestStatus) { note.textContent = ''; return; }
+  if (ingesting) return;                       // a run is already narrating it
+  const status = await window.tv.ingestStatus(ingestItems()).catch(() => null);
+  if (!status) { note.textContent = 'Could not check for new titles.'; return; }
+  note.textContent = status.newCount === 0
+    ? 'Nothing new — artwork is up to date.'
+    : 'New titles found — artwork is captured in the background after a scan.';
+}
+
+async function runIngest(note) {
+  const status = await window.tv.ingestStatus(ingestItems()).catch(() => null);
+  if (!status) { note.textContent = 'Could not check for new titles.'; return; }
+  if (status.newCount === 0) { note.textContent = 'Nothing new — artwork is up to date.'; return; }
+
   const bits = [];
   if (status.newShows) bits.push(`${status.newShows} show${status.newShows === 1 ? '' : 's'}`);
   if (status.newEpisodes) bits.push(`${status.newEpisodes} episode${status.newEpisodes === 1 ? '' : 's'}`);
   if (status.newMovies) bits.push(`${status.newMovies} movie${status.newMovies === 1 ? '' : 's'}`);
-  note.textContent = `New since the last ingest: ${bits.join(', ')}. `
-    + 'Ingesting captures artwork and checks which files will need converting.';
-  button.disabled = false;
-}
+  note.textContent = `Found ${bits.join(', ')} — capturing artwork…`;
 
-/** GB with one decimal — cache sizes are the only place the app talks in GB. */
-function formatGb(bytes) {
-  return `${(Math.max(0, Number(bytes) || 0) / 1073741824).toFixed(1)} GB`;
-}
+  // The run stands down while anything plays; a note that says so is the
+  // difference between patience and a bug report.
+  const stopProgress = window.tv.onIngestProgress
+    ? window.tv.onIngestProgress(({ done, total, waiting }) => {
+      note.textContent = waiting
+        ? `Paused while something is playing — ${done} of ${total} done.`
+        : `Capturing artwork… ${done} of ${total}.`;
+    })
+    : null;
 
-async function renderCacheInfo() {
-  const note = el('cacheNote');
-  const info = await window.tv.cacheInfo().catch(() => null);
-  if (!info) { note.textContent = 'Prepared-file details are unavailable.'; return; }
-  note.textContent =
-    `${info.count} prepared file${info.count === 1 ? '' : 's'} — ${formatGb(info.bytes)} of ${formatGb(info.budget)} budget. `
-    + 'Cleaning up removes leftovers from cancelled conversions and trims back to budget; '
-    + 'nothing that is playing or queued is touched.';
+  const result = await window.tv.ingestRun(ingestItems()).catch(() => null);
+  if (stopProgress) stopProgress();
+
+  if (result && result.busy) return;               // another run had it
+  if (!result || result.ok === false) {
+    note.textContent = 'Could not capture artwork for the new titles.';
+    return;
+  }
+  // New artwork exists now; cached misses would hide it until a restart.
+  artworkCache.clear();
+  note.textContent = result.captured
+    ? `Artwork captured for ${result.captured} new title${result.captured === 1 ? '' : 's'}.`
+    : 'Nothing new — artwork is up to date.';
+  // The gallery and the cards are the things the new art actually appears on.
+  if (!el('mediaModal').hidden) renderMediaTable();
+  renderSidebar();
 }
 
 async function renderManualSaveInfo() {
@@ -2910,8 +2427,8 @@ function openSettings() {
   renderSettings();
   renderSettingsNav();
   renderManualSaveInfo();
-  renderCacheInfo();
-  renderIngestStatus();
+  // Not autoIngest: opening a settings sheet must not start disk work.
+  refreshIngestNote();
   el('btnCloseSettings').focus();
 }
 
@@ -3469,7 +2986,7 @@ function wireColumnDrops() {
  * and also the pointer back to the Ingest button.
  */
 let mediaKind = 'show';
-let mediaData = null;   // { entries, art: Map('kind\nid' -> bool) }
+let mediaData = null;   // { art: Map('kind\nid' -> bool) }
 
 async function openMedia() {
   el('mediaModal').hidden = false;
@@ -3478,21 +2995,31 @@ async function openMedia() {
   renderMediaTable();          // paints the "loading" shell immediately
 
   const items = ingestItems();
-  const [entries, flags] = await Promise.all([
-    window.tv.ingestEntries().catch(() => ({})),
-    window.tv.artworkStats(items).catch(() => []),
-  ]);
+  /**
+   * Artwork only.
+   *
+   * The ingest LEDGER was fetched alongside this, for one purpose: telling
+   * the table whether each title needed converting. Nothing converts, that
+   * column is gone, and the read went with it — along with the only reason
+   * this window ever waited on two round trips instead of one.
+   */
+  const flags = await window.tv.artworkStats(items).catch(() => []);
   if (el('mediaModal').hidden) return;   // closed while loading
 
   const art = new Map();
   items.forEach((item, i) => art.set(`${item.kind}\n${item.id}`, Boolean(flags[i])));
-  mediaData = { entries, art };
+  mediaData = { art };
   renderMediaTable();
   el('mediaSearch').focus();
 }
 
 function closeMedia() {
   el('mediaModal').hidden = true;
+  // The popover floats OVER this sheet rather than inside it, so hiding the
+  // sheet leaves it on screen and still writing to state. Closing from the
+  // keyboard produces a click with no mousedown, so the outside-click guard
+  // never fires — this is the only thing that catches that path.
+  closeTagPop();
   mediaData = null;
 }
 
@@ -3502,19 +3029,420 @@ function mediaOpen() {
 
 const hasArt = (kind, id) => Boolean(mediaData && mediaData.art.get(`${kind}\n${id}`));
 
-function conversionCell(text) {
-  const td = document.createElement('td');
-  td.textContent = text;
-  td.className = /not checked/.test(text) ? 'mediarow__unknown'
-    : (/need|converts/.test(text) ? 'mediarow__warn' : 'mediarow__ok');
-  return td;
-}
-
 function artCell(present, label) {
   const td = document.createElement('td');
   td.className = 'mediarow__art';
   td.textContent = label !== undefined ? label : (present ? '✓' : '—');
   return td;
+}
+
+/* --- genre tags ----------------------------------------------------------- */
+
+/**
+ * One title's genres, as a cell you click to edit.
+ *
+ * The whole cell is the target, not a button beside the chips (Fitts) — and
+ * an untagged title still needs something to aim at, which is what the em
+ * dash is for. Chips are rendered by the same builder the popover uses, so
+ * the cell and the editor can never drift apart.
+ */
+function genreCell(kind, id, label) {
+  const td = document.createElement('td');
+  td.className = 'mediarow__genres';
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'genrecell';
+  button.setAttribute('aria-haspopup', 'dialog');
+  paintGenreCell(button, kind, id);
+
+  // Stamped so the cell can be found again after the table rebuilds — see
+  // liveGenreCell.
+  button.dataset.genreKind = kind;
+  button.dataset.genreId = id;
+
+  button.addEventListener('click', () => openTagPop(button, kind, id, label));
+  td.append(button);
+  return td;
+}
+
+/**
+ * Find the cell for a title in the table as it stands NOW.
+ *
+ * renderMediaTable wipes #mediaRows and rebuilds every row, so any button
+ * captured before it ran is a detached node. Painting one is completely
+ * silent — the store is correct, the save has happened, the popover's own
+ * chips update — and the row inches away simply stops changing, which reads
+ * exactly like tags not saving.
+ *
+ * Matched by walking the cells rather than by a CSS attribute selector: a
+ * movie's id is a relative path and can contain quotes and brackets that
+ * would need escaping into a selector, and getting that wrong is another
+ * silent miss.
+ */
+function liveGenreCell(kind, id) {
+  return [...el('mediaRows').querySelectorAll('.genrecell')]
+    .find((cell) => cell.dataset.genreKind === kind && cell.dataset.genreId === id) || null;
+}
+
+/** Repaint a cell in place, so setting tags never re-renders the whole table. */
+function paintGenreCell(button, kind, id) {
+  button.textContent = '';
+  const tags = tagsFor(state, kind, id);
+  button.setAttribute('aria-label', tags.length
+    ? `Genres: ${tags.join(', ')}. Edit.`
+    : 'Add genres');
+  if (!tags.length) {
+    const empty = document.createElement('span');
+    empty.className = 'genrecell__empty';
+    empty.textContent = '—';
+    button.append(empty);
+    return;
+  }
+  for (const tag of tags) button.append(chipFor(tag));
+}
+
+/**
+ * A tag chip.
+ *
+ * Deliberately ONE look for every tag, with no per-genre colour.
+ *
+ * Notion and Airtable give each option its own hue, and it is genuinely good
+ * for scanning — but this app is three inks by design, it ships twelve themes
+ * including four light ones and one (02) whose whole identity is black hairs
+ * between panels, and a generated palette would have to survive all of them.
+ * The alternatives were a user-picked colour per tag, which is a colour
+ * picker nobody asked for, or an auto-assigned hue, which is arbitrary and
+ * clashes somewhere. So tags are told apart by their WORD, which is the thing
+ * that actually carries the meaning, and they all look alike because they all
+ * ARE alike (Law of Similarity). The signal colour stays reserved for what it
+ * already means here: this one is selected.
+ */
+function chipFor(tag) {
+  const chip = document.createElement('span');
+  chip.className = 'chip';
+  chip.textContent = tag;
+  return chip;
+}
+
+/* --- the tag picker ------------------------------------------------------- */
+
+/** What the popover is editing, or null when it is closed. */
+let tagPopTarget = null;
+/** The row button it was opened from, repainted in place when tags change. */
+let tagPopAnchor = null;
+/** Index of the highlighted row, for arrow keys and Enter. */
+let tagPopActive = 0;
+
+function tagPopOpen() {
+  return !el('tagPop').hidden;
+}
+
+/**
+ * Open under the cell that was clicked, flipping up when there is no room.
+ *
+ * Fixed positioning rather than absolute: the table scrolls inside
+ * .modal__body, and an absolutely positioned popover inside a scroll
+ * container is clipped by it — the classic version of this bug, where the
+ * menu simply cannot be seen for rows near the bottom.
+ */
+function openTagPop(anchor, kind, id, label) {
+  tagPopTarget = { kind, id, label };
+  tagPopAnchor = anchor;
+  tagPopActive = 0;
+
+  const pop = el('tagPop');
+  pop.hidden = false;
+  el('tagPopInput').value = '';
+  renderTagPop();
+
+  positionTagPop();
+  el('tagPopInput').focus();
+}
+
+/**
+ * Put the popover under its row, flipping above when there is no room below.
+ *
+ * Re-run on scroll and resize, not just on open. position:fixed escapes the
+ * table's scroll clipping, but it also means the popover stays nailed to the
+ * viewport while the row it is editing travels away underneath — so it ended
+ * up captioning an unrelated title while still writing to the original one.
+ * With 32 shows the table always scrolls, so this was not an edge case.
+ */
+function positionTagPop() {
+  if (!tagPopOpen() || !tagPopAnchor) return;
+
+  /**
+   * A DETACHED anchor first, before anything reads geometry off it.
+   *
+   * This was a regression the first time round. A detached node has no
+   * ancestors, so `closest('.modal__body')` returns null and the scrollport
+   * check below was skipped in exactly the state it exists for; execution
+   * then fell through to the maths with an all-zero rect, and the popover
+   * teleported to the top-left corner of the window and stayed there, still
+   * writing to the original title. Measured: closest() null, rect 0,0,0,0,
+   * computed position 12,6.
+   *
+   * Recover if the row is still in the table under a rebuilt node; close if
+   * it is genuinely gone.
+   */
+  if (!tagPopAnchor.isConnected) {
+    tagPopAnchor = tagPopTarget ? liveGenreCell(tagPopTarget.kind, tagPopTarget.id) : null;
+    if (!tagPopAnchor) { closeTagPop(); return; }
+  }
+
+  const pop = el('tagPop');
+  const box = tagPopAnchor.getBoundingClientRect();
+
+  /**
+   * Scrolled out of its own scrollport: close rather than follow.
+   *
+   * Following would pin the popover to the edge of the screen with nothing
+   * under it, which is a menu pointing at nothing. The scrollport, not the
+   * window — a row hidden behind the modal's own overflow is gone as far as
+   * the person is concerned even though it is still inside the viewport.
+   *
+   * Measured from the sticky HEADER's bottom edge, not the scrollport's top.
+   * `.locktable th` is position:sticky and 33px tall, so the top band of the
+   * scrollport is permanently covered — a row fully hidden behind the column
+   * headings is out of sight while still, on paper, inside the box.
+   */
+  const scroller = tagPopAnchor.closest('.modal__body');
+  if (scroller) {
+    const view = scroller.getBoundingClientRect();
+    /**
+     * The TH, not the THEAD. `position: sticky` is on the cells
+     * (styles.css .locktable th), so the thead's own rect scrolls away with
+     * the flow while the cells stay pinned — measuring the thead made
+     * Math.max collapse straight back to view.top and the guard did nothing
+     * at all. Caught by the probe, which is the only reason it is not still
+     * sitting here looking like a fix.
+     */
+    const head = scroller.querySelector('th');
+    const topEdge = head ? Math.max(view.top, head.getBoundingClientRect().bottom) : view.top;
+    if (box.bottom < topEdge + 4 || box.top > view.bottom - 4) { closeTagPop(); return; }
+  }
+
+  const height = pop.offsetHeight;
+  const below = window.innerHeight - box.bottom - 12;
+  pop.style.left = `${Math.max(12, Math.min(box.left, window.innerWidth - pop.offsetWidth - 12))}px`;
+  pop.style.top = below >= height
+    ? `${box.bottom + 6}px`
+    : `${Math.max(12, box.top - height - 6)}px`;
+}
+
+function closeTagPop() {
+  el('tagPop').hidden = true;
+  tagPopTarget = null;
+  tagPopAnchor = null;
+}
+
+/** Write a title's tags, repaint everything that shows them, and save. */
+function setTagsFor(kind, id, list) {
+  state.tags = withTags(state, kind, id, list);
+  persist();
+  /**
+   * Re-acquired whenever the held node has left the document, so a table
+   * rebuild underneath an open popover cannot quietly stop the row updating.
+   *
+   * And if it cannot be found at all, CLOSE. A null anchor used to mean "skip
+   * the paint", which is the same silent failure by another route — the row
+   * is not on screen (the tab was switched, the search narrowed it away), so
+   * the popover is editing something nobody can see.
+   */
+  if (!tagPopAnchor || !tagPopAnchor.isConnected) tagPopAnchor = liveGenreCell(kind, id);
+  if (!tagPopAnchor) { closeTagPop(); return; }
+  paintGenreCell(tagPopAnchor, kind, id);
+  renderGenreFilter();
+  if (browseOpen()) renderBrowse();
+}
+
+function renderTagPop() {
+  if (!tagPopTarget) return;
+  const { kind, id } = tagPopTarget;
+  const current = tagsFor(state, kind, id);
+  const typed = cleanTag(el('tagPopInput').value);
+
+  // --- the chips already on this title, each removable
+  const chips = el('tagPopChips');
+  chips.textContent = '';
+  if (!current.length) {
+    const none = document.createElement('span');
+    none.className = 'tagpop__none';
+    none.textContent = 'No genres yet';
+    chips.append(none);
+  }
+  for (const tag of current) {
+    const chip = chipFor(tag);
+    chip.classList.add('chip--removable');
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'chip__x';
+    x.setAttribute('aria-label', `Remove ${tag}`);
+    x.textContent = '✕';
+    x.addEventListener('click', (event) => {
+      event.stopPropagation();
+      setTagsFor(kind, id, current.filter((entry) => keyFor(entry) !== keyFor(tag)));
+      renderTagPop();
+      // renderTagPop destroys the button that was just clicked, dropping
+      // focus to <body> — which silently kills arrows, Enter and Backspace
+      // for the rest of the session. Every path that re-renders must put it
+      // back on the field.
+      el('tagPopInput').focus();
+    });
+    chip.append(x);
+    chips.append(chip);
+  }
+
+  // --- the options, narrowed by whatever has been typed
+  const list = el('tagPopList');
+  list.textContent = '';
+
+  // Both predicates live in src/shared/genres.js so the suite can pin the
+  // SHIPPED behaviour rather than a copy of it that drifts.
+  const vocabulary = allTags(state);
+  const matches = narrowTags(vocabulary, typed);
+
+  const rows = [];
+  for (const tag of matches) {
+    const on = hasTag(current, tag);
+    const row = document.createElement('div');
+    row.className = 'tagopt';
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', String(on));
+    row.dataset.on = String(on);
+
+    const name = document.createElement('button');
+    name.type = 'button';
+    name.className = 'tagopt__pick';
+    name.textContent = tag;
+    name.addEventListener('click', () => {
+      setTagsFor(kind, id, on
+        ? current.filter((entry) => keyFor(entry) !== keyFor(tag))
+        : [...current, tag]);
+      renderTagPop();
+      el('tagPopInput').focus();      // see the chip ✕ handler above
+    });
+
+    /**
+     * Deleting a genre is a library-wide act, not a row-level one, so it
+     * says how many titles it will strip it from before doing it. window
+     * .confirm is the house pattern for this (three other sites use it) and
+     * a bare `confirm` would fail the free-identifier suite.
+     */
+    const drop = document.createElement('button');
+    drop.type = 'button';
+    drop.className = 'tagopt__drop';
+    drop.setAttribute('aria-label', `Delete the ${tag} genre everywhere`);
+    drop.textContent = '✕';
+    drop.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const used = countTagged(state, shows, movieFiles, tag);
+      const warning = used
+        ? `Delete the "${tag}" genre? It will be removed from ${used} title${used === 1 ? '' : 's'}.`
+        : `Delete the "${tag}" genre?`;
+      if (!window.confirm(warning)) return;
+      state.tags = withoutTag(state, tag);
+      persist();
+      renderGenreFilter();
+      // The whole table is rebuilt — every row could have carried this tag —
+      // so the anchor must be re-acquired AFTER it, not painted before it.
+      renderMediaTable();
+      tagPopAnchor = liveGenreCell(kind, id);
+      if (tagPopAnchor) paintGenreCell(tagPopAnchor, kind, id);
+      if (browseOpen()) renderBrowse();
+      renderTagPop();
+      el('tagPopInput').focus();
+    });
+
+    row.append(name, drop);
+    rows.push(row);
+    list.append(row);
+  }
+
+  // The create row, last, and only for something genuinely new AND storable.
+  if (offersCreate(vocabulary, typed)) {
+    const row = document.createElement('div');
+    row.className = 'tagopt tagopt--create';
+    const make = document.createElement('button');
+    make.type = 'button';
+    make.className = 'tagopt__pick';
+    make.textContent = `Create "${typed}"`;
+    make.addEventListener('click', () => {
+      state.tags = withCustomTag(state, typed);
+      setTagsFor(kind, id, [...current, typed]);
+      el('tagPopInput').value = '';
+      renderTagPop();
+      el('tagPopInput').focus();
+    });
+    row.append(make);
+    rows.push(row);
+    list.append(row);
+  }
+
+  /**
+   * The hint has to be true for the reason the list is empty.
+   *
+   * "Type a new name to create it" was advice that could not be followed
+   * whenever the reason was that the name has no key — typing more of it
+   * keeps producing nothing. Now the only way to an empty list is a tag with
+   * no letters or digits at all, and it says so.
+   */
+  const hint = el('tagPopHint');
+  if (typed && !keyFor(typed)) {
+    hint.textContent = 'A genre needs at least one letter or number.';
+    hint.hidden = false;
+  } else if (!rows.length) {
+    hint.textContent = 'Nothing matches. Type a new name to create it.';
+    hint.hidden = false;
+  } else {
+    hint.hidden = true;
+  }
+
+  tagPopActive = Math.max(0, Math.min(tagPopActive, rows.length - 1));
+  rows.forEach((row, index) => {
+    row.dataset.active = String(index === tagPopActive);
+  });
+
+  /**
+   * Re-anchor, because THIS is what changes the popover's height.
+   *
+   * Positioning was hooked to scroll and resize and not to the render that
+   * actually resizes it. Every keystroke, chip toggle, chip removal and
+   * genre deletion rebuilds the option list — and in the flip-above branch
+   * the top edge is computed FROM the height, so the popover drifts away
+   * from its row while sitting perfectly still. Measured at 178px adrift.
+   */
+  positionTagPop();
+}
+
+/** Enter picks, arrows move, Escape closes, Backspace on empty removes. */
+function tagPopKeydown(event) {
+  const rows = [...el('tagPopList').querySelectorAll('.tagopt')];
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (!rows.length) return;
+    tagPopActive = (tagPopActive + (event.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length;
+    renderTagPop();
+    const row = el('tagPopList').querySelectorAll('.tagopt')[tagPopActive];
+    if (row) row.scrollIntoView({ block: 'nearest' });
+    return;
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const row = rows[tagPopActive];
+    const pick = row && row.querySelector('.tagopt__pick');
+    if (pick) pick.click();
+    return;
+  }
+  if (event.key === 'Backspace' && !el('tagPopInput').value && tagPopTarget) {
+    // The standard gesture: an empty field plus Backspace peels the last chip.
+    const current = tagsFor(state, tagPopTarget.kind, tagPopTarget.id);
+    if (!current.length) return;
+    event.preventDefault();
+    setTagsFor(tagPopTarget.kind, tagPopTarget.id, current.slice(0, -1));
+    renderTagPop();
+  }
 }
 
 function renderMediaTable() {
@@ -3548,17 +3476,26 @@ function renderMediaTable() {
   }
 
   const query = el('mediaSearch').value.trim().toLowerCase();
-  const { entries } = mediaData;
   let shown = 0;
 
+  /**
+   * The header list is the single source of truth for the column count.
+   *
+   * The expanded episode row spans the whole table, and its colSpan used to
+   * be a hand-written number — which is a value that must be edited every
+   * time a column is added and gives no sign when it was not. Adding the
+   * Card image column already broke it once.
+   */
+  let columnCount = 0;
+  const header = (labels) => { columnCount = labels.length; labels.forEach(th); };
+
   if (mediaKind === 'show') {
-    ['Title', 'Episodes', 'Conversion', 'Artwork', 'Details'].forEach(th);
+    header(['Title', 'Episodes', 'Genres', 'Artwork', 'Card image', 'Details']);
 
     for (const show of shows) {
       if (query && !show.name.toLowerCase().includes(query)) continue;
       shown += 1;
 
-      const summary = summarizeShow(show, entries);
       const artCount = show.episodes.reduce(
         (n, e) => n + (hasArt('episode', e.relPath) ? 1 : 0), 0,
       );
@@ -3569,10 +3506,27 @@ function renderMediaTable() {
       name.textContent = show.name;
       const eps = document.createElement('td');
       eps.className = 'mediarow__meta';
-      eps.textContent = String(summary.total);
+      eps.textContent = String(show.episodes.length);
+
+      const genres = genreCell('show', show.id, show.name);
 
       const art = artCell(hasArt('show', show.id),
-        `${hasArt('show', show.id) ? '✓ card' : '— card'} · ${artCount}/${summary.total} eps`);
+        `${hasArt('show', show.id) ? '✓ card' : '— card'} · ${artCount}/${show.episodes.length} eps`);
+
+      const setTd = document.createElement('td');
+      const set = document.createElement('button');
+      set.type = 'button';
+      set.className = 'btn btn--quiet';
+      set.textContent = 'Set image…';
+      set.addEventListener('click', () => {
+        openArtPicker('show', show.id, show.name, () => {
+          // The cell also carries the per-episode tally, so only the card half
+          // of its label is the part this just changed.
+          art.textContent = `✓ card · ${artCount}/${show.episodes.length} eps`;
+          if (browseOpen()) renderBrowse();
+        });
+      });
+      setTd.append(set);
 
       const detailTd = document.createElement('td');
       const toggle = document.createElement('button');
@@ -3581,7 +3535,7 @@ function renderMediaTable() {
       toggle.textContent = 'Episodes';
       detailTd.append(toggle);
 
-      tr.append(name, eps, conversionCell(describeShowConversion(summary)), art, detailTd);
+      tr.append(name, eps, genres, art, setTd, detailTd);
       rows.append(tr);
 
       /**
@@ -3600,7 +3554,7 @@ function renderMediaTable() {
         detailRow = document.createElement('tr');
         detailRow.className = 'mediarow--detail';
         const cell = document.createElement('td');
-        cell.colSpan = 5;
+        cell.colSpan = columnCount;
         const list = document.createElement('ul');
         list.className = 'mediaeps';
         for (const episode of show.episodes) {
@@ -3608,14 +3562,10 @@ function renderMediaTable() {
           const label = document.createElement('span');
           label.className = 'mono';
           label.textContent = formatEpisodeLabel(episode);
-          const verdict = document.createElement('span');
-          verdict.textContent = describeEpisodeConversion(entries, episode.relPath);
-          verdict.className = /not checked/.test(verdict.textContent)
-            ? 'mediarow__unknown' : (/converts/.test(verdict.textContent) ? 'mediarow__warn' : 'mediarow__ok');
           const tick = document.createElement('span');
           tick.className = 'mediarow__art';
           tick.textContent = hasArt('episode', episode.relPath) ? '✓' : '—';
-          li.append(label, verdict, tick);
+          li.append(label, tick);
           list.append(li);
         }
         cell.append(list);
@@ -3625,7 +3575,7 @@ function renderMediaTable() {
       });
     }
   } else {
-    ['Title', 'Conversion', 'Artwork', 'Card image'].forEach(th);
+    header(['Title', 'Genres', 'Artwork', 'Card image']);
 
     for (const movie of movieFiles) {
       if (query && !movie.name.toLowerCase().includes(query)) continue;
@@ -3636,6 +3586,8 @@ function renderMediaTable() {
       name.className = 'mediarow__name';
       name.textContent = movie.name;
 
+      const genres = genreCell('movie', movie.relPath, movie.name);
+
       const art = artCell(hasArt('movie', movie.relPath));
 
       const setTd = document.createElement('td');
@@ -3643,18 +3595,12 @@ function renderMediaTable() {
       set.type = 'button';
       set.className = 'btn btn--quiet';
       set.textContent = 'Set image…';
-      set.addEventListener('click', async () => {
-        const result = await window.tv.chooseArtwork('movie', movie.relPath).catch(() => null);
-        if (!result || result.cancelled) return;
-        if (!result.ok) { toast(result.error || 'Could not use that image.', 4200); return; }
-        artworkCache.delete(`movie\n${movie.relPath}`);
-        mediaData.art.set(`movie\n${movie.relPath}`, true);
-        art.textContent = '✓';
-        toast('Card image updated.', 2400);
+      set.addEventListener('click', () => {
+        openArtPicker('movie', movie.relPath, movie.name, () => { art.textContent = '✓'; });
       });
       setTd.append(set);
 
-      tr.append(name, conversionCell(describeMovieConversion(movieVerdict(movie, entries))), art, setTd);
+      tr.append(name, genres, art, setTd);
       rows.append(tr);
     }
   }
@@ -3672,6 +3618,26 @@ function renderMediaTable() {
 /** The show whose settings dialog is on screen. */
 let showSetShow = null;
 
+/**
+ * This show's saved playback preferences, or an empty object.
+ *
+ * Lost in the switchover: it sat inside the conversion-era block that the
+ * mpv commit deleted wholesale (the wanted-audio cache, the preference
+ * generation counter), and went out with it while its FOUR callers stayed —
+ * the load-time preference pass, the ingest ledger, and both halves of the
+ * per-show settings dialog. Every one of them threw a ReferenceError on
+ * every use, and the two that matter most were swallowed by unawaited
+ * promises: the track menus opened empty, the show's language preference
+ * never applied, and the auto-crop never ran, in silence.
+ *
+ * The bundler cannot see this either — a free identifier is a legal
+ * reference to a global that might exist, so esbuild emits it without a
+ * word. test/freeIdentifiers.test.js is what catches it now.
+ */
+function prefFor(showId) {
+  return (state.settings.showPrefs || {})[showId] || {};
+}
+
 function openShowSettings(show) {
   if (!show) return;
   showSetShow = show;
@@ -3680,7 +3646,7 @@ function openShowSettings(show) {
   el('showSetAudio').value = pref.audio || '';
   el('showSetSubs').value = pref.subs || '';
   el('showSetNote').textContent =
-    'A language other than the default may need each episode converted once before it plays.';
+    'Audio and subtitles switch instantly — the preference applies to the episode on screen too.';
   el('showSetModal').hidden = false;
   el('showSetAudio').focus();
 }
@@ -3692,6 +3658,116 @@ function closeShowSettings() {
 
 function showSetOpen() {
   return !el('showSetModal').hidden;
+}
+
+/* --- the card image picker ------------------------------------------------ */
+
+/**
+ * What the picker is setting, and who to tell when it lands.
+ *
+ * Two places open this — a row in the library table and a show's own settings
+ * — and each has a different thing to update afterwards, so the caller hands
+ * in the follow-up rather than the dialog trying to work out where it came
+ * from.
+ */
+let artPickTarget = null;
+
+/**
+ * Kept in step with electron/main.js. The main process is the one that
+ * actually has to refuse — a renderer check can only ever be a courtesy,
+ * because it is the one half a determined caller can skip.
+ */
+const ART_MAX_BYTES = 12 * 1024 * 1024;
+const ART_TYPES = /^image\/(png|jpeg|webp|gif|bmp)$/;
+
+function artPickOpen() {
+  return !el('artModal').hidden;
+}
+
+function openArtPicker(kind, id, label, onDone) {
+  artPickTarget = { kind, id, onDone };
+  el('artFor').textContent = label || '';
+  const err = el('artError');
+  err.hidden = true;
+  err.textContent = '';
+  delete el('artDrop').dataset.over;
+  el('artModal').hidden = false;
+  el('btnArtBrowse').focus();
+}
+
+function closeArtPicker() {
+  el('artModal').hidden = true;
+  delete el('artDrop').dataset.over;
+  artPickTarget = null;
+}
+
+/**
+ * A refusal stays IN the dialog rather than going out as a toast.
+ *
+ * The whole reason to have said the rules up front is that a wrong file gets
+ * corrected on the spot — and a message that floats away over the settings
+ * sheet is not next to the thing being corrected, or still on screen by the
+ * time the second attempt is being chosen.
+ */
+function artPickFailed(message) {
+  const err = el('artError');
+  err.textContent = message;
+  err.hidden = false;
+}
+
+/**
+ * Land a result, whichever route produced it.
+ *
+ * Both the file dialog and the drop end in the same two obligations: forget
+ * the cached art under that key — a remembered hit would keep painting the
+ * old picture until a restart, which reads exactly like the new one not
+ * taking — and tell whichever surface asked.
+ */
+function applyArtResult(result) {
+  if (!artPickTarget) return;
+  if (!result || result.cancelled) return;
+  if (!result.ok) { artPickFailed(result.error || 'Could not use that image.'); return; }
+
+  const { kind, id, onDone } = artPickTarget;
+  artworkCache.delete(`${kind}
+${id}`);
+  if (mediaData && mediaData.art) mediaData.art.set(`${kind}
+${id}`, true);
+  closeArtPicker();
+  if (typeof onDone === 'function') onDone();
+  toast('Card image updated.', 2400);
+}
+
+/**
+ * A dropped file, read here and handed over as bytes.
+ *
+ * Electron removed File.path, so there is no path to give the main process —
+ * the renderer has to read the file itself. The type and size checks are the
+ * courtesy half of the guidance in the dialog: nativeImage answers a PDF with
+ * an empty image and no complaint, and "nothing happened" is the worst
+ * possible reply to a file someone just dragged in.
+ */
+async function artFromFile(file) {
+  if (!file || !artPickTarget) return;
+  if (!ART_TYPES.test(file.type || '')) {
+    artPickFailed('That is not an image this app can read. Use PNG, JPG, WEBP, GIF or BMP.');
+    return;
+  }
+  if (file.size > ART_MAX_BYTES) {
+    artPickFailed('That image is over 12 MB. Try a smaller one.');
+    return;
+  }
+
+  const target = artPickTarget;
+  const bytes = await file.arrayBuffer().catch(() => null);
+  if (!bytes) { artPickFailed('Could not read that file.'); return; }
+  // Closed, or pointed at something else, while the read was in flight —
+  // landing this now would tick over a row nobody is looking at any more.
+  if (artPickTarget !== target) return;
+
+  const result = await window.tv.setArtworkFromData(target.kind, target.id, bytes)
+    .catch((error) => ({ ok: false, error: String(error && error.message ? error.message : error) }));
+  applyArtResult(result);
 }
 
 /**
@@ -3710,18 +3786,17 @@ function saveShowPref(patch) {
   state = applySettings(shows, state, {
     showPrefs: { ...(state.settings.showPrefs || {}), [show.id]: next },
   }, {});
-  prefGeneration += 1;
   persist();
 
-  const paths = new Set(show.episodes.map((e) => e.absPath));
-  for (const absPath of paths) {
-    playableUrls.delete(absPath);
-    preparing.delete(absPath);
-  }
-  // By key prefix, not by enumerating languages: a list here would silently
-  // couple to the <select> options and rot the first time one was added.
-  for (const key of [...wantedAudio.keys()]) {
-    if (paths.has(key.slice(0, key.indexOf('\n')))) wantedAudio.delete(key);
+  /**
+   * The old body purged three caches here, because a preference could only
+   * take effect through a re-prepare. mpv switches live: if the show whose
+   * preference just changed is ON SCREEN, apply it to the episode playing
+   * right now — the setting doing something immediately is the whole point
+   * of the player swap.
+   */
+  if (current && current.showId === show.id && !playingBumperClip) {
+    applyTrackPrefs(current);
   }
 }
 
@@ -3776,204 +3851,79 @@ function locksOpen() {
 }
 
 // ---------------------------------------------------------------------------
-// audio + subtitle tracks
+// audio + subtitle tracks — live, on mpv
 // ---------------------------------------------------------------------------
 
 /**
- * Which audio track the viewer chose for the episode ON SCREEN.
- *
- * Reset for every new episode, deliberately: English is the default and stays
- * the default. This only ever holds an explicit override of the current one.
+ * The whole track apparatus collapsed when the player learned to switch
+ * live. Gone with the conversion pipeline: the audio override that forced a
+ * re-prepare, the played-vs-planned index pair whose disagreement WAS the
+ * lying-label bug, the WebVTT extraction, the <track> elements, and the
+ * last-decision-wins sequence number a minutes-long extraction needed. What
+ * remains reads mpv's own track-list — the menus carry mpv's `selected`
+ * flag, so the label and the sound share one source and cannot disagree.
  */
-let audioOverride = null;
+let currentTracks = { audio: [], subtitles: [] };
+let subsOn = false;
 
-/**
- * Which audio track is ACTUALLY playing, as opposed to which one was wanted.
- *
- * These are not the same thing and the difference is the whole bug: the menu
- * used to highlight the planner's preference, so a file that fell back to
- * playing untouched was labelled English while track one played Japanese. Null
- * means nothing has established it yet, and the menu falls back to the plan.
- */
-let playingAudioIndex = null;
-
-let currentTracks = { audio: [], subtitles: [], defaultAudioIndex: 0 };
-let activeSubIndex = null;
-let subtitleObjectUrl = null;
-
-/** Drop any subtitle currently attached, and release its blob. */
-function clearSubtitles() {
-  for (const node of [...player.querySelectorAll('track')]) node.remove();
-  if (subtitleObjectUrl) {
-    URL.revokeObjectURL(subtitleObjectUrl);
-    subtitleObjectUrl = null;
-  }
-}
-
-/**
- * Show one subtitle track, or none.
- *
- * Subtitles are extracted to WebVTT and attached as a <track>, which Chromium
- * renders and toggles instantly — no reload, unlike audio. Image-based subtitle
- * formats cannot become text and are refused rather than silently doing nothing.
- */
-/**
- * Monotonic subtitle request id: the LAST decision wins.
- *
- * An extraction can run for minutes on a slow drive, and the viewer can turn
- * subtitles off (or pick another track) while it runs — the late arrival must
- * not attach over a decision made after it started. Every entry into
- * setSubtitle, including the synchronous Off branch, claims a new id, and the
- * async tail only applies while its id is still the newest.
- */
-let subRequestSeq = 0;
-
-async function setSubtitle(index) {
-  if (!current) return;
-  const absPath = current.episode.absPath;
-  const seq = ++subRequestSeq;
-
-  if (index === null || index === undefined) {
-    clearSubtitles();
-    activeSubIndex = null;
-    renderTrackMenu();
-    return;
-  }
-
-  const track = currentTracks.subtitles.find((s) => s.index === index);
-  if (track && !track.usable) {
-    toast('Those subtitles are images, not text — they cannot be switched on.', 5000);
-    return;
-  }
-
-  toast('Loading subtitles…', 30000);
-  const result = await window.tv.subtitleText(absPath, index).catch(() => null);
-  /**
-   * The extraction can take minutes on a slow drive, and `current` does not
-   * change while an interstitial plays — so a track that finished extracting
-   * after the viewer moved on would pass the absPath guard below and paint
-   * the skipped episode's captions over the bumper. A clip never wants
-   * subtitles, full stop.
-   */
-  if (playingBumperClip || seq !== subRequestSeq) { clearToast(); return; }
-  if (!result || !result.ok || !result.vtt) {
-    clearToast();
-    toast(result && result.needsFfmpeg ? 'Subtitles need ffmpeg.' : 'Could not load those subtitles.', 4000);
-    return;
-  }
-  // The episode may have moved on while ffmpeg worked.
-  if (!current || current.episode.absPath !== absPath) return;
-
-  clearSubtitles();
-  subtitleObjectUrl = URL.createObjectURL(new Blob([result.vtt], { type: 'text/vtt' }));
-
-  const node = document.createElement('track');
-  node.kind = 'subtitles';
-  node.label = track ? track.label : 'Subtitles';
-  node.srclang = (track && track.language) || 'en';
-  node.src = subtitleObjectUrl;
-  node.default = true;
-  player.append(node);
-  // Set on load AND immediately: whichever fires first wins, and a track that
-  // loads from a blob can be ready before the listener is attached.
-  const show = () => {
-    if (node.track) node.track.mode = 'showing';
-    // Placement lives on each CUE, and the cues do not exist until the track
-    // has parsed — so it has to be applied here as well as from settings.
-    applyCuePlacement();
+async function refreshTrackMenus() {
+  if (!window.tv.mpvTrackList) { currentTracks = { audio: [], subtitles: [] }; return; }
+  const list = await window.tv.mpvTrackList().catch(() => null);
+  currentTracks = {
+    audio: audioMenuFrom(list || []),
+    subtitles: subtitleMenuFrom(list || []),
   };
-  node.addEventListener('load', show, { once: true });
-  show();
-
-  activeSubIndex = index;
-  clearToast();
+  subsOn = (list || []).some((t) => t && t.type === 'sub' && t.selected);
   renderTrackMenu();
 }
 
 /**
- * Switch the audio language of the episode on screen.
+ * The per-show preferences, applied to the file just loaded.
  *
- * Chromium has no audio-track API, so this is not a toggle — it re-prepares the
- * file with a different track mapped and reloads at the same timestamp. Usually
- * fast (video is copied, only the sound is re-encoded) and instant if that
- * variant was prepared before, but it is real work, so the UI says so.
+ * Order matters for none of it — both are instant property writes — but the
+ * guard does: the track list is asked AFTER the load settles, and a viewer
+ * who moved on mid-ask must not have the old show's preference land on the
+ * new file.
  */
-async function switchAudio(index) {
-  if (!current || index === audioOverride) return;
-  const absPath = current.episode.absPath;
-  const at = player.currentTime;
-  const wasPlaying = !player.paused;
-  const label = (currentTracks.audio.find((a) => a.index === index) || {}).label || `track ${index + 1}`;
+async function applyTrackPrefs(item) {
+  if (!window.tv.mpvTrackList) return;
+  const list = await window.tv.mpvTrackList().catch(() => null);
+  if (!list || current !== item) return;
 
-  audioOverride = index;
-  playableUrls.delete(absPath);
-  renderTrackMenu();
-  toast(`Switching audio to ${label}…`, 120000);
+  const pref = prefFor(item.showId);
+  const aid = pickAudioTrackId(list, { preferLanguage: pref.audio || 'eng' });
+  if (aid !== null) await window.tv.mpvSetAudioTrack(aid).catch(() => {});
 
-  const result = await window.tv.ensurePlayable(absPath, undefined, index).catch(() => null);
-  if (!current || current.episode.absPath !== absPath) return;  // moved on
+  const sid = pref.subs ? pickSubtitleTrackId(list, { preferLanguage: pref.subs }) : null;
+  // 'no' rather than nothing when there is no pick: sid is sticky across
+  // loadfiles, so the previous episode's selection would otherwise carry.
+  await window.tv.mpvSetSubTrack(sid !== null ? sid : 'no').catch(() => {});
+  await window.tv.mpvSetSubVisibility(sid !== null).catch(() => {});
 
-  if (!result || !result.ok || !result.mediaUrl) {
-    clearToast();
-    toast('Could not switch audio for this episode.', 4000);
-    return;
-  }
+  await refreshTrackMenus();
+}
 
-  /**
-   * Deliberately NOT cached in playableUrls. That cache's contract is "this
-   * URL plays the track the plan chose", and this one plays the track the
-   * viewer overrode — caching it would mislabel the next natural replay.
-   * The main-process variant cache keeps the re-prepare on that replay cheap.
-   */
-  player.src = result.mediaUrl;
-  player.load();
-  player.addEventListener('loadedmetadata', () => {
-    // Back to where they were, not to the start of the episode.
-    if (Number.isFinite(player.duration)) player.currentTime = Math.min(at, player.duration - 1);
-    if (wasPlaying) player.play().catch(() => {});
-    // Text tracks do not survive a source change.
-    if (activeSubIndex !== null) setSubtitle(activeSubIndex);
-  }, { once: true });
-
-  clearToast();
+/** INSTANT — the reason this branch exists. No re-prepare, no reload. */
+async function switchAudio(id) {
+  if (!current) return;
+  const label = (currentTracks.audio.find((a) => a.id === id) || {}).label || 'that track';
+  await window.tv.mpvSetAudioTrack(id).catch(() => {});
   toast(`Audio: ${label}`, 2200);
+  await refreshTrackMenus();
 }
 
-/**
- * Switch on the subtitles this show asked for, if the episode carries them.
- *
- * Quietly does nothing when there is no preference, no matching track, or only
- * an image-based one — a missing track must not produce an error toast between
- * every episode of a show whose files simply lack that language.
- */
-function applySubtitlePref(item) {
-  const want = prefFor(item.showId).subs;
-  if (!want || activeSubIndex !== null) return;
-  // Non-forced first: a forced track carries only the foreign-dialogue lines,
-  // which is not what "subtitles on" means to a person who asked for them.
-  const usable = currentTracks.subtitles.filter(
-    (t) => t.usable && matchesLanguage({ language: t.language }, want),
-  );
-  const track = usable.find((t) => !t.forced) || usable[0];
-  if (track) setSubtitle(track.index);
-}
-
-/** Read the current episode's tracks and draw the menu. */
-async function loadTracksForCurrent() {
-  if (!current || !current.episode.absPath || !window.tv.listTracks) {
-    currentTracks = { audio: [], subtitles: [], defaultAudioIndex: 0 };
-    return;
+async function setSubtitle(id) {
+  if (id === null || id === undefined) {
+    // Clear the TRACK, not just visibility: sid is a sticky mpv property,
+    // and the menu's truth source is track-list's selected flag — a track
+    // left selected-but-invisible reads as subtitles being on forever.
+    await window.tv.mpvSetSubTrack('no').catch(() => {});
+    await window.tv.mpvSetSubVisibility(false).catch(() => {});
+  } else {
+    await window.tv.mpvSetSubTrack(id).catch(() => {});
+    await window.tv.mpvSetSubVisibility(true).catch(() => {});
   }
-  const absPath = current.episode.absPath;
-  const result = await window.tv.listTracks(
-    absPath,
-    prefFor(current.showId).audio ? { preferLanguage: prefFor(current.showId).audio } : undefined,
-  ).catch(() => null);
-  if (!current || current.episode.absPath !== absPath) return;
-  currentTracks = result && result.audio
-    ? result
-    : { audio: [], subtitles: [], defaultAudioIndex: 0 };
-  renderTrackMenu();
+  await refreshTrackMenus();
 }
 
 function renderTrackMenu() {
@@ -3995,32 +3945,22 @@ function renderTrackMenu() {
     return li;
   };
 
-  // What is playing beats what was planned. Falling back to the plan is only
-  // right before playback has established anything.
-  let activeAudio = currentTracks.defaultAudioIndex;
-  if (playingAudioIndex !== null) activeAudio = playingAudioIndex;
-  if (audioOverride !== null) activeAudio = audioOverride;
   if (currentTracks.audio.length === 0) {
     audioList.append(row('No audio tracks found', false, () => {}, true));
   } else {
     for (const track of currentTracks.audio) {
-      audioList.append(row(track.label, track.index === activeAudio, () => switchAudio(track.index)));
+      audioList.append(row(track.label, track.selected, () => switchAudio(track.id)));
     }
   }
 
-  subList.append(row('Off', activeSubIndex === null, () => setSubtitle(null)));
+  subList.append(row('Off', !subsOn, () => setSubtitle(null)));
   for (const track of currentTracks.subtitles) {
-    subList.append(row(
-      track.usable ? track.label : `${track.label} — image-based`,
-      track.index === activeSubIndex,
-      () => setSubtitle(track.index),
-      !track.usable,
-    ));
+    subList.append(row(track.label, subsOn && track.selected, () => setSubtitle(track.id)));
   }
 
   const note = el('trackMenuNote');
   if (currentTracks.audio.length > 1) {
-    note.textContent = 'Changing audio re-prepares the episode and resumes where you are.';
+    note.textContent = 'Audio and subtitles switch instantly.';
     note.hidden = false;
   } else {
     note.hidden = true;
@@ -4034,7 +3974,17 @@ function toggleTrackMenu(force) {
   el('btnTracks').setAttribute('aria-expanded', String(open));
   if (open) {
     showChrome();
-    renderTrackMenu();
+    renderTrackMenu();      // paint from cache: no blank flash
+    /**
+     * Then ASK, because the cache had exactly one filler — the load-time
+     * preference pass — and when that pass silently stopped running, the
+     * menu had no second source and opened empty on a dual-audio file. The
+     * viewer's own gesture is the cheapest possible moment to re-read mpv;
+     * the async re-render lands a frame or two later and corrects anything
+     * stale. Not awaited, so it carries its own catch: a failed read leaves
+     * the cached menu standing rather than vanishing into a dead promise.
+     */
+    refreshTrackMenus().catch((error) => console.error('track menu refresh failed:', error));
   }
 }
 
@@ -4129,6 +4079,21 @@ function wireEvents() {
     // Re-selecting the status line itself is not a choice; put it back.
     if (id === '__marathon__') { renderScheduleField(); return; }
 
+    /**
+     * Create new… is an action, not a running order. Open the editor on a
+     * BLANK draft — picking "create" and being shown the schedule you already
+     * had would be the wrong answer to the question asked — and put the
+     * selection back to whatever is actually in force, so the control never
+     * sits displaying a verb.
+     */
+    if (id === '__create__') {
+      loadDraft(null);
+      el('scheduleModal').hidden = false;
+      renderScheduleEditor();
+      renderScheduleField();
+      return;
+    }
+
     state = applySettings(shows, state, {
       activeScheduleId: id || null,
       marathonShowId: null,
@@ -4146,7 +4111,6 @@ function wireEvents() {
 
   // --- set schedules -------------------------------------------------------
 
-  el('btnSchedule').addEventListener('click', openSchedule);
   el('btnOpenSchedule').addEventListener('click', () => { closeSettings(); openSchedule(); });
   el('btnCloseSchedule').addEventListener('click', closeSchedule);
   el('scheduleBackdrop').addEventListener('click', closeSchedule);
@@ -4229,13 +4193,120 @@ function wireEvents() {
   el('btnOpenMedia').addEventListener('click', openMedia);
   el('btnCloseMedia').addEventListener('click', closeMedia);
   el('mediaBackdrop').addEventListener('click', closeMedia);
-  el('mediaSearch').addEventListener('input', renderMediaTable);
+  // Both of these rebuild the table, and a row can vanish from it entirely —
+  // narrowed away by the search, or on the tab that was just left. The
+  // popover would then be editing a title nobody can see.
+  el('mediaSearch').addEventListener('input', () => { closeTagPop(); renderMediaTable(); });
   el('mediaTabs').addEventListener('click', (event) => {
     const button = event.target.closest('.mode');
     if (!button) return;
+    closeTagPop();
     mediaKind = button.dataset.kind;
     renderMediaTable();
   });
+
+  // --- genre tags ----------------------------------------------------------
+
+  el('tagPopInput').addEventListener('input', () => { tagPopActive = 0; renderTagPop(); });
+  el('tagPopInput').addEventListener('keydown', tagPopKeydown);
+
+  /**
+   * Keep the popover attached to its row.
+   *
+   * Captured at the document, because the scroll happens on .modal__body and
+   * scroll events do not bubble — a listener on window would never see it.
+   * Resize matters too: the flip-above decision is made from the window
+   * height.
+   */
+  document.addEventListener('scroll', positionTagPop, true);
+  window.addEventListener('resize', positionTagPop);
+
+  el('btnGenreFilter').addEventListener('click', () => {
+    if (genreMenuOpen()) closeGenreMenu(); else openGenreMenu();
+  });
+  el('btnGenreClear').addEventListener('click', () => {
+    browseGenres = [];
+    renderGenreFilter();
+    renderBrowse();
+  });
+
+  /**
+   * One outside-click listener for both popovers.
+   *
+   * Captured on the document, because the tag popover is opened from inside
+   * a scrolling modal and the filter menu from the browse header — there is
+   * no common ancestor to hang this on. Each guard checks containment rather
+   * than target identity, so clicking a chip, a count or an SVG inside the
+   * control does not count as clicking outside it.
+   */
+  document.addEventListener('mousedown', (event) => {
+    if (tagPopOpen()
+      && !el('tagPop').contains(event.target)
+      && !(tagPopAnchor && tagPopAnchor.contains(event.target))) {
+      closeTagPop();
+    }
+    if (genreMenuOpen() && !el('genreFilter').contains(event.target)) {
+      closeGenreMenu();
+    }
+  });
+
+  // --- the card image picker -----------------------------------------------
+
+  el('btnCloseArt').addEventListener('click', closeArtPicker);
+  el('artBackdrop').addEventListener('click', closeArtPicker);
+
+  el('btnArtBrowse').addEventListener('click', async () => {
+    if (!artPickTarget) return;
+    const target = artPickTarget;
+    const result = await window.tv.chooseArtwork(target.kind, target.id).catch(() => null);
+    // The OS dialog is modal to the app, so nothing can have moved underneath
+    // it — but a cancel must leave the picker standing, not read as a failure.
+    if (!result || result.cancelled) return;
+    applyArtResult(result);
+  });
+
+  /**
+   * The whole zone is the drop target, and the whole zone is also a button.
+   *
+   * Dragging is not available to everyone, and a keyboard reaching the zone
+   * should get the same file dialog rather than a dead end — which is why the
+   * markup gives it role="button" and a tab stop.
+   */
+  const artDrop = el('artDrop');
+  artDrop.addEventListener('click', (event) => {
+    if (event.target.closest('#btnArtBrowse')) return;   // its own handler ran
+    el('btnArtBrowse').click();
+  });
+  artDrop.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    el('btnArtBrowse').click();
+  });
+
+  /**
+   * dragover MUST be prevented, on the zone and on the window.
+   *
+   * Without the zone's preventDefault the browser refuses the drop and no drop
+   * event ever fires. Without the window's, a file let go anywhere else
+   * NAVIGATES the renderer to that file — the app silently becomes a picture
+   * viewer with no way back, which is the failure mode worth guarding even
+   * when the picker is closed.
+   */
+  artDrop.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    artDrop.dataset.over = 'true';
+  });
+  artDrop.addEventListener('dragleave', () => { delete artDrop.dataset.over; });
+  artDrop.addEventListener('drop', (event) => {
+    event.preventDefault();
+    delete artDrop.dataset.over;
+    const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    if (!file) { artPickFailed('Nothing was dropped that this app can read.'); return; }
+    artFromFile(file);
+  });
+  window.addEventListener('dragover', (event) => event.preventDefault());
+  window.addEventListener('drop', (event) => event.preventDefault());
 
   el('btnDetailSettings').addEventListener('click', () => openShowSettings(browseDetailShow));
   el('btnCloseShowSet').addEventListener('click', closeShowSettings);
@@ -4253,23 +4324,18 @@ function wireEvents() {
     toast(event.target.value ? 'Subtitles will switch on for this show.' : 'Subtitles back to off.', 2600);
   });
 
-  el('btnShowSetImage').addEventListener('click', async () => {
+  el('btnShowSetImage').addEventListener('click', () => {
     if (!showSetShow) return;
     const show = showSetShow;
-    const result = await window.tv.chooseArtwork('show', show.id).catch(() => null);
-    if (!result || result.cancelled) return;
-    if (!result.ok) { toast(result.error || 'Could not use that image.', 4200); return; }
-    // Drop the cached miss/old art so the new image shows the moment it can.
-    artworkCache.delete(`show
-${show.id}`);
-    if (browseDetailShow && browseDetailShow.id === show.id) {
-      const art = el('detailArt');
-      art.textContent = '';
-      art.dataset.empty = 'true';
-      paintArt(art, [], { kind: 'show', id: show.id });
-    }
-    if (browseOpen()) renderBrowse();
-    toast('Card image updated.', 2600);
+    openArtPicker('show', show.id, show.name, () => {
+      if (browseDetailShow && browseDetailShow.id === show.id) {
+        const art = el('detailArt');
+        art.textContent = '';
+        art.dataset.empty = 'true';
+        paintArt(art, [], { kind: 'show', id: show.id });
+      }
+      if (browseOpen()) renderBrowse();
+    });
   });
 
   el('btnShowSetForget').addEventListener('click', () => {
@@ -4299,65 +4365,6 @@ The channel keeps its own place.`)) return;
     if (!id) { closeMarathon(); return; }
     closeMarathon();
     onShowControl(id, 'startMarathon');
-  });
-
-  el('btnIngest').addEventListener('click', async () => {
-    const button = el('btnIngest');
-    const original = button.textContent;
-    button.disabled = true;
-
-    // Progress on the button itself: a first ingest of a whole show is real
-    // minutes of one-at-a-time disk work, and a frozen label reads as a hang.
-    const stopProgress = window.tv.onIngestProgress
-      ? window.tv.onIngestProgress(({ done, total, waiting }) => {
-        // The run stands down while anything plays or converts; a label that
-        // says so is the difference between patience and a bug report.
-        button.textContent = waiting
-          ? `Waiting for playback to finish… (${done} of ${total} done)`
-          : `Ingesting ${done} of ${total}…`;
-      })
-      : null;
-
-    const result = await window.tv.ingestRun(ingestItems()).catch(() => null);
-    if (stopProgress) stopProgress();
-    button.textContent = original;
-
-    if (result && result.busy) {
-      toast('An ingest is already running.', 3200);
-      return;
-    }
-    if (!result || result.ok === false) {
-      toast('Could not ingest the new titles.', 4200);
-      button.disabled = false;
-      return;
-    }
-    // New artwork exists now; cached misses would hide it until a restart.
-    artworkCache.clear();
-    const what = [];
-    if (result.shows) what.push(`${result.shows} show${result.shows === 1 ? '' : 's'}`);
-    if (result.episodes) what.push(`${result.episodes} episode${result.episodes === 1 ? '' : 's'}`);
-    if (result.movies) what.push(`${result.movies} movie${result.movies === 1 ? '' : 's'}`);
-    toast(result.ingested
-      ? `Ingested ${what.join(', ')} — ${result.needConversion} will need converting, artwork captured for ${result.captured}.`
-      : 'Nothing new to ingest.', 6000);
-    renderIngestStatus();
-  });
-
-  el('btnCleanupCache').addEventListener('click', async () => {
-    const button = el('btnCleanupCache');
-    button.disabled = true;
-    const result = await window.tv.cleanupPrepared().catch(() => null);
-    button.disabled = false;
-    if (!result || result.ok === false) {
-      toast('Could not clean up the prepared files.', 4200);
-      return;
-    }
-    const freed = (result.reclaimedBytes || 0);
-    const bits = [];
-    if (result.removedParts) bits.push(`${result.removedParts} unfinished file${result.removedParts === 1 ? '' : 's'} (${formatGb(freed)})`);
-    if (result.evicted) bits.push(`${result.evicted} old prepared file${result.evicted === 1 ? '' : 's'}`);
-    toast(bits.length ? `Removed ${bits.join(' and ')}.` : 'Nothing to clean up — the cache is tidy.', 4200);
-    renderCacheInfo();
   });
 
   el('btnForgetLibrary').addEventListener('click', () => {
@@ -4504,7 +4511,6 @@ The channel keeps its own place.`)) return;
       state = picked.state;
       persist();
       renderSidebar();
-      prepareAhead();
       toast(picked.movie
         ? `Movies on — ${picked.movie.name} in ${state.movieLeadBlocks} block${state.movieLeadBlocks === 1 ? '' : 's'}.`
         : `Movies on — one every ${movieIntervalHours(state.settings)} hours.`, 4200);
@@ -4526,6 +4532,34 @@ The channel keeps its own place.`)) return;
   el('themeSelect').addEventListener('change', (event) => {
     setSetting({ theme: event.target.value });
     applyTheme();
+  });
+
+  el('fontDisplaySelect').addEventListener('change', (event) => {
+    setSetting({ fonts: { ...(state.settings.fonts || {}), display: event.target.value } });
+    applyFonts();
+  });
+
+  el('fontBodySelect').addEventListener('change', (event) => {
+    setSetting({ fonts: { ...(state.settings.fonts || {}), body: event.target.value } });
+    applyFonts();
+  });
+
+  /**
+   * Back to how the app ships — the theme and the two faces, and nothing else.
+   *
+   * DEFAULT_SETTINGS is the source for all three rather than literals here:
+   * a default written twice is a default that eventually disagrees with
+   * itself, and this control's whole promise is that it lands on the real one.
+   */
+  el('btnResetLook').addEventListener('click', () => {
+    setSetting({
+      theme: DEFAULT_SETTINGS.theme,
+      fonts: { ...DEFAULT_SETTINGS.fonts },
+    });
+    applyTheme();
+    applyFonts();
+    renderSettings();
+    toast('Appearance back to the defaults.', 2600);
   });
 
   el('promoBetweenToggle').addEventListener('change', (event) => {
@@ -4743,11 +4777,39 @@ The channel keeps its own place.`)) return;
   // player
   // The crop transform is computed from the element's pixel size, so it has to
   // be recomputed whenever that changes.
-  window.addEventListener('resize', () => applyPicture(playingBumperClip));
 
   player.addEventListener('ended', onEpisodeEnded);
   player.addEventListener('timeupdate', onTimeUpdate);
-  player.addEventListener('progress', renderBuffer);
+
+  /**
+   * mpv came back from the dead. Re-assert everything the APP asked the old
+   * process for, because all of it died with that process.
+   *
+   * The bridge restores what an element owns — file, position, pause, volume,
+   * mute — and deliberately stops there. These are the rest, and without them
+   * the picture returns at the right timestamp wearing mpv's own defaults.
+   *
+   * The subtitle style is the one that never healed on its own: nothing else
+   * in the app re-applies it per file, so one crash left her chosen size,
+   * colour and box at mpv's defaults for the whole remaining session. It goes
+   * first and unconditionally — it is a process property with no dependence
+   * on a file being loaded.
+   *
+   * The track preference and the crop DO need the file, so they ride a fresh
+   * one-shot loadedmetadata exactly as a normal open does. Re-running the
+   * preference also repairs the track menu, which until then went on showing
+   * the pre-crash selection — asserting a track that was not playing.
+   */
+  player.addEventListener('restored', () => {
+    applySubtitleStyle();
+    if (!current) return;
+    const item = current;
+    player.addEventListener('loadedmetadata', () => {
+      if (current !== item) return;   // she moved on while mpv was rebuilding
+      applyTrackPrefs(item).catch((error) => console.error('track preferences failed after restart:', error));
+      loadCropForCurrent().catch((error) => console.error('auto-crop failed after restart:', error));
+    }, { once: true });
+  });
   // Glyph only. Showing chrome here would fire on every automatic start —
   // each episode, each bumper, each promo — which is the interface appearing
   // over the opening of the picture. Chrome comes from togglePlay, hover and
@@ -4760,9 +4822,12 @@ The channel keeps its own place.`)) return;
     if (app.dataset.view === 'playing') showChrome();
   });
   el('stage').addEventListener('dblclick', (event) => {
-    if (app.dataset.view === 'playing' && event.target === player) toggleFullscreen();
+    if (app.dataset.view === 'playing' && event.target === el('playerSurface')) toggleFullscreen();
   });
-  player.addEventListener('click', togglePlay);
+  // The picture's click target is the transparent surface standing where the
+  // <video> element stood — the facade is not a DOM node and never gets a
+  // 'click'.
+  el('playerSurface').addEventListener('click', togglePlay);
 
   document.addEventListener('keydown', onGlobalKey);
   window.addEventListener('beforeunload', () => window.tv.saveState(state));
@@ -4800,52 +4865,28 @@ function onTimeUpdate() {
   }
 }
 
-function renderBuffer() {
-  if (!Number.isFinite(player.duration) || player.buffered.length === 0) return;
-  const end = player.buffered.end(player.buffered.length - 1);
-  el('scrubBuffer').style.width = `${(end / player.duration) * 100}%`;
-}
-
-/** Files we have already re-encoded once, so a second failure gives up. */
-const escalated = new Set();
-
 function onPlaybackError() {
-  // A clip that will not play is not an episode failure — its own handler moves
-  // the channel on, and escalating here would re-encode the wrong file and
-  // skip an episode that was never given a chance.
+  // A clip that will not play is not an episode failure — its own handler
+  // moves the channel on.
   if (playingBumperClip) return;
 
-  const name = current ? `${current.showName} ${current.label}` : 'that file';
-  const absPath = current && current.episode ? current.episode.absPath : null;
-
   /**
-   * A decode failure means the file needs converting, not that it is missing.
-   * The codec tables are a prediction and two things beat them: H.265, whose
-   * support depends on the machine rather than the file, and codec ids we have
-   * never seen. Both are planned optimistically, so this is where a wrong guess
-   * gets corrected — re-encode properly, once, rather than dropping an episode
-   * that was only ever one conversion away from playing.
+   * The old body escalated through conversion tiers here — a decode failure
+   * meant the PLANNER guessed wrong and a re-encode could fix it. mpv does
+   * not guess; a file it reports an error for is genuinely unreadable
+   * (truncated, corrupt, or gone with its drive), and the only honest move
+   * is the one the old last resort made: say so, and move on.
    */
-  if (absPath && needsFallback(player.error) && !escalated.has(absPath)) {
-    escalated.add(absPath);
-    playableUrls.delete(absPath);
-
-    const token = playToken;
-    const item = current;
-    resolvePlayable(item, token, TIER.FULL).then((url) => {
-      if (token !== playToken) return;
-      if (!url) {
-        toast(`Could not play ${name} — skipping it.`, 4500);
-        if (app.dataset.view === 'playing') playNext();
-        return;
-      }
-      player.src = url;
-      player.load();
-      player.play().catch(() => {});
-    });
+  const name = current ? `${current.showName} ${current.label}` : 'that file';
+  failedInARow += 1;
+  if (failedInARow >= MAX_FAILURES_IN_A_ROW) {
+    failedInARow = 0;
+    toast('Several episodes in a row could not be played — is the drive connected? Stopping here.', 8000);
+    setView('ready');
+    renderReady();
+    renderSidebar();
     return;
   }
-
   toast(`Could not play ${name} — skipping it.`, 4500);
   setTimeout(() => { if (app.dataset.view === 'playing') playNext(); }, 1200);
 }
@@ -4908,6 +4949,7 @@ function wireWindowControls() {
   // without the button — a double-click on the drag strip, Win+Up, a snap — and
   // a glyph that only reads the state once starts lying at the first of those.
   window.tv.onWindowState?.(({ maximized, fullscreen }) => {
+    windowIsFullscreen = Boolean(fullscreen);
     app.dataset.maximized = String(Boolean(maximized));
     app.dataset.fullscreen = String(Boolean(fullscreen));
   });
@@ -4958,11 +5000,18 @@ function resumeInPlace() {
   player.play().catch(() => {});
 }
 
+/** Mirrored from window:state — the OS window is the one source of truth. */
+let windowIsFullscreen = false;
+
 async function toggleFullscreen() {
-  const next = !document.fullscreenElement;
-  if (next) await document.documentElement.requestFullscreen().catch(() => {});
-  else await document.exitFullscreen().catch(() => {});
-  window.tv.setFullscreen(next);
+  /**
+   * ONE mechanism, not two. The old body ALSO requested the page's own HTML
+   * fullscreen, which now belongs to the interface plane alone — Chromium's
+   * built-in Escape exited the HTML half and left the OS window fullscreen,
+   * a state the app could not see and the viewer could not leave.
+   */
+  windowIsFullscreen = !windowIsFullscreen;
+  window.tv.setFullscreen(windowIsFullscreen);
 }
 
 function onGlobalKey(event) {
@@ -4993,6 +5042,30 @@ function onGlobalKey(event) {
   // peels one layer at a time — the show card, then the grid — and nothing else
   // gets through: space must not pause an episode nobody can see, and N must
   // not advance a channel that is not the thing on screen.
+  /**
+   * The two genre popovers are checked FIRST, above even the image picker.
+   *
+   * Both float over a surface that has its own Escape handler — the tag
+   * popover over the library table, the filter menu over the browse page —
+   * so without this, Escape would close the thing UNDERNEATH and leave a
+   * menu hanging over nothing.
+   */
+  if (tagPopOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeTagPop(); }
+    return;
+  }
+  if (genreMenuOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeGenreMenu(); }
+    return;
+  }
+
+  // Checked before everything: the picker opens over the show-settings sheet
+  // AND over the library table, so it is always the layer in front.
+  if (artPickOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeArtPicker(); }
+    return;
+  }
+
   // Checked before browse: this dialog opens OVER the detail card inside the
   // library, and Escape must close the thing on top, not the card under it.
   if (showSetOpen()) {
@@ -5001,10 +5074,19 @@ function onGlobalKey(event) {
   }
 
   if (browseOpen()) {
-    if (event.key === 'Escape') {
+    /**
+     * Escape and L both leave, and both peel ONE layer — the show card first,
+     * then the page — which is how Escape already works everywhere else here.
+     *
+     * They go to the SIDEBAR, not back to the picture. backFromBrowse resumes
+     * whatever was paused, which is right for the Back button (it means
+     * "return me to what was on screen") and wrong for a key that is the
+     * other half of the key that opened this page.
+     */
+    if (event.key === 'Escape' || event.key === 'l' || event.key === 'L') {
       event.preventDefault();
       if (detailOpen()) closeDetail();
-      else backFromBrowse();
+      else backToSidebar();
     }
     return;
   }
@@ -5064,24 +5146,30 @@ function onGlobalKey(event) {
       break;
     case 'ArrowLeft': player.currentTime -= 10; showChrome(); break;
     case 'ArrowRight': player.currentTime += 30; showChrome(); break;
-    case 'f': case 'F': toggleFullscreen(); break;
+    // F11 handled here because the default menu (and its accelerator) is
+    // gone: it fullscreened whichever plane was FOCUSED, which is always the
+    // interface — leaving the video window behind at its old size.
+    case 'f': case 'F': case 'F11': event.preventDefault(); toggleFullscreen(); break;
     case 'n': case 'N': askSkip(); break;
     case 'l': case 'L':
-      // A toggle, because that is what a single key on a panel should be —
-      // and stepping back out resumes exactly what was paused rather than
-      // advancing the channel.
-      if (app.dataset.view === 'ready') {
-        if (canResumeInPlace()) resumeInPlace(); else playNext();
-      } else if (app.dataset.view === 'playing') {
-        openLibrary();
-      }
+      /**
+       * L is one key walking one line: picture -> sidebar -> library page,
+       * and back out the same way (the browse arm above handles the return).
+       *
+       * From the sidebar it used to RESUME, which made the same key mean
+       * "show me more" in one place and "put it away" in the other.
+       */
+      if (app.dataset.view === 'playing') openLibrary();
+      else if (app.dataset.view === 'ready') openBrowse();
       break;
     case 'm': case 'M':
       el('btnMute').click();
       toast(state.settings.muted ? 'Muted' : 'Sound on', 1400);
       break;
     case 'Escape':
-      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      // The OS window is the one fullscreen there is now; leave it here,
+      // where the old HTML fullscreen used to exit.
+      if (windowIsFullscreen) toggleFullscreen();
       break;
     default: break;
   }
@@ -5117,6 +5205,7 @@ async function boot() {
   }
 
   applyTheme();
+  applyFonts();
   applySubtitleStyle();
   applyUiScale();
   applyPicture(false);
@@ -5140,65 +5229,10 @@ boot();
 // waiting on a conversion
 // ---------------------------------------------------------------------------
 
-/**
- * An honest wait.
- *
- * This replaced a toast with a sixty-second life. Most conversions finish
- * inside that and it was fine; a 49GB film whose audio Chromium cannot decode
- * takes about forty minutes, and the message vanished after one of them. The
- * report was "it says processing, then the popup disappears and nothing
- * plays" — the app was working the whole time and had simply stopped saying
- * so.
- *
- * So it stays up until the wait ends, and it says three things a spinner
- * cannot: how far in, how much longer, and WHY this is happening at all.
+/*
+ * The preparing panel lived here — the honest wait screen for a conversion
+ * running in front of the viewer. Nothing converts any more; nothing waits.
  */
-let preparingFor = null;
-let preparingStartedAt = 0;
-let stopPreparingProgress = null;
-
-function showPreparing(item) {
-  const absPath = item.episode && item.episode.absPath;
-  if (!absPath) return;
-
-  preparingFor = absPath;
-  preparingStartedAt = performance.now();
-
-  el('preppingTitle').textContent = item.isMovie
-    ? item.showName
-    : `${item.showName} ${item.label}`;
-  el('preppingFill').style.width = '0%';
-  el('preppingCount').textContent = 'Starting…';
-  el('preppingNote').textContent = 'This file needs converting before it can play. It only happens once — after this it starts immediately.';
-  el('prepping').hidden = false;
-
-  if (stopPreparingProgress) stopPreparingProgress();
-  stopPreparingProgress = window.tv.onPrepareProgress
-    ? window.tv.onPrepareProgress((payload) => {
-      if (!payload || payload.absPath !== preparingFor) return;
-      renderPreparing(payload.outMs || 0, payload.totalMs || 0);
-    })
-    : null;
-}
-
-/**
- * Draws what preparingCopy decided. The wording and the estimate live in
- * src/shared/prepProgress.js, where they can be tested — the parts that can be
- * wrong here are all arithmetic, and none of it is visible in a screenshot.
- */
-function renderPreparing(outMs, totalMs) {
-  const elapsed = (performance.now() - preparingStartedAt) / 1000;
-  const { fraction, text } = preparingCopy(outMs, totalMs, elapsed);
-
-  if (fraction !== null) el('preppingFill').style.width = `${(fraction * 100).toFixed(1)}%`;
-  el('preppingCount').textContent = text;
-}
-
-function hidePreparing() {
-  el('prepping').hidden = true;
-  preparingFor = null;
-  if (stopPreparingProgress) { stopPreparingProgress(); stopPreparingProgress = null; }
-}
 
 // ---------------------------------------------------------------------------
 // library mode
@@ -5218,6 +5252,8 @@ function hidePreparing() {
 let browseItem = null;      // { kind: 'show'|'movie', show, episodeIndex, movie }
 let browseDetailShow = null;
 let browseQuery = '';
+/** Genres ticked in the filter menu. Empty means no genre filter at all. */
+let browseGenres = [];
 let browseSavedScroll = 0;
 
 function browsing() {
@@ -5256,15 +5292,37 @@ function openBrowse() {
 
   browseQuery = '';
   el('browseSearch').value = '';
+  // The genre filter resets with the search box, for the same reason: a
+  // narrowing you set last time and cannot see is a library that looks like
+  // it has lost things.
+  browseGenres = [];
+  closeGenreMenu();
   el('browse').hidden = false;
+  renderGenreFilter();
   renderBrowse();
   el('browseBody').scrollTop = browseSavedScroll;
-  el('browseSearch').focus();
+  /**
+   * The search box is NOT focused on open, and that is deliberate.
+   *
+   * L opens this page and L closes it again. Form fields own their letter
+   * keys — they have to, or you could not type — so an autofocused search box
+   * would swallow every L and the toggle would only ever work in one
+   * direction. Special-casing the letter is not available either: "Lazarus"
+   * and "Lupin" both start with it.
+   *
+   * Click the box or Tab to it to search.
+   */
 }
 
 function closeBrowse() {
   browseSavedScroll = el('browseBody').scrollTop;
   el('browse').hidden = true;
+  // The menu lives INSIDE #browse, so hiding the page makes it invisible
+  // while leaving its own hidden flag false — and that flag is the first
+  // thing the global key handler consults, above every other layer and above
+  // the player's own keys. An invisible open menu was swallowing space, N, M,
+  // F and the arrows for the whole app until Escape was pressed.
+  closeGenreMenu();
   dropPendingDecodes();
   closeDetail();
 }
@@ -5281,6 +5339,22 @@ function browseOpen() {
  * from might be a library movie, a library episode or the channel. Resuming
  * in place is the only answer that is true in all three.
  */
+/**
+ * Leave the library page for the sidebar it was opened from.
+ *
+ * The keyboard's way out. Deliberately does NOT resume what was paused, which
+ * is the one thing that separates it from backFromBrowse below: L opened this
+ * page from the sidebar, so L and Escape put it back to the sidebar. Landing
+ * on the picture instead would make the key mean something different
+ * depending on what happened to be loaded.
+ */
+function backToSidebar() {
+  closeBrowse();
+  setView(shows.length ? 'ready' : 'welcome');
+  if (shows.length) renderReady();
+  renderSidebar();
+}
+
 function backFromBrowse() {
   closeBrowse();
   if (canResumeInPlace()) { resumeInPlace(); return; }
@@ -5309,20 +5383,40 @@ function matchesQuery(name) {
   return String(name).toLowerCase().includes(browseQuery);
 }
 
+/** Both filters at once — the search box AND the genre menu. */
+function matchesBrowse(name, kind, id) {
+  return matchesQuery(name) && matchesGenres(tagsFor(state, kind, id), browseGenres);
+}
+
 function renderBrowse() {
   const body = el('browseBody');
   body.textContent = '';
 
-  const rows = continueWatching(shows, movieFiles, state, 12).filter((r) => matchesQuery(r.name));
-  const showList = shows.filter((s) => matchesQuery(s.name));
-  const movieList = movieFiles.filter((m) => matchesQuery(m.name));
+  /**
+   * No rail while filtering, by search OR by genre.
+   *
+   * A filter is a question about the whole library, and the answer has to be
+   * one list read straight down. Leaving the rail up gives the same title two
+   * places to appear, and "carry on where you were" is not an answer to
+   * "where is Akira" or to "show me horror" — it is a second, louder thing
+   * sitting in front of it. Narrowing turns the page into results and nothing
+   * else.
+   *
+   * Not computed at all while either filter is live, rather than computed and
+   * filtered away: this runs on every keystroke.
+   */
+  const filtering = Boolean(browseQuery) || browseGenres.length > 0;
+  const rows = filtering ? [] : continueWatching(shows, movieFiles, state, 12);
+  const showList = shows.filter((s) => matchesBrowse(s.name, 'show', s.id));
+  const movieList = movieFiles.filter((m) => matchesBrowse(m.name, 'movie', m.relPath));
 
-  el('browseCount').textContent = browseQuery
-    ? `${showList.length + movieList.length} match${showList.length + movieList.length === 1 ? '' : 'es'}`
+  const found = showList.length + movieList.length;
+  el('browseCount').textContent = filtering
+    ? `${found} match${found === 1 ? '' : 'es'}`
     : `${shows.length} shows · ${movieFiles.length} movies`;
 
   if (rows.length) {
-    body.append(section('Continue watching', rows.length, rows.map(continueTile)));
+    body.append(carousel('Continue watching', rows, continueTile));
   }
   if (showList.length) {
     body.append(section('TV Shows', showList.length, showList.map(showTile)));
@@ -5333,9 +5427,314 @@ function renderBrowse() {
   if (!showList.length && !movieList.length) {
     const empty = document.createElement('p');
     empty.className = 'browse__empty';
-    empty.textContent = browseQuery ? `Nothing matching "${browseQuery}".` : 'Nothing in the library yet.';
+    empty.textContent = emptyBrowseCopy();
     body.append(empty);
   }
+}
+
+/**
+ * What to say when nothing matched.
+ *
+ * Four cases, because a sentence naming only the search term is a lie when a
+ * genre is also on — someone who has forgotten they left "Horror" ticked
+ * would read "Nothing matching Akira" and conclude the film is missing.
+ */
+function emptyBrowseCopy() {
+  const genres = browseGenres.join(', ');
+  if (browseQuery && browseGenres.length) return `Nothing matching "${browseQuery}" in ${genres}.`;
+  if (browseQuery) return `Nothing matching "${browseQuery}".`;
+  if (browseGenres.length) return `Nothing tagged ${genres}.`;
+  return 'Nothing in the library yet.';
+}
+
+/* --- the genre filter ----------------------------------------------------- */
+
+/**
+ * Build the filter menu from the tags something in the library actually
+ * carries, per the rule that a menu whose options mostly return an empty page
+ * is worse than no menu. Hides the whole control when nothing is tagged yet,
+ * which is every library before this feature is used.
+ */
+function renderGenreFilter() {
+  const used = tagsInUse(state, shows, movieFiles);
+  const wrap = el('genreFilter');
+  wrap.hidden = used.length === 0;
+  if (used.length === 0) {
+    // Nothing left to filter BY, so a stale selection would silently hide
+    // the whole library behind a control that is no longer on screen.
+    if (browseGenres.length) browseGenres = [];
+    closeGenreMenu();
+    return;
+  }
+
+  // A selection can outlive the tag it names — the last title carrying it was
+  // untagged or deleted. Drop those rather than filtering on a ghost.
+  const live = new Set(used.map((entry) => keyFor(entry.name)));
+  browseGenres = browseGenres.filter((tag) => live.has(keyFor(tag)));
+
+  el('genreFilterLabel').textContent = browseGenres.length === 0
+    ? 'All genres'
+    : (browseGenres.length === 1 ? browseGenres[0] : `${browseGenres.length} genres`);
+  el('genreFilter').dataset.on = String(browseGenres.length > 0);
+
+  const list = el('genreMenuList');
+  list.textContent = '';
+  for (const entry of used) {
+    const on = hasTag(browseGenres, entry.name);
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'genreopt';
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', String(on));
+    row.dataset.on = String(on);
+
+    const name = document.createElement('span');
+    name.textContent = entry.name;
+    const count = document.createElement('span');
+    count.className = 'genreopt__count mono';
+    count.textContent = String(entry.count);
+    row.append(name, count);
+
+    row.addEventListener('click', () => {
+      browseGenres = on
+        ? browseGenres.filter((tag) => keyFor(tag) !== keyFor(entry.name))
+        : [...browseGenres, entry.name];
+      renderGenreFilter();
+      renderBrowse();
+    });
+    list.append(row);
+  }
+
+  el('btnGenreClear').hidden = browseGenres.length === 0;
+}
+
+/**
+ * Belt and braces: a menu inside a hidden page is not open.
+ *
+ * closeBrowse() now closes it properly, but this guard gates every keystroke
+ * in the app, so it must not be able to answer "yes" for a control nobody can
+ * see — whatever future path forgets to tidy up.
+ */
+function genreMenuOpen() {
+  return !el('genreMenu').hidden && browseOpen();
+}
+
+function openGenreMenu() {
+  el('genreMenu').hidden = false;
+  el('btnGenreFilter').setAttribute('aria-expanded', 'true');
+}
+
+function closeGenreMenu() {
+  el('genreMenu').hidden = true;
+  el('btnGenreFilter').setAttribute('aria-expanded', 'false');
+}
+
+/**
+ * The resume row, as a rail.
+ *
+ * This page had three identical five-up grids, which meant it had no primary
+ * — nothing stood out, so everything read as equally important and the page
+ * felt like a file listing. Resuming something is the one thing this screen
+ * is for, so that row is now physically different: bigger tiles, three to a
+ * view, running edge to edge past the page margin, and horizontal.
+ *
+ * A REAL SCROLLER, not a transform. Wheel, trackpad, touch, drag and the
+ * keyboard all work because the browser is doing the scrolling; the arrows
+ * just call scrollBy. Reinventing that with transforms is how a carousel ends
+ * up feeling wrong in ways nobody can name.
+ *
+ * The loop is done by wrapping the scroll POSITION, not by animating: the
+ * tiles are laid out three times and the scroller silently jumps a set
+ * forward or back when it crosses a boundary. Because every set is identical
+ * the jump is invisible, and because it is a jump rather than a transition it
+ * cannot fight the user's own momentum. The clones are aria-hidden and
+ * untabbable, so the row reads once to a screen reader and tabs through its
+ * real tiles only.
+ */
+const CAROUSEL_MIN_TO_LOOP = 4;
+
+function carousel(title, rows, build) {
+  const wrap = document.createElement('section');
+  wrap.className = 'browsesec browsesec--rail';
+
+  const head = document.createElement('div');
+  head.className = 'browsesec__head';
+  const h = document.createElement('h3');
+  h.className = 'browsesec__title';
+  h.textContent = title;
+  head.append(h);
+
+  const viewport = document.createElement('div');
+  viewport.className = 'rail';
+
+  const track = document.createElement('ul');
+  track.className = 'rail__track';
+
+  /**
+   * The repeat sets are BUILT, not cloned.
+   *
+   * cloneNode copies the DOM as it stands, and a card's artwork arrives
+   * asynchronously — the frame grab is fetched and decoded after the element
+   * exists. Cloning therefore captured the cards before their pictures had
+   * landed, and those copies stayed empty for ever: the row looked right
+   * until a wrap carried you into a repeat set, and then every card was
+   * blank. Building each set through the same factory gives every card its
+   * own paint, and its own click handler, so there is nothing to forward.
+   */
+  const loops = rows.length >= CAROUSEL_MIN_TO_LOOP;
+  const buildSet = (hidden) => rows.map((row) => {
+    const card = build(row);
+    if (hidden) {
+      // The row must read once to a screen reader and tab through its real
+      // cards only, however many copies the loop needs.
+      card.setAttribute('aria-hidden', 'true');
+      card.tabIndex = -1;
+    }
+    return card;
+  });
+
+  if (loops) track.append(...buildSet(true));
+  const tiles = buildSet(false);
+  track.append(...tiles);
+  if (loops) track.append(...buildSet(true));
+
+  viewport.append(track);
+
+  const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const setWidthOnce = () => {
+    const all = track.children;
+    if (all.length < rows.length * 2 + 1) return 0;
+    return all[rows.length].offsetLeft - all[0].offsetLeft;
+  };
+
+  const arrow = (direction) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `rail__arrow rail__arrow--${direction}`;
+    // Full height and at the very edge: the cursor is already travelling
+    // there, and a 32px circle floating over artwork is a worse target than
+    // the strip it sits in.
+    button.setAttribute('aria-label', direction === 'prev' ? 'Earlier titles' : 'More titles');
+    button.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" '
+      + 'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'
+      + (direction === 'prev' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7') + '" /></svg>';
+    button.addEventListener('click', () => {
+      // A WHOLE view. With the cards flush against each other, moving by
+      // anything less leaves a card sliced by the frame edge, which is the
+      // one thing a gapless rail must not do.
+      const step = viewport.clientWidth;
+      viewport.scrollBy({
+        left: direction === 'prev' ? -step : step,
+        behavior: reducedMotion() ? 'auto' : 'smooth',
+      });
+    });
+    return button;
+  };
+
+  /**
+   * Page dots, not tile dots.
+   *
+   * The rail moves a viewport at a time, so the dots count VIEWS — three
+   * cards each. One dot per card would be a row of twelve markers under a row
+   * of three pictures, which measures nothing anybody asked about.
+   */
+  const perPage = 3;
+  const pages = Math.max(1, Math.ceil(rows.length / perPage));
+  const dots = document.createElement('div');
+  dots.className = 'raildots';
+  dots.setAttribute('role', 'tablist');
+  dots.setAttribute('aria-label', 'Pages');
+  const dotEls = [];
+  if (pages > 1) {
+    for (let i = 0; i < pages; i += 1) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'raildot';
+      dot.setAttribute('aria-label', `Page ${i + 1} of ${pages}`);
+      dot.addEventListener('click', () => {
+        const first = track.children[loops ? rows.length : 0];
+        const target = track.children[(loops ? rows.length : 0) + i * perPage];
+        if (target && first) {
+          viewport.scrollTo({
+            left: target.offsetLeft - first.offsetLeft + (loops ? setWidthOnce() : 0),
+            behavior: reducedMotion() ? 'auto' : 'smooth',
+          });
+        }
+      });
+      dots.append(dot);
+      dotEls.push(dot);
+    }
+  }
+
+  wrap.append(head, viewport, arrow('prev'), arrow('next'), dots);
+
+  /**
+   * Which page is on screen, from the scroll position rather than from a
+   * counter we increment. A counter and a scroller disagree the moment
+   * anybody uses a trackpad.
+   */
+  const markDot = () => {
+    if (!dotEls.length) return;
+    const one = loops ? setWidthOnce() : 0;
+    const width = viewport.clientWidth || 1;
+    const offset = loops ? viewport.scrollLeft - one : viewport.scrollLeft;
+    const page = ((Math.round(offset / width) % pages) + pages) % pages;
+    dotEls.forEach((d, i) => { d.dataset.on = String(i === page); });
+  };
+  requestAnimationFrame(markDot);
+  if (!loops) viewport.addEventListener('scroll', markDot);
+
+  if (loops) {
+    /**
+     * Start on the middle set, and wrap when a boundary is crossed.
+     *
+     * Measured BETWEEN TILES, never as scrollWidth / 3. The track carries the
+     * page margin as its own left and right padding, so scrollWidth is three
+     * sets plus 80px — dividing it by three puts a third of that padding into
+     * every set, and the row opens a fraction of a tile off, with the first
+     * title sliced down its left edge. The distance from one set's first tile
+     * to the next set's first tile is the set width by definition, padding
+     * and gaps included, and it needs no arithmetic to be right.
+     */
+    const kids = () => track.children;
+    const setWidth = () => {
+      const all = kids();
+      if (all.length < rows.length * 2 + 1) return 0;
+      return all[rows.length].offsetLeft - all[0].offsetLeft;
+    };
+    /**
+     * Home is ONE SET WIDTH, and nothing more.
+     *
+     * At scrollLeft 0 the first clone sits at the track's left padding, which
+     * is the page margin. Scrolling by exactly one set puts the first REAL
+     * tile in that same spot, margin included — so the padding never enters
+     * the arithmetic. Trying to compute the tile's own offset instead landed
+     * the row flush against the rail's edge and sliced the first title down
+     * its left side.
+     */
+    const home = setWidth;
+    requestAnimationFrame(() => { viewport.scrollLeft = home(); });
+
+    let wrapping = false;
+    viewport.addEventListener('scroll', () => {
+      if (wrapping) return;
+      const one = setWidth();
+      if (one <= 0) return;
+      const start = home();
+      const x = viewport.scrollLeft;
+      // Half a set of slack either side, so a wrap never lands mid-gesture.
+      if (x < start - one * 0.5 || x > start + one * 0.5) {
+        wrapping = true;
+        viewport.scrollLeft = x < start ? x + one : x - one;
+        // Cleared on the next frame, not synchronously: the assignment above
+        // fires this same handler again.
+        requestAnimationFrame(() => { wrapping = false; });
+      }
+      markDot();
+    });
+  }
+
+  return wrap;
 }
 
 function section(title, count, tiles) {
@@ -5570,24 +5969,77 @@ function movieTile(movie) {
  * middle of" is answered by "Big O, episode nine", and a tile that only says
  * Big O makes you open the card to find out.
  */
+/**
+ * A rail card is NOT a grid tile.
+ *
+ * The grid below is for browsing, so its tiles carry counts and captions
+ * under the art. This row is for resuming one specific thing, and every extra
+ * line is one more thing to read before doing that. So the card is the
+ * picture: the frame fills it, the title sits IN it over the lower third, and
+ * the only other marks are the episode code and how far in you are.
+ *
+ * Selective Attention: at three-up and edge to edge, the artwork is doing the
+ * identifying. A caption block underneath would be read second and add
+ * nothing the frame did not already say.
+ *
+ * No progress bar either. It is real information and it is still on the grid
+ * below, where browsing is the job — but on a full-bleed strip of picture it
+ * is a second amber mark competing with the title for the same lower third,
+ * and this row has to stay quiet enough to read as one image per card. The
+ * episode code says where you are; that is enough.
+ */
+function railCard({ name, code, initials, thumbFrom, onOpen }) {
+  const li = document.createElement('li');
+  li.className = 'railcard';
+  li.tabIndex = 0;
+
+  const art = document.createElement('div');
+  art.className = 'railcard__art tile__art';
+  art.dataset.empty = 'true';
+  art.dataset.initials = initials;
+
+  // A scrim, not a panel. The title has to stay legible over a bright frame
+  // without putting a box on top of the picture.
+  const scrim = document.createElement('div');
+  scrim.className = 'railcard__scrim';
+
+  const text = document.createElement('div');
+  text.className = 'railcard__text';
+  const title = document.createElement('div');
+  title.className = 'railcard__title';
+  title.textContent = name;
+  text.append(title);
+  if (code) {
+    const meta = document.createElement('div');
+    meta.className = 'railcard__code mono';
+    meta.textContent = code;
+    text.append(meta);
+  }
+
+  li.append(art, scrim, text);
+  li.addEventListener('click', onOpen);
+  li.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(); }
+  });
+  paintArt(art, thumbFrom || [], null);
+  return li;
+}
+
 function continueTile(row) {
   if (row.kind === 'movie') {
-    return tile({
+    return railCard({
       name: row.name,
+      code: 'Movie',
       initials: initialsOf(row.name),
-      sub: 'Movie · part way through',
       thumbFrom: [{ absPath: row.movie.absPath, mediaUrl: row.movie.mediaUrl }],
-      fraction: 0,
       onOpen: () => playMovieFromLibrary(row.movie),
     });
   }
-  return tile({
+  return railCard({
     name: row.name,
+    code: formatEpisodeLabel(row.episode),
     initials: initialsOf(row.name),
-    subStrong: formatEpisodeLabel(row.episode),
-    sub: row.episode.title || '',
     thumbFrom: [row.episode],
-    fraction: 0,
     onOpen: () => playFromLibrary(row.show, row.episodeIndex),
   });
 }

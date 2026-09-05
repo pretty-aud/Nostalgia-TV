@@ -11,9 +11,10 @@
     "start": "npm run build && electron .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dist": "node scripts/vendor-ffmpeg.mjs --ensure && npm run build && electron-builder",
+    "dist": "node scripts/vendor-ffmpeg.mjs --ensure && node scripts/vendor-mpv.mjs --ensure && npm run build && electron-builder",
     "deploy": "npm run dist && node scripts/install-local.mjs",
-    "vendor:ffmpeg": "node scripts/vendor-ffmpeg.mjs"
+    "vendor:ffmpeg": "node scripts/vendor-ffmpeg.mjs",
+    "vendor:mpv": "node scripts/vendor-mpv.mjs"
   },
   "build": {
     "appId": "co.petalstudios.shuffletv",
@@ -51,10 +52,18 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "vendor/mpv",
+        "to": "mpv",
+        "filter": [
+          "**/*"
+        ]
       }
     ]
   },
   "devDependencies": {
+    "acorn": "^8.18.0",
     "electron": "^43.4.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",

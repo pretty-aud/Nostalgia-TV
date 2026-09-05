@@ -970,9 +970,19 @@ async function detectCrop(absPath, options = {}) {
   const video = (probe && probe.tracks || []).find((t) => t.type === 'video');
   if (!video || !video.width || !video.height) return null;
 
+  /**
+   * More sample points, spread wider.
+   *
+   * The union across samples is the safety rule — it keeps the MOST picture
+   * any sample saw — but it can only work if some sample saw the full frame.
+   * Four points found three consecutive dark stretches in a 1h25 film and
+   * agreed on a 316x310 box, which the viewer then watched blown up to fill
+   * her window. Seven points, reaching nearer both ends, make an all-dark
+   * sweep much less likely, and each is only 30 frames.
+   */
   const duration = Number(video.duration) || 0;
   const points = duration > 60
-    ? [0.15, 0.35, 0.55, 0.75].map((f) => Math.floor(duration * f))
+    ? [0.08, 0.2, 0.32, 0.45, 0.58, 0.72, 0.85].map((f) => Math.floor(duration * f))
     : [1, 3, 5];
 
   const boxes = [];
@@ -1010,6 +1020,24 @@ async function detectCrop(absPath, options = {}) {
   // Anything within a couple of percent of the full frame has no bars worth
   // cropping, and acting on it would only risk shaving the picture.
   crop.worthCropping = crop.fw < 0.98 || crop.fh < 0.98;
+
+  /**
+   * ...and anything that keeps less than half the frame is not bars at all.
+   *
+   * cropdetect answers honestly about the frames it is shown; shown only dark
+   * ones it reports the lit patch and calls everything else border. The union
+   * above cannot save us when EVERY sample was dark, which is how a 1920x1080
+   * film ended up cached as a 316x310 box and played at 20x zoom.
+   *
+   * Recorded as not-worth-cropping rather than discarded, so the cache still
+   * remembers this file was measured and no one pays for the ffmpeg passes
+   * again. The same floor is enforced independently in mpvCrop's cropSpecFor,
+   * which is what protects against entries already written before this rule.
+   */
+  if (crop.fw * crop.fh < 0.5) {
+    crop.worthCropping = false;
+    crop.rejected = 'kept too little of the frame to be bars';
+  }
 
   try {
     await fsp.mkdir(cacheDir, { recursive: true });

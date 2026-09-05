@@ -141,7 +141,9 @@ describe('every markup id is referenced', () => {
       const hashed = new RegExp('#' + escapeRe(id) + '(?![\\w-])');
       if (quoted.test(js) || hashed.test(js)) return false;
       if (hashed.test(css)) return false;
-      if (html.includes(`aria-labelledby="${id}"`) || html.includes(`for="${id}"`)) return false;
+      if (html.includes(`aria-labelledby="${id}"`)
+        || html.includes(`aria-describedby="${id}"`)
+        || html.includes(`for="${id}"`)) return false;
       return true;
     });
     expect(orphans).toEqual([]);

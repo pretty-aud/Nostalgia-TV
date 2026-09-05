@@ -250,6 +250,15 @@ const LANGUAGE_FAMILIES = {
   spa: new Set(['spa', 'es', 'esp', 'spanish', 'es-419', 'es-es', 'es-mx']),
 };
 
+/**
+ * "Nobody said": the codes muxers write when the language is unknown. The mpv
+ * track policy needs the same judgement the ladder here makes, so it is one
+ * exported question rather than two lists that drift.
+ */
+function isUndeterminedLanguage(code) {
+  return UNDETERMINED.has(String(code || '').trim().toLowerCase());
+}
+
 function matchesLanguage(track, family) {
   const codes = LANGUAGE_FAMILIES[family];
   if (!codes) return false;
@@ -620,6 +629,7 @@ module.exports = {
   TIER,
   audioIndexFromInspect,
   matchesLanguage,
+  isUndeterminedLanguage,
   codecIdFromFfprobe,
   isTextSubtitle,
   pickAudioTrack,

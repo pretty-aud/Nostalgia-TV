@@ -32,10 +32,10 @@ contextBridge.exposeInMainWorld('tv', {
     ipcRenderer.on('ingest:progress', listener);
     return () => ipcRenderer.removeListener('ingest:progress', listener);
   },
-  ingestEntries: () => ipcRenderer.invoke('ingest:entries'),
   artworkStats: (items) => ipcRenderer.invoke('artwork:stats', items),
   getArtwork: (kind, id) => ipcRenderer.invoke('artwork:get', kind, id),
   chooseArtwork: (kind, id) => ipcRenderer.invoke('artwork:choose', kind, id),
+  setArtworkFromData: (kind, id, bytes) => ipcRenderer.invoke('artwork:setFromData', kind, id, bytes),
   getThumb: (absPath) => ipcRenderer.invoke('thumb:get', absPath),
   putThumb: (absPath, dataUrl) => ipcRenderer.invoke('thumb:put', absPath, dataUrl),
 
@@ -55,29 +55,64 @@ contextBridge.exposeInMainWorld('tv', {
   },
 
 
-  capabilities: () => ipcRenderer.invoke('prepare:capabilities'),
-
-  // Measured decode verdicts, so the few seconds spent finding out are spent
-  // once per file rather than once per play.
-  playbackVerdict: (absPath) => ipcRenderer.invoke('prepare:verdict', absPath),
-  savePlaybackVerdict: (absPath, verdict) => ipcRenderer.invoke('prepare:saveVerdict', absPath, verdict),
-  inspect: (absPath, options) => ipcRenderer.invoke('prepare:inspect', absPath, options),
-  ensurePlayable: (absPath, forceTier, audioIndex, preferLanguage) => ipcRenderer.invoke('prepare:ensure', absPath, forceTier, audioIndex, preferLanguage),
-  detectCrop: (absPath, options) => ipcRenderer.invoke('prepare:crop', absPath, options),
-  listTracks: (absPath, options) => ipcRenderer.invoke('prepare:tracks', absPath, options),
-  subtitleText: (absPath, index) => ipcRenderer.invoke('prepare:subtitle', absPath, index),
-  cancelPrepare: (absPath) => ipcRenderer.invoke('prepare:cancel', absPath),
-  pinPrepared: (paths) => ipcRenderer.invoke('prepare:pin', paths),
-  cacheInfo: () => ipcRenderer.invoke('prepare:cacheInfo'),
-  cleanupPrepared: () => ipcRenderer.invoke('prepare:cleanup'),
-
   /**
-   * Conversion progress. Returns its own unsubscribe rather than exposing
-   * ipcRenderer.off, so the renderer cannot detach listeners it does not own.
+   * What is left of the ffmpeg surface.
+   *
+   * Ten verbs went with the switchover — capabilities, playbackVerdict,
+   * savePlaybackVerdict, inspect, ensurePlayable, listTracks, subtitleText,
+   * cancelPrepare, pinPrepared and onPrepareProgress. mpv decodes everything
+   * and reports its own tracks, so none of them had a caller any more; they
+   * were exposed with live handlers behind them for a whole branch, and
+   * `ensurePlayable` would still have started a full conversion for anything
+   * that asked. An exposed verb nothing calls is not free — it is reachable.
+   *
+   * ONE is left: the auto-crop measurement, which is still genuinely ffmpeg's
+   * job. cacheInfo and cleanupPrepared went with the settings panel that read
+   * them — the conversion cache is empty and can never be written to again,
+   * and main's boot sweep clears any remainder without being asked.
    */
-  onPrepareProgress: (handler) => {
+  detectCrop: (absPath, options) => ipcRenderer.invoke('prepare:crop', absPath, options),
+
+  // --- the mpv player (mpv-player branch) ----------------------------------
+  // Typed verbs, not a raw command pipe: each one is validated in
+  // electron/mpvHost.js the way every prepare:* handler validates its own.
+  mpvOpen: (absPath, options) => ipcRenderer.invoke('mpv:open', absPath, options),
+  mpvStop: () => ipcRenderer.invoke('mpv:stop'),
+  mpvSetPause: (value) => ipcRenderer.invoke('mpv:setPause', value),
+  mpvSeek: (seconds) => ipcRenderer.invoke('mpv:seek', seconds),
+  mpvSetVolume: (level) => ipcRenderer.invoke('mpv:setVolume', level),
+  mpvSetMute: (value) => ipcRenderer.invoke('mpv:setMute', value),
+  mpvSetAudioTrack: (id) => ipcRenderer.invoke('mpv:setAudioTrack', id),
+  mpvSetSubTrack: (id) => ipcRenderer.invoke('mpv:setSubTrack', id),
+  mpvTrackList: () => ipcRenderer.invoke('mpv:trackList'),
+  mpvSetSubStyle: (properties) => ipcRenderer.invoke('mpv:setSubStyle', properties),
+  mpvSetSubVisibility: (visible) => ipcRenderer.invoke('mpv:setSubVisibility', visible),
+  mpvSetVideoCrop: (spec) => ipcRenderer.invoke('mpv:setVideoCrop', spec),
+  mpvSetVideoZoom: (zoom) => ipcRenderer.invoke('mpv:setVideoZoom', zoom),
+
+  onMpvProp: (handler) => {
+    const listener = (_event, name, value) => handler(name, value);
+    ipcRenderer.on('mpv:prop', listener);
+    return () => ipcRenderer.removeListener('mpv:prop', listener);
+  },
+  onMpvEvent: (handler) => {
     const listener = (_event, payload) => handler(payload);
-    ipcRenderer.on('prepare:progress', listener);
-    return () => ipcRenderer.removeListener('prepare:progress', listener);
+    ipcRenderer.on('mpv:event', listener);
+    return () => ipcRenderer.removeListener('mpv:event', listener);
+  },
+  onMpvDied: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on('mpv:died', listener);
+    return () => ipcRenderer.removeListener('mpv:died', listener);
+  },
+  onMpvRestarted: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on('mpv:restarted', listener);
+    return () => ipcRenderer.removeListener('mpv:restarted', listener);
+  },
+  onMpvDown: (handler) => {
+    const listener = (_event, info) => handler(info);
+    ipcRenderer.on('mpv:down', listener);
+    return () => ipcRenderer.removeListener('mpv:down', listener);
   },
 });
