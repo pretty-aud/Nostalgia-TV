@@ -1810,10 +1810,17 @@ async function loadLibrary(rootPath) {
   presentationClips = result.presentations || [];
   state.rootPath = result.rootPath;
 
-  // A scan is exactly when "anything new?" changes its answer. The elements
-  // always exist (the settings sheet is merely hidden), so this is safe to
-  // refresh whether or not anyone is looking at it.
-  renderIngestStatus();
+  /**
+   * A scan is exactly when "anything new?" changes its answer — and it is
+   * every scan, so this covers the automatic one at boot, the Rescan button
+   * and picking a folder for the first time, without any of them knowing
+   * about ingest.
+   *
+   * NOT awaited. Capturing artwork for a whole new show is real minutes of
+   * one-at-a-time disk work, and the library must finish loading and start
+   * playing while that happens in the background.
+   */
+  autoIngest().catch((error) => console.error('artwork capture failed:', error));
   // A scan can mean a different library entirely — cached art from the old
   // one must not paint the new one's cards.
   artworkCache.clear();
@@ -2231,44 +2238,70 @@ function ingestItems() {
   return items;
 }
 
-async function renderIngestStatus() {
+/**
+ * Is an ingest already in flight? Scans can arrive close together — boot,
+ * then a Rescan, then a folder change — and two runs against the same drive
+ * is exactly what the pause gate exists to avoid.
+ */
+let ingesting = false;
+
+/**
+ * Check for new titles after a scan, and capture their artwork if there are
+ * any. No button, and no asking.
+ *
+ * Ingest used to be a decision worth putting to the viewer, because it also
+ * measured which files needed converting and that could mean minutes of
+ * ffmpeg. Conversion is gone; what is left is grabbing a frame per new title
+ * for the library cards. That is a chore, not a choice, so the app does it
+ * itself — but only when a scan actually turned up something the ledger has
+ * not seen, which is what keeps it off the drive the rest of the time.
+ *
+ * It runs in the BACKGROUND: nothing awaits this, the note reports progress,
+ * and ingest.run stands down on its own while anything is playing.
+ */
+async function autoIngest() {
   const note = el('ingestNote');
-  const button = el('btnIngest');
-  if (!window.tv.ingestStatus) { note.textContent = ''; button.disabled = true; return; }
+  if (!window.tv.ingestStatus || !window.tv.ingestRun) { note.textContent = ''; return; }
+  if (ingesting) return;
 
   const status = await window.tv.ingestStatus(ingestItems()).catch(() => null);
-  if (!status) { note.textContent = 'Could not check for new titles.'; button.disabled = true; return; }
+  if (!status) { note.textContent = 'Could not check for new titles.'; return; }
+  if (status.newCount === 0) { note.textContent = 'Nothing new — artwork is up to date.'; return; }
 
-  if (status.newCount === 0) {
-    note.textContent = 'Nothing new since the last ingest.';
-    button.disabled = true;
-    return;
-  }
   const bits = [];
   if (status.newShows) bits.push(`${status.newShows} show${status.newShows === 1 ? '' : 's'}`);
   if (status.newEpisodes) bits.push(`${status.newEpisodes} episode${status.newEpisodes === 1 ? '' : 's'}`);
   if (status.newMovies) bits.push(`${status.newMovies} movie${status.newMovies === 1 ? '' : 's'}`);
-  note.textContent = `New since the last ingest: ${bits.join(', ')}. `
-    + 'Ingesting captures artwork and checks which files will need converting.';
-  button.disabled = false;
-}
+  note.textContent = `Found ${bits.join(', ')} — capturing artwork…`;
 
-/** GB with one decimal — cache sizes are the only place the app talks in GB. */
-function formatGb(bytes) {
-  return `${(Math.max(0, Number(bytes) || 0) / 1073741824).toFixed(1)} GB`;
-}
+  ingesting = true;
+  // The run stands down while anything plays; a note that says so is the
+  // difference between patience and a bug report.
+  const stopProgress = window.tv.onIngestProgress
+    ? window.tv.onIngestProgress(({ done, total, waiting }) => {
+      note.textContent = waiting
+        ? `Paused while something is playing — ${done} of ${total} done.`
+        : `Capturing artwork… ${done} of ${total}.`;
+    })
+    : null;
 
-async function renderCacheInfo() {
-  const note = el('cacheNote');
-  const info = await window.tv.cacheInfo().catch(() => null);
-  if (!info) { note.textContent = 'Prepared-file details are unavailable.'; return; }
-  // This cache is a leftover of the conversion era — the player now reads
-  // originals directly and never writes here again. The button stays until
-  // the cache is empty: it is the honest way to reclaim the space.
-  note.textContent = info.count === 0
-    ? 'Empty. Nothing needs converting any more — episodes play directly.'
-    : `${info.count} converted file${info.count === 1 ? '' : 's'} left over from before — ${formatGb(info.bytes)}. `
-      + 'Nothing needs converting any more; cleaning up reclaims the space.';
+  const result = await window.tv.ingestRun(ingestItems()).catch(() => null);
+  if (stopProgress) stopProgress();
+  ingesting = false;
+
+  if (result && result.busy) return;               // another run had it
+  if (!result || result.ok === false) {
+    note.textContent = 'Could not capture artwork for the new titles.';
+    return;
+  }
+  // New artwork exists now; cached misses would hide it until a restart.
+  artworkCache.clear();
+  note.textContent = result.captured
+    ? `Artwork captured for ${result.captured} new title${result.captured === 1 ? '' : 's'}.`
+    : 'Nothing new — artwork is up to date.';
+  // The gallery and the cards are the things the new art actually appears on.
+  if (!el('mediaModal').hidden) renderMediaTable();
+  renderSidebar();
 }
 
 async function renderManualSaveInfo() {
@@ -2348,8 +2381,6 @@ function openSettings() {
   renderSettings();
   renderSettingsNav();
   renderManualSaveInfo();
-  renderCacheInfo();
-  renderIngestStatus();
   el('btnCloseSettings').focus();
 }
 
@@ -3646,65 +3677,6 @@ The channel keeps its own place.`)) return;
     if (!id) { closeMarathon(); return; }
     closeMarathon();
     onShowControl(id, 'startMarathon');
-  });
-
-  el('btnIngest').addEventListener('click', async () => {
-    const button = el('btnIngest');
-    const original = button.textContent;
-    button.disabled = true;
-
-    // Progress on the button itself: a first ingest of a whole show is real
-    // minutes of one-at-a-time disk work, and a frozen label reads as a hang.
-    const stopProgress = window.tv.onIngestProgress
-      ? window.tv.onIngestProgress(({ done, total, waiting }) => {
-        // The run stands down while anything plays or converts; a label that
-        // says so is the difference between patience and a bug report.
-        button.textContent = waiting
-          ? `Waiting for playback to finish… (${done} of ${total} done)`
-          : `Ingesting ${done} of ${total}…`;
-      })
-      : null;
-
-    const result = await window.tv.ingestRun(ingestItems()).catch(() => null);
-    if (stopProgress) stopProgress();
-    button.textContent = original;
-
-    if (result && result.busy) {
-      toast('An ingest is already running.', 3200);
-      return;
-    }
-    if (!result || result.ok === false) {
-      toast('Could not ingest the new titles.', 4200);
-      button.disabled = false;
-      return;
-    }
-    // New artwork exists now; cached misses would hide it until a restart.
-    artworkCache.clear();
-    const what = [];
-    if (result.shows) what.push(`${result.shows} show${result.shows === 1 ? '' : 's'}`);
-    if (result.episodes) what.push(`${result.episodes} episode${result.episodes === 1 ? '' : 's'}`);
-    if (result.movies) what.push(`${result.movies} movie${result.movies === 1 ? '' : 's'}`);
-    toast(result.ingested
-      ? `Ingested ${what.join(', ')} — ${result.needConversion} will need converting, artwork captured for ${result.captured}.`
-      : 'Nothing new to ingest.', 6000);
-    renderIngestStatus();
-  });
-
-  el('btnCleanupCache').addEventListener('click', async () => {
-    const button = el('btnCleanupCache');
-    button.disabled = true;
-    const result = await window.tv.cleanupPrepared().catch(() => null);
-    button.disabled = false;
-    if (!result || result.ok === false) {
-      toast('Could not clean up the prepared files.', 4200);
-      return;
-    }
-    const freed = (result.reclaimedBytes || 0);
-    const bits = [];
-    if (result.removedParts) bits.push(`${result.removedParts} unfinished file${result.removedParts === 1 ? '' : 's'} (${formatGb(freed)})`);
-    if (result.evicted) bits.push(`${result.evicted} old prepared file${result.evicted === 1 ? '' : 's'}`);
-    toast(bits.length ? `Removed ${bits.join(' and ')}.` : 'Nothing to clean up — the cache is tidy.', 4200);
-    renderCacheInfo();
   });
 
   el('btnForgetLibrary').addEventListener('click', () => {

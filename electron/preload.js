@@ -66,13 +66,12 @@ contextBridge.exposeInMainWorld('tv', {
    * `ensurePlayable` would still have started a full conversion for anything
    * that asked. An exposed verb nothing calls is not free — it is reachable.
    *
-   * These three have real callers: the auto-crop measurement, and the pair
-   * that lets her see and clear what the OLD conversion cache still costs on
-   * disk.
+   * ONE is left: the auto-crop measurement, which is still genuinely ffmpeg's
+   * job. cacheInfo and cleanupPrepared went with the settings panel that read
+   * them — the conversion cache is empty and can never be written to again,
+   * and main's boot sweep clears any remainder without being asked.
    */
   detectCrop: (absPath, options) => ipcRenderer.invoke('prepare:crop', absPath, options),
-  cacheInfo: () => ipcRenderer.invoke('prepare:cacheInfo'),
-  cleanupPrepared: () => ipcRenderer.invoke('prepare:cleanup'),
 
   // --- the mpv player (mpv-player branch) ----------------------------------
   // Typed verbs, not a raw command pipe: each one is validated in

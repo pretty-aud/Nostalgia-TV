@@ -1007,10 +1007,10 @@ function registerIpc() {
    * `prepare:ensure`, which would still have spawned a full ffmpeg conversion
    * for anything that asked.
    *
-   * Three remain, and each has a live caller:
-   *   crop      — the auto-crop measurement, still ffmpeg's job
-   *   cacheInfo — what the OLD conversion cache is still costing her on disk
-   *   cleanup   — the button that clears it
+   * ONE remains: crop, the auto-crop measurement, which is still genuinely
+   * ffmpeg's job. cacheInfo and cleanup went when their settings panel did —
+   * the cache is empty, nothing can write to it again, and the boot sweep
+   * below clears any remainder without being asked.
    *
    * The prepare MODULE stays: ingest reads codecs through prepare.inspect,
    * artwork needs findFfmpeg, the cache sweep and the shutdown cancel are
@@ -1030,29 +1030,6 @@ function registerIpc() {
     try { return await prepare.detectCrop(absPath, { cachedOnly }); } catch { return null; }
   });
 
-  ipcMain.handle('prepare:cacheInfo', async () => {
-    const entries = await prepare.cacheEntries();
-    return {
-      count: entries.length,
-      bytes: entries.reduce((n, e) => n + e.size, 0),
-      budget: prepare.DEFAULT_CACHE_BUDGET,
-      jobs: prepare.activeJobs(),
-    };
-  });
-
-  /**
-   * The settings button: sweep abandoned .part fragments and re-enforce the
-   * budget. Deliberately does NOT cancel running jobs — cleaning up must never
-   * kill the conversion someone is waiting on; live fragments are skipped by
-   * their fresh mtime instead.
-   */
-  ipcMain.handle('prepare:cleanup', async () => {
-    try {
-      return { ok: true, ...(await prepare.cleanupCache()) };
-    } catch (error) {
-      return { ok: false, error: String(error && error.message ? error.message : error) };
-    }
-  });
 }
 
 // ---------------------------------------------------------------------------

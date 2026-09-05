@@ -111,24 +111,28 @@ describe('preload to renderer', () => {
  * the cleanup that reclaims what the old conversion cache left on her disk.
  *
  * Dead code that spawns a process is worse than dead code that does not, so
- * what matters is that no path REACHES it. These are the three channels that
- * legitimately survive; `prepare:ensure` — which would start a full ffmpeg
- * conversion for whatever asked — is deliberately not among them.
+ * what matters is that no path REACHES it. ONE channel legitimately survives;
+ * `prepare:ensure` — which would start a full ffmpeg conversion for whatever
+ * asked — is deliberately not among them.
+ *
+ * cacheInfo and cleanup were here too, until the settings panel that read
+ * them was removed: the conversion cache is empty, nothing can write to it
+ * again, and main's boot sweep clears any remainder unasked.
  *
  * Both sides are asserted, because either half alone can be wrong: a handler
  * with no preload verb is unreachable-but-live, and a preload verb with no
  * handler is a rejected promise the caller probably never checks.
  */
-const SURVIVING_PREPARE_CHANNELS = ['prepare:cacheInfo', 'prepare:cleanup', 'prepare:crop'];
+const SURVIVING_PREPARE_CHANNELS = ['prepare:crop'];
 
 describe('the ffmpeg surface', () => {
-  it('exposes exactly the three prepare channels that still have a caller', () => {
+  it('exposes exactly the prepare channels that still have a caller', () => {
     const invoked = [...preloadSource.matchAll(/ipcRenderer\.invoke\(\s*'(prepare:[^']+)'/g)]
       .map((m) => m[1]).sort();
     expect(invoked).toEqual(SURVIVING_PREPARE_CHANNELS);
   });
 
-  it('registers exactly those three handlers and no more', () => {
+  it('registers exactly those handlers and no more', () => {
     const mainSource = read('electron', 'main.js');
     const handled = [...mainSource.matchAll(/ipcMain\.handle\(\s*'(prepare:[^']+)'/g)]
       .map((m) => m[1]).sort();
