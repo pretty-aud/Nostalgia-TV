@@ -135,6 +135,14 @@ const DEFAULT_SETTINGS = {
    * written by a later version cannot leave the app unreadable.
    */
   fonts: { display: 'grotesk', body: 'inter' },
+  /**
+   * The VHS skin's face. Flat key, not nested under a `vhs` object: boot()
+   * merges saved settings one level deep, so a nested object written before a
+   * field existed comes back missing that field, and undefined reaches the
+   * stylesheet as the string "undefined". A flat key gets its default from
+   * the existing merge for free.
+   */
+  vhsFont: 'homevideo',
 
   autoCrop: true,
   interstitialZoom: 100,    // scale % for bumpers/promos ONLY, to crop baked-in bars

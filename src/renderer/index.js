@@ -937,9 +937,46 @@ function renderSettings() {
     }
     select.value = FONT_CHOICES.some((f) => f.id === chosen) ? chosen : fallback;
   }
-  el('themeNote').textContent = LIGHT_THEMES.includes(theme)
-    ? 'Panels take the theme; over the picture the type stays legible against the video.'
-    : '';
+  /**
+   * The VHS face picker appears with the skin and vanishes with it.
+   *
+   * setSetting re-renders settings synchronously, so the theme <select>'s own
+   * handler makes this appear and disappear for free — no extra wiring.
+   *
+   * A field, not a whole .setgroup: renderSettingsNav builds the left rail
+   * from the group headings, and a group that came and went would make the
+   * settings navigation grow and shrink as you changed theme.
+   */
+  const skinned = Boolean(SKINS[theme]);
+  el('vhsFontField').hidden = !skinned;
+  if (skinned) {
+    renderOsdRail(el('vhsFontRail'), OSD_FACES, osdFace(), (key) => {
+      // applySettings + persist directly, NOT wireEvents' setSetting helper:
+      // that one is a local const inside wireEvents and is not in scope here.
+      // Calling it looked right, threw a ReferenceError on every click, and
+      // the cell simply did nothing.
+      state = applySettings(shows, state, { vhsFont: key }, {});
+      applyFonts();
+      renderSettings();
+      persist();
+    });
+  }
+
+  /**
+   * The two font selects are the skin's, not hers, while it is on — say so
+   * rather than leaving two controls that visibly do nothing.
+   */
+  for (const id of ['fontDisplaySelect', 'fontBodySelect']) {
+    const field = el(id).closest('.field');
+    el(id).disabled = skinned;
+    if (field) field.dataset.muted = String(skinned);
+  }
+
+  el('themeNote').textContent = skinned
+    ? 'VHS draws its own face. Your title and body faces come back when you leave it.'
+    : (LIGHT_THEMES.includes(theme)
+      ? 'Panels take the theme; over the picture the type stays legible against the video.'
+      : '');
 
   el('autoCropToggle').checked = state.settings.autoCrop !== false;
   el('autoCropNote').textContent = currentCrop && currentCrop.worthCropping
@@ -2238,18 +2275,109 @@ function applyTheme() {
  *
  * The saved font choice is untouched, so leaving the skin restores it.
  */
-const OSD_STACK = '"IBM VGA 8x16", "JetBrains Mono", ui-monospace, monospace';
+/**
+ * The two faces the VCR skin can be drawn in.
+ *
+ * Home Video is the default and the one the skin was designed around: a drawn
+ * face with the soft, slightly bloomed strokes of tape-generated titling.
+ * IBM is the 8x16 character ROM — genuinely 1-bit, and the more literal
+ * reading of a hardware on-screen display.
+ *
+ * Both were measured against every glyph the interface can draw: Home Video
+ * carries all sixteen, the ROM carries thirteen and the skin substitutes the
+ * other three. So the face can change without anything falling back.
+ *
+ * Each stack keeps a mono fallback, so a missing font file degrades to
+ * something still fixed-width rather than to Inter, which would read as the
+ * skin half-applying.
+ */
+const OSD_FACES = {
+  homevideo: {
+    label: 'HOME VIDEO',
+    stack: '"Home Video", "JetBrains Mono", ui-monospace, monospace',
+  },
+  ibm: {
+    label: 'IBM',
+    stack: '"IBM VGA 8x16", "JetBrains Mono", ui-monospace, monospace',
+  },
+};
+const DEFAULT_OSD_FACE = 'homevideo';
+
+/** The chosen VHS face, falling back rather than yielding undefined. */
+function osdFace() {
+  const wanted = String((state.settings || {}).vhsFont || DEFAULT_OSD_FACE);
+  return OSD_FACES[wanted] ? wanted : DEFAULT_OSD_FACE;
+}
 
 function applyFonts() {
   const fonts = (state.settings || {}).fonts || {};
   const root = document.documentElement;
   if (SKINS[resolveTheme(String((state.settings || {}).theme || 'midnight'))]) {
-    root.style.setProperty('--display', OSD_STACK);
-    root.style.setProperty('--grotesque', OSD_STACK);
+    const stack = OSD_FACES[osdFace()].stack;
+    // All three families collapse to one: a machine has one character
+    // generator, and --mono has to come along or codes and timecodes would
+    // stay in JetBrains beside the skin's own face.
+    root.style.setProperty('--display', stack);
+    root.style.setProperty('--grotesque', stack);
+    root.style.setProperty('--mono', stack);
     return;
   }
+  root.style.removeProperty('--mono');      // back to the stylesheet's value
   root.style.setProperty('--display', fontStackFor(fonts.display, DEFAULT_FONTS.display));
   root.style.setProperty('--grotesque', fontStackFor(fonts.body, DEFAULT_FONTS.body));
+}
+
+/**
+ * An OSD select rail: pick one of a few, the way a VCR did.
+ *
+ * A row of cells inside one ruled box. The chosen cell INVERTS — filled with
+ * the ink, its word knocked out in the ground — and carries a solid ► in a
+ * cursor slot that is reserved at rest, so nothing reflows when it moves.
+ * That was the era's own idiom, and it is also the only one that survives
+ * here: a native <select> draws its dropped-open list from Windows, so it
+ * stays grey and breaks the skin at the exact moment it is used.
+ *
+ * A radiogroup, not a row of toggles: these are one-of-N, and aria-pressed
+ * would announce each as an independent switch. Left/right move and commit,
+ * which is also how the hardware did it.
+ *
+ * Built here rather than written in markup so the cells, the marks and the
+ * keyboard are defined once — the colour rails will call this too.
+ */
+function renderOsdRail(rail, options, current, onPick) {
+  rail.textContent = '';
+  const keys = Object.keys(options);
+  keys.forEach((key) => {
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = 'osdcell';
+    cell.setAttribute('role', 'radio');
+    cell.setAttribute('aria-checked', String(key === current));
+    cell.dataset.on = String(key === current);
+    cell.dataset.key = key;
+    // Only the chosen cell is in the tab order; arrows move within the group.
+    cell.tabIndex = key === current ? 0 : -1;
+
+    const cursor = document.createElement('span');
+    cursor.className = 'osdcell__cursor';
+    cursor.textContent = key === current ? '►' : ' ';
+    const word = document.createElement('span');
+    word.className = 'osdcell__word';
+    word.textContent = options[key].label;
+    cell.append(cursor, word);
+
+    cell.addEventListener('click', () => onPick(key));
+    cell.addEventListener('keydown', (event) => {
+      const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      event.preventDefault();
+      const next = keys[(keys.indexOf(key) + step + keys.length) % keys.length];
+      onPick(next);
+      const moved = rail.querySelector(`[data-key="${next}"]`);
+      if (moved) moved.focus();
+    });
+    rail.append(cell);
+  });
 }
 
 /** Player text and controls, for people who want them larger than the default. */

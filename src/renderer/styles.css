@@ -43,6 +43,36 @@
   font-style: normal;
   font-display: block;
 }
+/**
+ * The VHS skin's other face, and its default: Home Video.
+ *
+ * Public domain — the 1001fonts EULA states the rights were forfeited and it
+ * may be used, modified and distributed freely, so it ships with no
+ * attribution obligation at all (the licence is kept beside it anyway).
+ *
+ * .ttf rather than woff2 because there is no converter on this machine and
+ * 93 KB uncompressed is unremarkable next to Inter's 48. Worth revisiting if
+ * the bundle ever matters.
+ *
+ * Unlike the IBM ROM this is a DRAWN face, not a bitmap on a fixed grid — so
+ * it has no 16px quantum and no fixed advance. Everything the skin does that
+ * assumes a cell (the integer type scale, zero tracking) still works; it just
+ * stops being load-bearing.
+ */
+@font-face {
+  font-family: "Home Video";
+  src: url("fonts/HomeVideo-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Home Video";
+  src: url("fonts/HomeVideo-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
 /* A third family, used in exactly ONE place: the wordmark. That is the
    justification — an identity mark is not body copy, and Inter set in caps was
    doing nothing to earn the name. Space Grotesk has real character in the G, R
@@ -3228,6 +3258,57 @@ input[type="range"]::-webkit-slider-thumb {
   white-space: pre;
 }
 :root[data-skin="vcr"] .show[data-next="true"] .show__name::before { content: "\25BA\00a0"; }
+
+/* ── the OSD select rail ──────────────────────────────────────────────────
+   One ruled box divided into cells; the chosen one inverts and carries a ►.
+   Lives with the skin because it only ever appears inside it, and the colour
+   rails in the next stage reuse the same three class names. */
+.field--osd {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: calc(var(--u) * 0.75);
+  padding: calc(var(--u) * 1.5) 0;
+}
+.osdrail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  border: 4px solid var(--ink);
+}
+/* Dividers BETWEEN cells only, so the outer box stays one weight. */
+.osdrail .osdcell + .osdcell { border-left: 4px solid var(--ink); }
+
+.osdcell {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.5);
+  min-height: 48px;
+  padding: 0 var(--u);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--t-body);
+  text-align: left;
+  cursor: pointer;
+}
+/* The cursor slot is reserved at REST, so the ► appearing moves nothing. */
+.osdcell__cursor { width: 1ch; flex: 0 0 auto; white-space: pre; }
+
+/* Hover marks the cell WITHOUT filling it — a fill means chosen, and the two
+   marks must never be confusable. */
+.osdcell:hover { background: var(--lift); }
+.osdcell:focus-visible { outline: 4px solid var(--ink); outline-offset: -8px; }
+
+/* Chosen = inverse video, the era's own highlight. */
+.osdcell[data-on="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+/* A CRT drew dark dots narrower than bright ones, so knocked-out type reads
+   thinner than its neighbours and the hierarchy quietly inverts. One extra
+   dot of stem puts the weight back. */
+.osdcell[data-on="true"] .osdcell__word { text-shadow: 1px 0 0 currentColor; }
 
 /* Title-safe inset: a CRT overscanned, so nothing important sat at the edge. */
 :root[data-skin="vcr"] .browse__bar,

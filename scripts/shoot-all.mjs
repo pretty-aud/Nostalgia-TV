@@ -36,6 +36,8 @@ const SHOTS = [
   'schedule-greying',
   'vhs-font-spike',
   'vhs-transport',
+  'vhs-face',
+  'vhs-rail',
   'vhs-settings',
   'vhs-library',
   'vhs-sidebar',

@@ -511,6 +511,18 @@
           </label>
           <p class="modes__note" id="themeNote"></p>
 
+          <!-- Only while the VHS skin is on. Not a <select>, for two reasons:
+               a native dropdown draws its popup list from Windows, so it stays
+               grey and breaks the illusion the moment it opens; and a VCR
+               chose between a handful of values with a cursor and a highlight,
+               never with a menu that falls down. Built in JS from OSD_FACES so
+               the cells, the roving focus and the marks are defined once —
+               the colour rails will reuse the same builder. -->
+          <div class="field field--osd" id="vhsFontField" hidden>
+            <span class="field__label mono">Face</span>
+            <div class="osdrail" id="vhsFontRail" role="radiogroup" aria-label="VHS face"></div>
+          </div>
+
           <!-- Two fields because the app genuinely sets two faces: the
                wordmark and headings in one, everything that is prose in the
                other. Offering a single "font" would quietly flatten that
