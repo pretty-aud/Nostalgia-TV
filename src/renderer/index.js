@@ -451,7 +451,7 @@ function renderSidebar() {
   const showToggles = !running;
 
   /**
-   * "(31 shows)", with the NUMBER carrying the accent.
+   * "31 shows", with the NUMBER carrying the accent.
    *
    * The schedule's name used to head this line and was simply the picker
    * above repeated. What the picker cannot tell you is how many shows the
@@ -463,8 +463,7 @@ function renderSidebar() {
   const n = document.createElement('b');
   n.className = 'sectionhead__n';
   n.textContent = String(visible.length);
-  count.append(document.createTextNode('('), n,
-    document.createTextNode(` show${visible.length === 1 ? '' : 's'})`));
+  count.append(n, document.createTextNode(` show${visible.length === 1 ? '' : 's'}`));
 
   const list = el('showList');
   list.textContent = '';
@@ -2128,6 +2127,7 @@ const THEMES = [
   'greenbox', 'forest', 'mint', 'oceanic', 'orbital',
   '01', 'neon', 'vhs', 'sunset', 'lilac',
   'kawaii',
+  'bench', 'wilson', 'unit02', 'teletext',
 ];
 
 /**
@@ -3877,6 +3877,24 @@ The channel keeps its own place.`)) return;
   el('fontBodySelect').addEventListener('change', (event) => {
     setSetting({ fonts: { ...(state.settings.fonts || {}), body: event.target.value } });
     applyFonts();
+  });
+
+  /**
+   * Back to how the app ships — the theme and the two faces, and nothing else.
+   *
+   * DEFAULT_SETTINGS is the source for all three rather than literals here:
+   * a default written twice is a default that eventually disagrees with
+   * itself, and this control's whole promise is that it lands on the real one.
+   */
+  el('btnResetLook').addEventListener('click', () => {
+    setSetting({
+      theme: DEFAULT_SETTINGS.theme,
+      fonts: { ...DEFAULT_SETTINGS.fonts },
+    });
+    applyTheme();
+    applyFonts();
+    renderSettings();
+    toast('Appearance back to the defaults.', 2600);
   });
 
   el('promoBetweenToggle').addEventListener('change', (event) => {

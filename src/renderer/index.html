@@ -457,6 +457,10 @@
                 <option value="sunset">Sunset — plum and coral</option>
                 <option value="lilac">Lilac — pale lavender, purple</option>
                 <option value="kawaii">Kawaii — all pink</option>
+                <option value="bench">Bench — machined grey, signal green</option>
+                <option value="wilson">Wilson — warm stone, burnt orange and amber</option>
+                <option value="unit02">Unit-02 — armour red, orange trim</option>
+                <option value="teletext">Teletext — pure black, yellow and cyan</option>
               </select>
             </span>
           </label>
@@ -484,6 +488,16 @@
             </span>
           </label>
           <p class="modes__note">Codes and timings stay monospaced so they keep lining up.</p>
+
+          <!-- Scoped to LOOK, not to everything. A blanket "reset settings"
+               next to a colour picker is a trap: it would also throw away the
+               rotation, the movie clock and the lock rules, none of which the
+               person adjusting a font was thinking about. This puts back the
+               theme and the two faces, and says so. -->
+          <p class="resetline">
+            <button class="btn btn--quiet" id="btnResetLook" type="button">Reset appearance</button>
+            <span class="resetline__note">Puts the theme and both fonts back to how the app ships. Nothing else changes.</span>
+          </p>
 
           <h4 class="setsub">Player text &amp; controls</h4>
           <label class="field">

@@ -280,10 +280,14 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* Padding sized for what is LEFT here. This block used to carry the library
    path, the counts and two folder buttons; they moved to Settings and the
-   generous frame stayed, leaving the wordmark floating in a hole. */
+   generous frame stayed, leaving the wordmark floating in a hole.
+
+   Almost no padding at the BOTTOM, because there is no longer a rule under
+   it: the space was holding the wordmark off a line, and with the line gone
+   it was just a gap. The wordmark and the picker below it now read as one
+   head, which is what removing the rule was for. */
 .sidebar__head {
-  padding: calc(var(--u) * 2.5) var(--gutter) calc(var(--u) * 2);
-  border-bottom: 1px solid var(--hair);
+  padding: calc(var(--u) * 2.5) var(--gutter) 0;
 }
 
 .ident { display: flex; align-items: center; gap: 11px; margin-bottom: calc(var(--u) * 2.25); }
@@ -638,6 +642,23 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
    front of them. An invalid item invalidates the whole selector list, so the
    browser was dropping the block regardless. Removed rather than repaired —
    the copy that actually does the work is the one below. */
+
+/* Button and its explanation on one line, the note taking the quiet ink: what
+   a reset does NOT touch is the part worth reading, so it sits beside the
+   control rather than under it where it would be scrolled past. */
+.resetline {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 1.5);
+  flex-wrap: wrap;
+  padding: calc(var(--u) * 2) var(--gutter) 0;
+}
+.resetline__note {
+  flex: 1 1 200px;
+  font-size: var(--t-micro);
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
 
 .modes__note {
   padding: var(--u) var(--gutter) 0;
@@ -2398,6 +2419,90 @@ input[type="range"]::-webkit-slider-thumb {
 :root[data-theme="clay"] .toast {
   --signal:      #3fd8c6;
   --signal-soft: rgba(63, 216, 198, 0.62);
+}
+
+/* Grey as the ROOM, green as the only saturated thing in it — a well-made
+   instrument on a bench, not a hacker terminal. Distinct from greenbox (black
+   ground, phosphor green) because the greys are genuinely grey, and from
+   forest because there is no second accent competing with the green. */
+:root[data-theme="bench"] {
+  --paper:      #1c1e1e;
+  --paper-lift: #262929;
+  --paper-high: #313535;
+  --ink:        #e9edec;
+  --ink-mute:   #8b9491;
+  --ink-faint:  #666f6d;
+  --signal:      #47c86a;
+  --signal-soft: rgba(71, 200, 106, 0.62);
+  --signal-wash: rgba(71, 200, 106, 0.10);
+  --hair:       rgba(233, 237, 236, 0.14);
+  --hair-soft:  rgba(233, 237, 236, 0.07);
+  --lift:       rgba(233, 237, 236, 0.05);
+}
+
+/* Drawn from WILSON, the sibling app: its own burnt orange on its own warm
+   stone greys, read from its stylesheet rather than guessed. The warmth is the
+   point — every neutral tints toward brown, which is what keeps it a workshop
+   rather than the cockpit that ember and foundry already are. */
+:root[data-theme="wilson"] {
+  --paper:      #14110f;
+  --paper-lift: #221e1a;
+  --paper-high: #322c27;
+  --ink:        #f0e9e1;
+  --ink-mute:   #a8a29e;
+  --ink-faint:  #6f645e;
+  --signal:      #ea580c;
+  --signal-soft: rgba(234, 88, 12, 0.78);
+  --signal-wash: rgba(234, 88, 12, 0.10);
+  --signal-alt:  #fbbf24;
+  --signal-alt-soft: rgba(251, 191, 36, 0.85);
+  --hair:       rgba(240, 233, 225, 0.14);
+  --hair-soft:  rgba(240, 233, 225, 0.07);
+  --lift:       rgba(240, 233, 225, 0.05);
+}
+
+/* Unit-02. Armour red for the live state, hazard orange for the trim, warm
+   white for type, on a near-black that has red left in it. The field stays
+   dark on purpose: a red ground would fight every frame of video. Against
+   siren the difference is warmth and the orange — siren is a clinical red on
+   neutral black with no second accent at all. */
+:root[data-theme="unit02"] {
+  --paper:      #0c0505;
+  --paper-lift: #180a0a;
+  --paper-high: #251110;
+  --ink:        #fff4ef;
+  --ink-mute:   #b39a97;
+  --ink-faint:  #7a6360;
+  --signal:      #f0432c;
+  --signal-soft: rgba(240, 67, 44, 0.66);
+  --signal-wash: rgba(240, 67, 44, 0.10);
+  --signal-alt:  #ff9e1b;
+  --signal-alt-soft: rgba(255, 158, 27, 0.85);
+  --hair:       rgba(255, 244, 239, 0.14);
+  --hair-soft:  rgba(255, 244, 239, 0.07);
+  --lift:       rgba(255, 244, 239, 0.05);
+}
+
+/* Ceefax at six in the morning. Pure #000 is correct exactly here and nowhere
+   else in the set, with the saturated primaries a teletext decoder could
+   actually produce: broadcast yellow live, cyan for the second rail, white
+   type. Not vhs — there is no magenta anywhere — and not midnight's amber,
+   which is orange-brown beside this. */
+:root[data-theme="teletext"] {
+  --paper:      #000000;
+  --paper-lift: #0e0e0e;
+  --paper-high: #1a1a1a;
+  --ink:        #ffffff;
+  --ink-mute:   #a2a2a2;
+  --ink-faint:  #6b6b6b;
+  --signal:      #ffff00;
+  --signal-soft: rgba(255, 255, 0, 0.72);
+  --signal-wash: rgba(255, 255, 0, 0.10);
+  --signal-alt:  #00ffff;
+  --signal-alt-soft: rgba(0, 255, 255, 0.85);
+  --hair:       rgba(255, 255, 255, 0.14);
+  --hair-soft:  rgba(255, 255, 255, 0.07);
+  --lift:       rgba(255, 255, 255, 0.05);
 }
 
 /* ── library mode ─────────────────────────────────────────────────────────
