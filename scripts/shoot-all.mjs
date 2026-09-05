@@ -34,6 +34,7 @@ const SHOTS = [
   'themes-new',
   'theme-menu',
   'schedule-greying',
+  'vhs-font-spike',
 ];
 
 let failed = 0;
