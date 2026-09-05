@@ -55,31 +55,24 @@ contextBridge.exposeInMainWorld('tv', {
   },
 
 
-  capabilities: () => ipcRenderer.invoke('prepare:capabilities'),
-
-  // Measured decode verdicts, so the few seconds spent finding out are spent
-  // once per file rather than once per play.
-  playbackVerdict: (absPath) => ipcRenderer.invoke('prepare:verdict', absPath),
-  savePlaybackVerdict: (absPath, verdict) => ipcRenderer.invoke('prepare:saveVerdict', absPath, verdict),
-  inspect: (absPath, options) => ipcRenderer.invoke('prepare:inspect', absPath, options),
-  ensurePlayable: (absPath, forceTier, audioIndex, preferLanguage) => ipcRenderer.invoke('prepare:ensure', absPath, forceTier, audioIndex, preferLanguage),
+  /**
+   * What is left of the ffmpeg surface.
+   *
+   * Ten verbs went with the switchover — capabilities, playbackVerdict,
+   * savePlaybackVerdict, inspect, ensurePlayable, listTracks, subtitleText,
+   * cancelPrepare, pinPrepared and onPrepareProgress. mpv decodes everything
+   * and reports its own tracks, so none of them had a caller any more; they
+   * were exposed with live handlers behind them for a whole branch, and
+   * `ensurePlayable` would still have started a full conversion for anything
+   * that asked. An exposed verb nothing calls is not free — it is reachable.
+   *
+   * These three have real callers: the auto-crop measurement, and the pair
+   * that lets her see and clear what the OLD conversion cache still costs on
+   * disk.
+   */
   detectCrop: (absPath, options) => ipcRenderer.invoke('prepare:crop', absPath, options),
-  listTracks: (absPath, options) => ipcRenderer.invoke('prepare:tracks', absPath, options),
-  subtitleText: (absPath, index) => ipcRenderer.invoke('prepare:subtitle', absPath, index),
-  cancelPrepare: (absPath) => ipcRenderer.invoke('prepare:cancel', absPath),
-  pinPrepared: (paths) => ipcRenderer.invoke('prepare:pin', paths),
   cacheInfo: () => ipcRenderer.invoke('prepare:cacheInfo'),
   cleanupPrepared: () => ipcRenderer.invoke('prepare:cleanup'),
-
-  /**
-   * Conversion progress. Returns its own unsubscribe rather than exposing
-   * ipcRenderer.off, so the renderer cannot detach listeners it does not own.
-   */
-  onPrepareProgress: (handler) => {
-    const listener = (_event, payload) => handler(payload);
-    ipcRenderer.on('prepare:progress', listener);
-    return () => ipcRenderer.removeListener('prepare:progress', listener);
-  },
 
   // --- the mpv player (mpv-player branch) ----------------------------------
   // Typed verbs, not a raw command pipe: each one is validated in

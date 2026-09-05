@@ -995,93 +995,27 @@ function registerIpc() {
   });
 
 
-  // -- preparing unplayable files ------------------------------------------
-
-  // What the player could actually decode, measured rather than guessed.
-  ipcMain.handle('prepare:verdict', async (_event, absPath) => (
-    isInsideAllowedRoot(absPath) ? prepare.readVerdict(absPath) : null
-  ));
-
-  ipcMain.handle('prepare:saveVerdict', async (_event, absPath, verdict) => (
-    isInsideAllowedRoot(absPath) ? prepare.writeVerdict(absPath, verdict) : { ok: false }
-  ));
-
-  ipcMain.handle('prepare:capabilities', async () => ({
-    ffmpeg: prepare.hasFfmpeg(),
-    ffmpegPath: prepare.findFfmpeg(),
-  }));
-
-  /** Read a file's codecs and say what would have to happen for it to play. */
-  ipcMain.handle('prepare:inspect', async (_event, absPath, options) => {
-    if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
-    const preferLanguage = options && typeof options.preferLanguage === 'string'
-      ? options.preferLanguage
-      : undefined;
-    try {
-      return { ok: true, plan: await prepare.inspect(absPath, { preferLanguage }) };
-    } catch (error) {
-      return { ok: false, error: String(error && error.message ? error.message : error) };
-    }
-  });
-
   /**
-   * Convert if needed and return something playable. Safe to call twice for the
-   * same file: the second caller joins the running job rather than starting a
-   * second ffmpeg against the same output.
+   * -- the ffmpeg surface, what is LEFT of it --------------------------------
+   *
+   * This section used to expose the whole conversion pipeline to the renderer:
+   * verdict/saveVerdict (what could Chromium decode), capabilities, inspect,
+   * tracks, subtitle (WebVTT for a <track> element), ensure (the conversion
+   * itself, with a progress push), cancel and pin. mpv decodes everything and
+   * reports its own tracks, so every one of those lost its caller at the
+   * switchover — and stayed exposed, with a live handler behind it, including
+   * `prepare:ensure`, which would still have spawned a full ffmpeg conversion
+   * for anything that asked.
+   *
+   * Three remain, and each has a live caller:
+   *   crop      — the auto-crop measurement, still ffmpeg's job
+   *   cacheInfo — what the OLD conversion cache is still costing her on disk
+   *   cleanup   — the button that clears it
+   *
+   * The prepare MODULE stays: ingest reads codecs through prepare.inspect,
+   * artwork needs findFfmpeg, the cache sweep and the shutdown cancel are
+   * still wired, and activeJobs still answers "is ffmpeg busy" for shouldPause.
    */
-  /** Audio and subtitle tracks, labelled for the player's track menu. */
-  ipcMain.handle('prepare:tracks', async (_event, absPath, options) => {
-    if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
-    const preferLanguage = options && typeof options.preferLanguage === 'string'
-      ? options.preferLanguage
-      : undefined;
-    try {
-      return await prepare.listTracks(absPath, { preferLanguage });
-    } catch (error) {
-      return { ok: false, audio: [], subtitles: [], error: String(error && error.message ? error.message : error) };
-    }
-  });
-
-  /**
-   * Subtitles come back as WebVTT TEXT rather than a URL: the renderer turns it
-   * into a blob for the <track> element, so the media:// protocol stays a
-   * video-only surface rather than growing a second file type to guard.
-   */
-  ipcMain.handle('prepare:subtitle', async (_event, absPath, index) => {
-    if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
-    if (!Number.isInteger(index) || index < 0) return { ok: false, error: 'Bad track index' };
-    try {
-      const result = await prepare.extractSubtitle(absPath, index);
-      if (!result.ok) return result;
-      return { ok: true, vtt: await fsp.readFile(result.path, 'utf8') };
-    } catch (error) {
-      return { ok: false, error: String(error && error.message ? error.message : error) };
-    }
-  });
-
-  ipcMain.handle('prepare:ensure', async (_event, absPath, forceTier, audioIndex, preferLanguage) => {
-    if (!isInsideAllowedRoot(absPath)) return { ok: false, error: 'Forbidden' };
-    try {
-      const result = await prepare.ensurePlayable(absPath, {
-        forceTier: typeof forceTier === 'string' ? forceTier : undefined,
-        audioIndex: Number.isInteger(audioIndex) ? audioIndex : undefined,
-        preferLanguage: typeof preferLanguage === 'string' ? preferLanguage : undefined,
-        onProgress: ({ outMs, totalMs }) => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('prepare:progress', { absPath, outMs, totalMs });
-          }
-        },
-      });
-      return {
-        ...result,
-        // The renderer only ever plays through media://, so hand back a URL
-        // rather than a path it would have to know how to encode.
-        mediaUrl: result.playablePath ? mediaUrlFor(result.playablePath) : null,
-      };
-    } catch (error) {
-      return { ok: false, error: String(error && error.message ? error.message : error) };
-    }
-  });
 
   /**
    * The real picture inside a frame with bars baked in.
@@ -1094,15 +1028,6 @@ function registerIpc() {
     if (!isInsideAllowedRoot(absPath)) return null;
     const cachedOnly = Boolean(options && options.cachedOnly);
     try { return await prepare.detectCrop(absPath, { cachedOnly }); } catch { return null; }
-  });
-
-  ipcMain.handle('prepare:cancel', async (_event, absPath) => ({ cancelled: prepare.cancel(absPath) }));
-
-  /** Keep the playing and next-up conversions; everything else may be evicted. */
-  ipcMain.handle('prepare:pin', async (_event, paths) => {
-    prepare.unpinAllExcept(Array.isArray(paths) ? paths : []);
-    for (const p of Array.isArray(paths) ? paths : []) prepare.pin(p);
-    return { ok: true };
   });
 
   ipcMain.handle('prepare:cacheInfo', async () => {

@@ -82,33 +82,67 @@ describe('renderer to preload', () => {
 /**
  * The other direction: a binding nothing calls.
  *
- * Not a crash — dead weight, and specifically dead ATTACK SURFACE, since each
- * one is a live main-process handler still reachable from the renderer. The
+ * Not a crash — dead weight, and specifically dead REACHABLE SURFACE, since
+ * each one is a live main-process handler the renderer can still invoke. The
  * switchover deleted the conversion pipeline's UI and left its whole IPC
- * surface exposed, including one verb that would still spawn a full ffmpeg
- * conversion if anything called it.
+ * surface exposed: capabilities, playbackVerdict, savePlaybackVerdict,
+ * inspect, ensurePlayable, listTracks, subtitleText, cancelPrepare,
+ * pinPrepared and onPrepareProgress — ten of them, for a whole branch,
+ * including one that would still have spawned a full ffmpeg conversion for
+ * anything that asked.
  *
- * Listed explicitly rather than asserted empty, so removing the conversion
- * surface means deleting names from this list and watching it shrink, and so
- * a NEW unused binding fails the test the day it appears.
+ * All ten are gone, so this is asserted EMPTY rather than against a list: the
+ * next unused binding fails on the day it appears, which is the only moment
+ * anyone remembers why it was added.
  */
-const KNOWN_UNUSED = [
-  'cancelPrepare',
-  'capabilities',
-  'ensurePlayable',
-  'inspect',
-  'listTracks',
-  'onPrepareProgress',
-  'pinPrepared',
-  'playbackVerdict',
-  'savePlaybackVerdict',
-  'subtitleText',
-];
-
 describe('preload to renderer', () => {
-  it('has no bindings without a caller beyond the known conversion-era leftovers', () => {
+  it('exposes nothing the renderer never calls', () => {
     const unused = exposed.filter((name) => !used.has(name)).sort();
-    expect(unused).toEqual(KNOWN_UNUSED);
+    expect(unused).toEqual([]);
+  });
+});
+
+/**
+ * THE CONVERSION PIPELINE IS UNREACHABLE, AND STAYS THAT WAY.
+ *
+ * mpv decodes everything, so nothing converts any more — but prepare.js still
+ * CONTAINS the engine (ensurePlayable, runFfmpeg, the job queue), because the
+ * same module still owns the auto-crop, the codec probe that ingest uses, and
+ * the cleanup that reclaims what the old conversion cache left on her disk.
+ *
+ * Dead code that spawns a process is worse than dead code that does not, so
+ * what matters is that no path REACHES it. These are the three channels that
+ * legitimately survive; `prepare:ensure` — which would start a full ffmpeg
+ * conversion for whatever asked — is deliberately not among them.
+ *
+ * Both sides are asserted, because either half alone can be wrong: a handler
+ * with no preload verb is unreachable-but-live, and a preload verb with no
+ * handler is a rejected promise the caller probably never checks.
+ */
+const SURVIVING_PREPARE_CHANNELS = ['prepare:cacheInfo', 'prepare:cleanup', 'prepare:crop'];
+
+describe('the ffmpeg surface', () => {
+  it('exposes exactly the three prepare channels that still have a caller', () => {
+    const invoked = [...preloadSource.matchAll(/ipcRenderer\.invoke\(\s*'(prepare:[^']+)'/g)]
+      .map((m) => m[1]).sort();
+    expect(invoked).toEqual(SURVIVING_PREPARE_CHANNELS);
+  });
+
+  it('registers exactly those three handlers and no more', () => {
+    const mainSource = read('electron', 'main.js');
+    const handled = [...mainSource.matchAll(/ipcMain\.handle\(\s*'(prepare:[^']+)'/g)]
+      .map((m) => m[1]).sort();
+    expect(handled).toEqual(SURVIVING_PREPARE_CHANNELS);
+  });
+
+  it('leaves no way for the renderer to start a conversion', () => {
+    const rendererSources = indexSource + bridgeSource + read('electron', 'preload.js');
+    for (const banned of ['prepare:ensure', 'ensurePlayable', 'prepare:progress']) {
+      // The preload comment explaining the removal names these, so match the
+      // executable forms rather than the words: a call, or a channel string.
+      expect(rendererSources).not.toMatch(new RegExp(`invoke\\(\\s*'${banned}'`));
+      expect(rendererSources).not.toMatch(new RegExp(`tv\\.${banned}\\s*\\(`));
+    }
   });
 });
 
