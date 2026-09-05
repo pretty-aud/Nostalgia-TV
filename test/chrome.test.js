@@ -35,10 +35,32 @@ const code = raw
   .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
   .join('\n');
 
-/** The body of `player.addEventListener('<name>', ...)`, up to the line end. */
+/**
+ * The WHOLE body of `player.addEventListener('<name>', ...)`, braces balanced.
+ *
+ * This used to read to the end of the line, which quietly made every
+ * assertion below blind to a multi-line handler — a showChrome() on the
+ * second line would not have been seen, which is precisely the regression
+ * this file exists to prevent. Found when a handler legitimately grew to two
+ * lines and the "did the regex find anything" control fired.
+ */
 function handlerFor(name) {
-  const re = new RegExp(`player\\.addEventListener\\(\\s*'${name}'[^\\n]*`, 'g');
-  return (code.match(re) || []).join('\n');
+  const out = [];
+  const opener = `player.addEventListener('${name}'`;
+  let from = 0;
+  for (;;) {
+    const start = code.indexOf(opener, from);
+    if (start === -1) break;
+    let depth = 0;
+    let i = start;
+    for (; i < code.length; i += 1) {
+      if (code[i] === '(') depth += 1;
+      else if (code[i] === ')') { depth -= 1; if (depth === 0) { i += 1; break; } }
+    }
+    out.push(code.slice(start, i));
+    from = i;
+  }
+  return out.join('\n');
 }
 
 describe('chrome only appears on purpose', () => {

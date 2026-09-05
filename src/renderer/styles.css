@@ -2987,6 +2987,274 @@ input[type="range"]::-webkit-slider-thumb {
   --signal-soft: rgba(143, 162, 255, 0.62);
 }
 
+/* ── VHS: the palette half ────────────────────────────────────────────────
+   White on blue, the default OSD pair. Stage 2 turns the two colours into
+   settings; until then they are written once, here.
+
+   Almost all of the skin's SHAPE is in this block too, because the things a
+   VCR display does differently — square corners, no shadow, one size of type
+   at integer multiples of the cell — are all tokens. Only what genuinely
+   cannot be a token lives in the [data-skin="vcr"] section further down. */
+:root[data-theme="vhs"] {
+  /* #0B0BB4: the saturated PAL/NTSC menu blue, not a designer's navy. All
+     three planes are the SAME blue — a character generator had one background
+     colour and no concept of a raised surface. */
+  --paper:      #0b0bb4;
+  --paper-lift: #0b0bb4;
+  --paper-high: #0b0bb4;
+
+  --ink:        #ffffff;
+  /* Only two levels of ink, both bright. The ROM had one colour and used
+     BLANKING for absence; a 62%-opacity grey is a modern idea and it makes
+     pixel type look broken rather than quiet. */
+  --ink-mute:   #c8c8f0;
+  --ink-faint:  #9a9ad8;
+
+  --signal:      #ffffff;
+  --signal-soft: rgba(255, 255, 255, 0.75);
+  --signal-wash: rgba(255, 255, 255, 0.14);
+  --signal-alt:  #ffffff;
+
+  /* Hairlines are SOLID and thick. A 10%-alpha rule is invisible against a
+     saturated blue, and a character generator drew a line or it drew nothing. */
+  --hair:       rgba(255, 255, 255, 0.55);
+  --hair-soft:  rgba(255, 255, 255, 0.28);
+  --lift:       rgba(255, 255, 255, 0.12);
+  --card-edge:  rgba(255, 255, 255, 0.55);
+
+  /* The cell is 8x16, so the type is hard-edged only at multiples of 16.
+     Three sizes, not seven — bigger than the app's default but deliberately
+     NOT enormous: 48px is the largest thing on screen. */
+  --t-micro:   16px;
+  --t-meta:    16px;
+  --t-body:    16px;
+  --t-lead:    16px;
+  --t-title:   32px;
+  --t-sub:     32px;
+  --t-display: 48px;
+
+  /* Integer leading on the 8px grid, so every row lands on the same rhythm.
+     Unitless ratios would put glyphs on half-pixels. */
+  --lh-display: 1.1667;    /* 56px at 48 */
+  --lh-title:   1.25;      /* 40px at 32 */
+  --lh-name:    1.5;       /* 24px at 16 */
+  --lh-body:    1.5;       /* 24px at 16 */
+
+  /* A fixed-advance face aligns by its advance. Tracking breaks exactly the
+     column alignment the look depends on — except on centred titles, which
+     is the "- M E N U -" convention. */
+  --tr-tight: 0;
+  --tr-none:  0;
+  --tr-label: 0;
+  --tr-wide:  8px;
+
+  /* Nothing was rounded and nothing floated. */
+  --r-sm:  0;
+  --r-md:  0;
+  --r-lg:  0;
+  --r-pill: 0;
+  --rim:  none;
+  --e-1:  none;
+  --e-2:  none;
+  --e-3:  none;
+
+  /* Full caps at 16px need the room, and she asked for the layout to move
+     rather than for titles to truncate. */
+  --sidebar-w: 400px;
+
+  --mono: "IBM VGA 8x16", "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* ── VHS: the skin half ───────────────────────────────────────────────────
+   Everything here restyles a COMPONENT, which every other theme is forbidden
+   to do. That is why it hangs off data-skin rather than data-theme: the rule
+   stays true as written for the other thirty-four, and `data-skin` is the one
+   word that finds all of this.
+
+   Set by applyTheme() from the SKINS map. */
+
+/* Kill every soft edge the app has. A character generator drew a glyph or it
+   drew nothing — there is no in-between pixel and no transition. */
+:root[data-skin="vcr"] * {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  text-shadow: none;
+}
+
+/**
+ * Full caps, as asked. The ROM had no lower case at all.
+ *
+ * Applied to every element rather than inherited from body, because five
+ * components in this sheet declare `text-transform: none` for themselves and
+ * an inherited value loses to any declaration. `:root[data-skin]` is two
+ * attributes/pseudo-classes, so it outranks the single classes that set it.
+ */
+:root[data-skin="vcr"] * { text-transform: uppercase; }
+/* ...except a PATH, a filename or something being typed, where caps would be
+   wrong rather than merely loud. A Windows path is case-insensitive but
+   "D:/TVANDFILMS" is not the folder she named, and reading it back as
+   something she did not type undermines the one line that says where her
+   library actually is. */
+:root[data-skin="vcr"] .libfact--path,
+:root[data-skin="vcr"] .scanning__path,
+:root[data-skin="vcr"] .mediarow__unknown,
+:root[data-skin="vcr"] input,
+:root[data-skin="vcr"] textarea,
+:root[data-skin="vcr"] .chip { text-transform: none; }
+
+/* Form fields do not inherit a face by default, so the ROM has to be handed
+   to them explicitly or every search box keeps the OS default and reads as a
+   hole cut in the skin. */
+:root[data-skin="vcr"] input,
+:root[data-skin="vcr"] textarea,
+:root[data-skin="vcr"] select,
+:root[data-skin="vcr"] button { font-family: var(--mono); }
+
+/* Windows draws no anti-aliasing decision for us, but say it anyway: the
+   grid is the point. (font-smoothing is macOS-only; harmless here.) */
+:root[data-skin="vcr"] body {
+  -webkit-font-smoothing: none;
+  font-variant-ligatures: none;
+}
+
+/* Scanlines, on the PAINTED surfaces only — never over the picture. A real
+   OSD was keyed in downstream of the tape, so the characters were the
+   cleanest thing on screen; the grain in a VHS photo is the tape and the CRT.
+   2px period so it survives at 100% and does not moiré at 125/150. */
+:root[data-skin="vcr"] .sidebar,
+:root[data-skin="vcr"] .browse,
+:root[data-skin="vcr"] .modal__panel,
+:root[data-skin="vcr"] .welcome {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.16) 0 1px,
+    rgba(0, 0, 0, 0) 1px 2px
+  );
+}
+
+/* The transport timeline: a thick ruled box with a thick bar inside it,
+   which is what a tape counter bar looked like. The default is a 3px hairline
+   with a round knob — both wrong here. */
+:root[data-skin="vcr"] .scrub { padding: 12px 0; }
+:root[data-skin="vcr"] .scrub__track {
+  height: 24px;
+  background: transparent;
+  border: 4px solid var(--ink);
+  padding: 4px;
+}
+:root[data-skin="vcr"] .scrub__fill { background: var(--ink); inset: 4px auto 4px 4px; }
+/* The knob is a modern affordance; the bar IS the affordance. */
+:root[data-skin="vcr"] .scrub__fill::after { display: none; }
+
+/* Buttons and controls get a drawn box rather than a tinted panel. */
+:root[data-skin="vcr"] .btn,
+:root[data-skin="vcr"] .ctl,
+:root[data-skin="vcr"] .mode,
+:root[data-skin="vcr"] .settingsbtn,
+:root[data-skin="vcr"] .select,
+:root[data-skin="vcr"] .iconbtn {
+  border: 2px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+}
+/* Selected reads as INVERSE VIDEO, the era's own highlight. */
+:root[data-skin="vcr"] .mode[aria-pressed="true"],
+:root[data-skin="vcr"] .btn--primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* The switched-on box, drawn heavier to match everything else. The ✓ stays —
+   it is a real glyph in this ROM (measured), so it needs no substitution. */
+:root[data-skin="vcr"] .show__toggle {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--ink);
+}
+
+/**
+ * SUBSTITUTE THE GLYPHS THE ROM DOES NOT HAVE.
+ *
+ * Every non-ASCII character the interface can draw was measured against the
+ * font (an 8x16 cell advances exactly 8px at 16px; a missing glyph falls back
+ * and measures something else). Thirteen of the twenty are present. These
+ * seven are not, and would each render in a proportional fallback face —
+ * anti-aliased, wrong weight, sitting right on the transport bar.
+ *
+ * Replaced in CSS rather than in JS: the markup, the labels and every
+ * behaviour stay exactly as they are, and the substitution disappears with
+ * the skin. Each replacement is a real CP437 glyph, verified present.
+ *
+ *   ▶ U+25B6 → ► U+25BA     ❚❚ U+275A → ▌▌ U+258C
+ *   ✕ U+2715 → × U+00D7     ▾ U+25BE  → ▼ U+25BC
+ *   ☰ U+2630 → ≡ U+2261     ⟲ U+27F2  → ◄◄ U+25C4  (it rewinds to episode 1)
+ *   ⛶ U+26F6 → the word FULL, which is what a VCR would have printed anyway
+ */
+:root[data-skin="vcr"] #btnPlay,
+:root[data-skin="vcr"] #btnFull,
+:root[data-skin="vcr"] #btnLibrary,
+:root[data-skin="vcr"] .modal__close,
+:root[data-skin="vcr"] .chip__x,
+:root[data-skin="vcr"] .tagopt__drop,
+:root[data-skin="vcr"] .showctl[data-act="reset"] { font-size: 0; }
+
+:root[data-skin="vcr"] #btnPlay::after,
+:root[data-skin="vcr"] #btnFull::after,
+:root[data-skin="vcr"] #btnLibrary::after,
+:root[data-skin="vcr"] .modal__close::after,
+:root[data-skin="vcr"] .chip__x::after,
+:root[data-skin="vcr"] .tagopt__drop::after,
+:root[data-skin="vcr"] .showctl[data-act="reset"]::after {
+  font-size: var(--t-body);
+  font-family: var(--mono);
+}
+/* The player's button reports state through its TEXT, which CSS cannot match
+   on — so the renderer stamps data-playing beside it and this reads that.
+   Both faces need a rule or pausing would blank the button. */
+:root[data-skin="vcr"] #btnPlay::after { content: "\25BA"; }
+:root[data-skin="vcr"] #btnPlay[data-playing="true"]::after { content: "\258C\258C"; }
+:root[data-skin="vcr"] #btnFull::after { content: "FULL"; }
+/* Non-breaking, or the space collapses against the generated content. */
+:root[data-skin="vcr"] #btnLibrary::after { content: "\2261\00a0LIBRARY"; }
+:root[data-skin="vcr"] .modal__close::after,
+:root[data-skin="vcr"] .chip__x::after,
+:root[data-skin="vcr"] .tagopt__drop::after { content: "\00D7"; }
+:root[data-skin="vcr"] .showctl[data-act="reset"]::after { content: "\25C4\25C4"; }
+
+/* The show list: a reserved cursor gutter, and ► on the one that plays next.
+   The gutter is reserved at REST too, so nothing reflows when it appears. */
+:root[data-skin="vcr"] .show__name::before {
+  content: "\00a0\00a0";
+  white-space: pre;
+}
+:root[data-skin="vcr"] .show[data-next="true"] .show__name::before { content: "\25BA\00a0"; }
+
+/* Title-safe inset: a CRT overscanned, so nothing important sat at the edge. */
+:root[data-skin="vcr"] .browse__bar,
+:root[data-skin="vcr"] .browse__body { padding-left: 40px; padding-right: 40px; }
+
+/**
+ * Keep the welcome clear of the wider sidebar.
+ *
+ * .stage is inset:0 over the WHOLE window and .welcome centres inside it, so
+ * the welcome has always been centred on the window rather than on the
+ * visible area. At the stock 340px sidebar that happened to land flush —
+ * measured 340..940 against a sidebar of 0..340 — so the collision never
+ * showed. Widening the sidebar to 400px for full caps exposed it, clipping
+ * sixty pixels off the left of every line.
+ *
+ * Padded rather than re-centred, and scoped to the skin: the base layout's
+ * assumption is fragile but it is not this change's job to rewrite it, and
+ * every other theme leaves --sidebar-w alone.
+ *
+ * Only while the sidebar is IN the layout. Below 900px it overlays the stage
+ * instead, and padding then would push the content off the right edge.
+ */
+@media (min-width: 900px) {
+  :root[data-skin="vcr"] .welcome,
+  :root[data-skin="vcr"] .scanning { padding-left: var(--sidebar-w); }
+}
+
 /* ── library mode ─────────────────────────────────────────────────────────
    Built entirely from the existing tokens, so all 26 themes come free and no
    theme can restyle a component — the same rule as everywhere else.

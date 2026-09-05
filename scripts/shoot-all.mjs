@@ -35,6 +35,11 @@ const SHOTS = [
   'theme-menu',
   'schedule-greying',
   'vhs-font-spike',
+  'vhs-transport',
+  'vhs-settings',
+  'vhs-library',
+  'vhs-sidebar',
+  'vhs-glyph-audit',
 ];
 
 let failed = 0;

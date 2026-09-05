@@ -2148,6 +2148,14 @@ const THEMES = [
   'oceanic', 'orbital',
   '01', 'neon', 'synthwave', 'sunset', 'lilac',
   'kawaii', 'iris',
+  /**
+   * Last, and alone, because it is not a colour family.
+   *
+   * VHS is a SKIN: it restyles components rather than re-valuing tokens, and
+   * it is the only entry here that does. See SKINS and the [data-skin="vcr"]
+   * block at the end of the stylesheet.
+   */
+  'vhs',
 ];
 
 /**
@@ -2183,10 +2191,25 @@ function resolveTheme(wanted) {
  * The settings sheet and the play-order table are rendered outside #app, so
  * anchoring the theme there would leave every dialog wearing the old palette.
  */
+/**
+ * Themes that are also a SKIN — they restyle components, not just tokens.
+ *
+ * The stylesheet's long-standing rule is that a theme re-values tokens and
+ * never touches a component. That rule is worth keeping for the other
+ * thirty-four, so the exception gets its own attribute rather than being
+ * smuggled in under data-theme: every structural rule the VCR look needs
+ * hangs off [data-skin="vcr"], in one fenced block, and `data-skin` is the
+ * one word to grep for to find all of it.
+ */
+const SKINS = { vhs: 'vcr' };
+
 function applyTheme() {
   const theme = resolveTheme(String((state.settings || {}).theme || 'midnight'));
-  document.documentElement.dataset.theme = theme;
-  document.documentElement.dataset.light = String(LIGHT_THEMES.includes(theme));
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  root.dataset.light = String(LIGHT_THEMES.includes(theme));
+  if (SKINS[theme]) root.dataset.skin = SKINS[theme];
+  else delete root.dataset.skin;
 }
 
 
@@ -2202,16 +2225,50 @@ function applyTheme() {
  * defaults in the stylesheet while leaving every rule that reads the tokens
  * untouched — the same trick applyUiScale uses for --ui-scale.
  */
+/**
+ * The VCR skin's one face, in the ONE place that can actually win.
+ *
+ * A real machine has a single character ROM, so all three families collapse
+ * to it. This cannot be done from the stylesheet: the two setProperty calls
+ * below write INLINE custom properties on <html> — deliberately, per the note
+ * above, so they beat the :root defaults — and an inline declaration beats
+ * any author rule at any specificity. `:root[data-theme="vhs"] { --grotesque:
+ * … }` is therefore a silent no-op: the app keeps painting Inter, nothing
+ * errors, and it reads as a theme that half-applied.
+ *
+ * The saved font choice is untouched, so leaving the skin restores it.
+ */
+const OSD_STACK = '"IBM VGA 8x16", "JetBrains Mono", ui-monospace, monospace';
+
 function applyFonts() {
   const fonts = (state.settings || {}).fonts || {};
-  document.documentElement.style.setProperty('--display', fontStackFor(fonts.display, DEFAULT_FONTS.display));
-  document.documentElement.style.setProperty('--grotesque', fontStackFor(fonts.body, DEFAULT_FONTS.body));
+  const root = document.documentElement;
+  if (SKINS[resolveTheme(String((state.settings || {}).theme || 'midnight'))]) {
+    root.style.setProperty('--display', OSD_STACK);
+    root.style.setProperty('--grotesque', OSD_STACK);
+    return;
+  }
+  root.style.setProperty('--display', fontStackFor(fonts.display, DEFAULT_FONTS.display));
+  root.style.setProperty('--grotesque', fontStackFor(fonts.body, DEFAULT_FONTS.body));
 }
 
 /** Player text and controls, for people who want them larger than the default. */
 function applyUiScale() {
-  const scale = Math.min(160, Math.max(80, Number(state.settings.uiScale) || 100));
+  let scale = Math.min(160, Math.max(80, Number(state.settings.uiScale) || 100));
+  /**
+   * Under the VCR skin, snap to quarters.
+   *
+   * `zoom` is a real layout zoom that multiplies the used font-size, and an
+   * 8x16 bitmap face is only hard-edged at whole pixels. From a 16px base
+   * only 100, 125 and 150 land on integers; the other fourteen slider
+   * positions blur the player chrome — the timeline and the transport, which
+   * is exactly where it would be noticed and would read as a font bug.
+   */
+  if (SKINS[resolveTheme(String((state.settings || {}).theme || 'midnight'))]) {
+    scale = Math.min(150, Math.max(100, Math.round(scale / 25) * 25));
+  }
   app.style.setProperty('--ui-scale', String(scale / 100));
+  return scale;
 }
 
 /**
@@ -4532,6 +4589,11 @@ The channel keeps its own place.`)) return;
   el('themeSelect').addEventListener('change', (event) => {
     setSetting({ theme: event.target.value });
     applyTheme();
+    // A skin owns the face, so the font stack has to be recomputed here too.
+    // Without this, switching into VHS keeps painting Inter until a restart —
+    // which reads exactly like the theme half-applying.
+    applyFonts();
+    applyUiScale();
   });
 
   el('fontDisplaySelect').addEventListener('change', (event) => {
@@ -4814,8 +4876,21 @@ The channel keeps its own place.`)) return;
   // each episode, each bumper, each promo — which is the interface appearing
   // over the opening of the picture. Chrome comes from togglePlay, hover and
   // the keyboard, all of which are the viewer actually asking for it.
-  player.addEventListener('play', () => { el('btnPlay').textContent = '❚❚'; });
-  player.addEventListener('pause', () => { el('btnPlay').textContent = '▶'; });
+  /**
+   * The glyph AND a state attribute, because the two are read by different
+   * things. The text is what every theme draws; the attribute is what lets a
+   * skin substitute a glyph its own face actually has, since CSS cannot
+   * select on text content. Without it a skin's replacement would freeze on
+   * whichever face it was written for and stop reporting play state at all.
+   */
+  player.addEventListener('play', () => {
+    el('btnPlay').textContent = '❚❚';
+    el('btnPlay').dataset.playing = 'true';
+  });
+  player.addEventListener('pause', () => {
+    el('btnPlay').textContent = '▶';
+    el('btnPlay').dataset.playing = 'false';
+  });
   player.addEventListener('error', onPlaybackError);
 
   el('stage').addEventListener('mousemove', () => {
