@@ -124,14 +124,45 @@ function createPlanes({ videoOptions = {}, overlayWebPreferences = {} } = {}) {
     if (!video.isDestroyed()) video.close();
   });
 
-  const showBoth = () => {
-    video.show();
+  /**
+   * The two planes are shown SEPARATELY, and the order matters.
+   *
+   * The video plane goes up FIRST, before mpv is spawned into it: mpv sizes
+   * its rendering surface from the window it is given AT CREATION, so a
+   * window that has not been shown yet leaves it painting into nothing.
+   * That is a picture that never appears until something resizes the window
+   * — which is precisely the boot-time black screen this pair produced, and
+   * why maximising "fixed" it. Showing an empty black plane costs nothing
+   * visually: it carries no content, only mpv's output.
+   *
+   * The interface plane goes up LAST, when its renderer has painted, so the
+   * app never flashes a half-drawn UI.
+   */
+  const showVideo = () => {
+    /**
+     * showInactive(), NOT show(). Two reasons, and the second is measured:
+     *
+     *  - the video plane must never take focus. The interface plane owns the
+     *    keyboard; show() activates, showInactive() does not.
+     *  - show() DID NOT MAKE THIS WINDOW VISIBLE. Logged on this machine:
+     *    `before=false afterShow=false afterInactive=true`. mpv then
+     *    rendered faithfully into a window Windows never displayed, so the
+     *    app had sound, a running clock and no picture until something
+     *    called maximize() — which shows a hidden window as a side effect,
+     *    and was the only reason the picture ever appeared at all.
+     */
+    video.showInactive();
     sync();
+  };
+  const showOverlay = () => {
     overlay.show();
     overlay.focus();
   };
+  const showBoth = () => { showVideo(); showOverlay(); };
 
-  return { video, overlay, sync, showBoth };
+  return {
+    video, overlay, sync, showBoth, showVideo, showOverlay,
+  };
 }
 
 module.exports = { createPlanes, RESYNC_EVENTS };

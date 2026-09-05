@@ -1,6 +1,8 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu } = require('electron');
+const {
+  app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, screen,
+} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -637,7 +639,7 @@ function watchMpvActivity(player) {
 
 async function createWindow() {
   if (videoWindow) return;   // 'activate' re-entry: the pair already exists
-  const { video, overlay, showBoth } = createPlanes({
+  const { video, overlay, showVideo, showOverlay } = createPlanes({
     videoOptions: {
       width: 1280,
       height: 800,
@@ -664,6 +666,43 @@ async function createWindow() {
   });
   videoWindow = video;
   mainWindow = overlay;
+
+  /**
+   * The video plane goes up BEFORE mpv is spawned into it. mpv takes its
+   * surface size from the window it is handed at creation, so spawning into
+   * an unshown window left it rendering into nothing until the first resize
+   * — audio, a running clock, and a black rectangle until you maximised.
+   * The plane is empty black; showing it early costs nothing to look at.
+   */
+  showVideo();
+
+  /**
+   * Test-only placement, and the APP does it because only the app knows
+   * where its own planes are.
+   *
+   * Hunting the window from outside kept getting it wrong: the pair is a
+   * frameless owner plus an owned transparent child, MainWindowHandle comes
+   * back 0, and an enumeration that picked the child moved half a window —
+   * leaving the picture a monitor away while a pixel check sampled someone
+   * else's browser through the transparent interface and called the player
+   * black. Placing it from in here cannot pick the wrong window.
+   *
+   * Always-on-top so the check reads THIS app rather than whatever was
+   * already on that screen; never focused, so it cannot steal a keystroke
+   * from somebody working. Never set in normal use.
+   */
+  if (process.env.NTV_SMOKE_PLACE === 'secondary') {
+    // Straight after the show, never inside a `once('show')` — the plane is
+    // already up by this line, so a listener waiting for that event would
+    // never fire and the window would sit on the primary monitor, in the
+    // way, which is the one thing this hook exists to avoid.
+    const primary = screen.getPrimaryDisplay();
+    const other = screen.getAllDisplays().find((d) => d.id !== primary.id) || primary;
+    video.setPosition(other.workArea.x + 120, other.workArea.y + 120);
+    video.setAlwaysOnTop(true);
+    overlay.setAlwaysOnTop(true);
+  }
+
 
   video.on('closed', () => { videoWindow = null; mainWindow = null; });
 
@@ -711,7 +750,8 @@ async function createWindow() {
   await host.ready;
 
   overlay.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'));
-  overlay.webContents.once('did-finish-load', showBoth);
+  // The interface plane last, once it has painted: no half-drawn UI.
+  overlay.webContents.once('did-finish-load', showOverlay);
 
   /**
    * Tell the renderer what the window is doing.

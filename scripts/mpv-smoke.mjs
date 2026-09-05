@@ -38,125 +38,93 @@ function verdict(name, pass, detail) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Put the test window on the SECOND monitor, on top, WITHOUT taking focus.
+ * Sample the middle of the app's own window, in TRUE physical pixels.
  *
- * Two rules, both learned the hard way in one sitting:
+ * Everything else was tried and each version measured the wrong thing:
  *
- *  - Never touch the primary monitor. This machine is somebody's desk: a
- *    test window that lands in front of a video call is a real cost, and
- *    the first drafts of this check stole focus repeatedly while she was
- *    working. The secondary display is the harness's whole world.
- *  - Never activate. HWND_TOPMOST with SWP_NOACTIVATE raises the window
- *    without moving the keyboard, where SwitchToThisWindow yanks it.
+ *  - `window.screenX` + devicePixelRatio: her desks are MIXED DPI (a 100%
+ *    ultrawide beside a 150% monitor), so DIP and physical coordinates
+ *    diverge by monitor, and the arithmetic sampled a point on a different
+ *    screen entirely — reporting a black player while photographing a
+ *    browser, then a Steam window, then this very conversation.
+ *  - a DPI-UNAWARE PowerShell: Windows virtualises its coordinates, so it
+ *    and Electron disagreed the moment the window sat on the scaled screen.
  *
- * Targeted BY PID, never by process name: her own copy of the app runs
- * under the identical name, and a name match focused HER window on another
- * screen while the check sampled whatever sat over the test window —
- * reporting a broken player that was purely the harness looking away.
- *
- * And found by ENUMERATING the process's own top-level windows rather than
- * asking for MainWindowHandle, which came back 0 for this app: the pair is
- * a frameless owner plus an owned transparent child, and .NET's heuristic
- * picks neither.
- *
- * Only the OWNER — the video plane — is moved. Moving the overlay instead
- * left the video plane on the other monitor while the transparent interface
- * sat over a browser window, and the pixel check dutifully sampled the
- * BROWSER through it and called the player black. The plane manager syncs
- * the overlay onto whatever the owner does, so moving the owner moves both;
- * moving the child moves half a window.
+ * So: make the probe DPI-aware, ask Windows for the window's rectangle, and
+ * sample ITS centre. One coordinate space, no conversions, nothing to get
+ * subtly wrong. It also prints every top-level window it saw for the pid,
+ * because "which window did you actually look at" is the question every
+ * failed pixel check has raised.
  */
-function placeOnSecondMonitor(pid) {
-  const script = [
-    'Add-Type -AssemblyName System.Windows.Forms',
-    "Add-Type -MemberDefinition '"
-      + '[DllImport("user32.dll", CharSet=System.Runtime.InteropServices.CharSet.Auto)] public static extern System.IntPtr FindWindowEx(System.IntPtr parent, System.IntPtr after, string cls, string title); '
-      + '[DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(System.IntPtr h, out int procId); '
-      + '[DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr h); '
-      + '[DllImport("user32.dll")] public static extern System.IntPtr GetWindow(System.IntPtr h, uint cmd); '
-      + '[DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr h, System.IntPtr after, int x, int y, int w, int hh, uint flags);'
-      + "' -Name F -Namespace NTVF",
-    '$other = [System.Windows.Forms.Screen]::AllScreens | Where-Object { -not $_.Primary } | Select-Object -First 1',
-    'if (-not $other) { Write-Output "NOSECONDSCREEN"; exit }',
-    '$x = $other.Bounds.X + 120',
-    '$y = $other.Bounds.Y + 120',
-    '$moved = 0',
-    '$seen = 0',
+function windowProbeScript() {
+  return [
+    'Add-Type -TypeDefinition @"',
+    'using System;',
+    'using System.Runtime.InteropServices;',
+    'using System.Text;',
+    'public class NtvProbe {',
+    '  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }',
+    '  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();',
+    '  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);',
+    '  [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr h, out int procId);',
+    '  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);',
+    '  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);',
+    '  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);',
+    '  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);',
+    '}',
+    '"@',
+    '[NtvProbe]::SetProcessDPIAware() | Out-Null',
+    'Add-Type -AssemblyName System.Drawing',
+    '$target = [int]$args[0]',
+    '$best = [System.IntPtr]::Zero',
+    '$bestArea = -1',
     '$h = [System.IntPtr]::Zero',
     'do {',
-    "  $h = [NTVF.F]::FindWindowEx([System.IntPtr]::Zero, $h, 'Chrome_WidgetWin_1', [NullString]::Value)",
+    '  $h = [NtvProbe]::FindWindowEx([System.IntPtr]::Zero, $h, [NullString]::Value, [NullString]::Value)',
     '  if ($h -ne [System.IntPtr]::Zero) {',
     '    $owner = 0',
-    '    [NTVF.F]::GetWindowThreadProcessId($h, [ref]$owner) | Out-Null',
-    `    if ($owner -eq ${pid} -and [NTVF.F]::IsWindowVisible($h)) {`,
-    '      $seen = $seen + 1',
-    // GW_OWNER = 4. Zero means this is the owner itself: the video plane.
-    '      if ([NTVF.F]::GetWindow($h, 4) -eq [System.IntPtr]::Zero) {',
-    // HWND_TOPMOST = -1; SWP_NOSIZE(1) | SWP_NOACTIVATE(0x10): moved and
-    // raised, never resized (the planes must keep their agreed size) and
-    // never focused (this machine is somebody's desk).
-    '        [NTVF.F]::SetWindowPos($h, [System.IntPtr](-1), $x, $y, 0, 0, 0x11) | Out-Null',
-    '        $moved = $moved + 1',
-    '      }',
+    '    [NtvProbe]::GetWindowThreadProcessId($h, [ref]$owner) | Out-Null',
+    '    if ($owner -eq $target -and [NtvProbe]::IsWindowVisible($h)) {',
+    '      $r = New-Object NtvProbe+RECT',
+    '      [NtvProbe]::GetWindowRect($h, [ref]$r) | Out-Null',
+    '      $sb = New-Object System.Text.StringBuilder 256',
+    '      [NtvProbe]::GetClassName($h, $sb, 256) | Out-Null',
+    '      $w = $r.Right - $r.Left',
+    '      $ht = $r.Bottom - $r.Top',
+    '      Write-Output ("WINDOW {0} class={1} owned={2} rect={3},{4} {5}x{6}" -f $h, $sb.ToString(), ([NtvProbe]::GetWindow($h, 4) -ne [System.IntPtr]::Zero), $r.Left, $r.Top, $w, $ht)',
+    '      if ($w * $ht -gt $bestArea) { $bestArea = $w * $ht; $best = $h }',
     '    }',
     '  }',
     '} while ($h -ne [System.IntPtr]::Zero)',
-    'if ($moved -eq 0) { Write-Output ("NOWINDOW (saw {0})" -f $seen) } else { Write-Output ("PLACED {0} of {1} at {2},{3}" -f $moved, $seen, $x, $y) }',
-  ].join('\n');
-  const out = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
-    { encoding: 'utf8', windowsHide: true, timeout: 20000 });
-  const text = `${out.stdout || ''}${out.stderr || ''}`.trim();
-  return text.split(/\r?\n/)[0] || 'NO OUTPUT';
-}
-
-/**
- * Read one screen pixel, in PHYSICAL coordinates, from OUTSIDE the app.
- *
- * The check this exists for: the app can be perfectly healthy in every way
- * it can report on itself — mpv decoding, clock running, sound playing —
- * while the interface plane paints an opaque background over the picture.
- * Nothing inside the app can see that. Only the screen can.
- */
-function screenPixel(x, y) {
-  const script = [
-    'Add-Type -AssemblyName System.Drawing',
+    'if ($best -eq [System.IntPtr]::Zero) { Write-Output "NOWINDOW"; exit }',
+    '$r = New-Object NtvProbe+RECT',
+    '[NtvProbe]::GetWindowRect($best, [ref]$r) | Out-Null',
+    '$cx = [int](($r.Left + $r.Right) / 2)',
+    '$cy = [int](($r.Top + $r.Bottom) / 2)',
     '$bmp = New-Object System.Drawing.Bitmap(1, 1)',
     '$g = [System.Drawing.Graphics]::FromImage($bmp)',
-    `$g.CopyFromScreen(${Math.round(x)}, ${Math.round(y)}, 0, 0, $bmp.Size)`,
+    '$g.CopyFromScreen($cx, $cy, 0, 0, $bmp.Size)',
     '$p = $bmp.GetPixel(0, 0)',
-    'Write-Output ("{0},{1},{2}" -f $p.R, $p.G, $p.B)',
-  ].join('; ');
-  const out = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
-    { encoding: 'utf8', windowsHide: true, timeout: 20000 });
-  const match = /(\d+),(\d+),(\d+)/.exec(out.stdout || '');
-  if (!match) return null;
-  return { r: +match[1], g: +match[2], b: +match[3] };
+    'Write-Output ("SAMPLE {0},{1},{2} at {3},{4}" -f $p.R, $p.G, $p.B, $cx, $cy)',
+  ].join('\n');
 }
 
-/**
- * Save what a failed pixel check was looking at — THE APP'S WINDOW ONLY.
- *
- * An earlier draft saved the whole virtual desktop, which on this machine
- * meant a 6000px image of somebody's inbox, their video call and their
- * browsing, written to a temp folder to debug a video player. A diagnostic
- * has no business photographing anything but its own subject.
- */
-function captureScreen(outPath, box) {
-  const x = Math.round(box.x);
-  const y = Math.round(box.y);
-  const w = Math.max(1, Math.round(box.w));
-  const h = Math.max(1, Math.round(box.h));
-  const script = [
-    'Add-Type -AssemblyName System.Drawing',
-    `$bmp = New-Object System.Drawing.Bitmap(${w}, ${h})`,
-    '$g = [System.Drawing.Graphics]::FromImage($bmp)',
-    `$g.CopyFromScreen(${x}, ${y}, 0, 0, $bmp.Size)`,
-    `$bmp.Save('${outPath.replace(/\\/g, '\\\\')}')`,
-    `Write-Output ("SAVED the app window only: ${w}x${h} at ${x},${y}")`,
-  ].join('; ');
-  const out = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
-    { encoding: 'utf8', windowsHide: true, timeout: 30000 });
-  return (out.stdout || '').trim() || (out.stderr || '').trim();
+let probePath = null;
+function sampleAppCentre(pid, { verbose = false } = {}) {
+  if (!probePath) {
+    probePath = path.join(work, 'probe.ps1');
+    fs.writeFileSync(probePath, windowProbeScript(), 'utf8');
+  }
+  const out = spawnSync('powershell',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probePath, String(pid)],
+    { encoding: 'utf8', windowsHide: true, timeout: 25000 });
+  const text = `${out.stdout || ''}${out.stderr || ''}`;
+  if (verbose) console.error(text.trim());
+  const match = /SAMPLE (\d+),(\d+),(\d+) at (-?\d+),(-?\d+)/.exec(text);
+  if (!match) return null;
+  return {
+    r: +match[1], g: +match[2], b: +match[3], at: `${match[4]},${match[5]}`,
+  };
 }
 
 /** Two tiny shows, a bumper and a promo — 6-second episodes so transitions
@@ -206,7 +174,12 @@ async function cdpConnect() {
   for (let i = 0; i < 60; i += 1) {
     try {
       const pages = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json`)).json();
-      const page = pages.find((p) => p.type === 'page' && p.webSocketDebuggerUrl);
+      // THE INTERFACE PLANE, specifically. Two pages exist now that the video
+      // plane is shown first, and its black placeholder is a page too — an
+      // unqualified find attached to it and reported an app with no
+      // window.tv and no view, which is true of a plane that holds neither.
+      const page = pages.find((p) => p.type === 'page' && p.webSocketDebuggerUrl
+        && /index\.html/.test(p.url || ''));
       if (page) {
         const ws = new WebSocket(page.webSocketDebuggerUrl);
         await new Promise((resolve, reject) => {
@@ -272,7 +245,9 @@ async function main() {
     binary ? [`--remote-debugging-port=${CDP_PORT}`] : ['.', `--remote-debugging-port=${CDP_PORT}`],
     {
       cwd: root,
-      env: { ...process.env, NTV_PROFILE: profile },
+      // The app places itself on the secondary screen and stays on top:
+      // hunting its windows from outside kept moving the wrong one.
+      env: { ...process.env, NTV_PROFILE: profile, NTV_SMOKE_PLACE: 'secondary' },
       stdio: ['ignore', fs.openSync(path.join(work, 'app.out.log'), 'w'), fs.openSync(path.join(work, 'app.err.log'), 'w')],
       windowsHide: true,
       // Never a shell: both are real .exe files, and a shell would split the
@@ -323,70 +298,37 @@ async function main() {
      * window. The fixture episodes are solid RED and BLUE, so one pixel in
      * the middle of the window settles it beyond argument.
      */
-    /**
-     * The window is asked where it IS on every sample, never once at the
-     * start: the first draft computed a centre point, THEN moved the window
-     * to the other monitor, and went on sampling the abandoned coordinates —
-     * reporting a black picture that was really somebody's wallpaper.
-     */
-    const readGeometry = async () => JSON.parse(await evaluate(ws, `JSON.stringify({
-      x: window.screenX, y: window.screenY,
-      w: window.innerWidth, h: window.innerHeight,
-      dpr: window.devicePixelRatio,
-    })`));
-    /**
-     * NO devicePixelRatio conversion. Both sides already speak the same
-     * units: PowerShell here is DPI-UNAWARE, so Windows virtualises its
-     * coordinates into the same DIP space Electron reports — proven by the
-     * placement landing at 3560 and the window reporting 3559. Scaling by
-     * the 1.5 ratio pushed the sample clean off the 6000px desktop and read
-     * whatever the OS returns out of bounds (a confident near-white).
-     */
-    const sampleCentre = async () => {
-      const box = await readGeometry();
-      return screenPixel(box.x + box.w / 2, box.y + box.h / 2);
-    };
     const isFixtureColour = (p) => Boolean(p)
       && ((p.r > 110 && p.g < 90 && p.b < 90)      // Show Alpha: red
         || (p.b > 110 && p.r < 90 && p.g < 90));   // Show Beta: blue
 
-    // Out of her way FIRST, and only then look at the screen.
-    let placement = '';
-    for (let i = 0; i < 5 && !placement.startsWith('PLACED'); i += 1) {
-      placement = placeOnSecondMonitor(child.pid);
-      await sleep(300);
-    }
-
     let picture = null;
     for (let i = 0; i < 15 && !isFixtureColour(picture); i += 1) {
       await sleep(300);
-      picture = await sampleCentre();
+      picture = sampleAppCentre(child.pid);
     }
     if (!isFixtureColour(picture)) {
-      const box = await readGeometry();
-      console.error(`placement: ${placement} | geometry: ${JSON.stringify(box)}`);
-      console.error(`capture: ${captureScreen(path.join(work, 'failure.png'), box)}`);
-      console.error(`saved: ${path.join(work, 'failure.png')}`);
+      // The verbose pass prints every window the probe saw for this pid —
+      // handle, class, owned-or-not, and rectangle — so "which window did
+      // it look at?" is answered instead of guessed.
+      sampleAppCentre(child.pid, { verbose: true });
     }
     verdict('the PICTURE is on screen, not just decoding',
       isFixtureColour(picture),
-      picture ? `centre pixel rgb(${picture.r},${picture.g},${picture.b}) (${placement})` : 'screenshot failed');
+      picture ? `centre pixel rgb(${picture.r},${picture.g},${picture.b}) at ${picture.at}` : 'probe found no window');
 
     // …and it survives a resize, which is when Chromium re-asserts its
     // compositor child over mpv. The one-shot raise passed the old harness
     // and still lost the picture minutes into a real session.
-    //
-    // Nothing is re-placed here: a SetWindowPos during the check would fight
-    // the very maximize being tested. The geometry is simply re-read.
     await evaluate(ws, 'window.tv.toggleMaximizeWindow()');
     let afterResize = null;
     for (let i = 0; i < 15 && !isFixtureColour(afterResize); i += 1) {
       await sleep(400);
-      afterResize = await sampleCentre();
+      afterResize = sampleAppCentre(child.pid);
     }
     verdict('the picture SURVIVES a maximize (the raise holds)',
       isFixtureColour(afterResize),
-      afterResize ? `centre pixel rgb(${afterResize.r},${afterResize.g},${afterResize.b})` : 'screenshot failed');
+      afterResize ? `centre pixel rgb(${afterResize.r},${afterResize.g},${afterResize.b}) at ${afterResize.at}` : 'probe found no window');
     await evaluate(ws, 'window.tv.toggleMaximizeWindow()');
     await sleep(800);
 
