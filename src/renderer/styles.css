@@ -1324,7 +1324,16 @@ input[type="range"]::-webkit-slider-thumb {
 .tagopt[data-active="true"] .tagopt__pick { color: var(--ink); }
 /* Selected is marked by a bar AND the ink, never by colour alone. */
 .tagopt[data-on="true"] .tagopt__pick { color: var(--ink); box-shadow: inset 2px 0 0 var(--signal); }
-.tagopt--create .tagopt__pick { color: var(--signal); }
+/* Restated at every state, not just at rest. `.tagopt--create .tagopt__pick`
+   alone is 0-2-0 and loses to the `.tagopt:hover` / `.tagopt[data-active]`
+   rules above (0-3-0) — so the amber "this makes something new" colour was
+   present only while nothing was pointing at it. That is the worst possible
+   moment to lose it: typing a genuinely new name makes the Create row rows[0]
+   and therefore data-active, so it was plain ink at exactly the instant of
+   choosing. Third rule in this block to be inert this way. */
+.tagopt--create .tagopt__pick,
+.tagopt--create:hover .tagopt__pick,
+.tagopt--create[data-active="true"] .tagopt__pick { color: var(--signal); }
 .tagopt__drop {
   flex: 0 0 auto;
   padding: 0 var(--u);

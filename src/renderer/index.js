@@ -60,7 +60,7 @@ import { subStyleProperties } from '../shared/mpvSubStyle.js';
 import { cropSpecFor } from '../shared/mpvCrop.js';
 import { FONT_CHOICES, DEFAULT_FONTS, fontStackFor } from '../shared/fonts.js';
 import {
-  tagsFor, withTags, allTags, tagsInUse, matchesGenres,
+  tagsFor, withTags, allTags, tagsInUse, matchesGenres, narrowTags, offersCreate,
   withCustomTag, withoutTag, countTagged, cleanTag, keyFor, hasTag,
 } from '../shared/genres.js';
 
@@ -3160,6 +3160,26 @@ function openTagPop(anchor, kind, id, label) {
  */
 function positionTagPop() {
   if (!tagPopOpen() || !tagPopAnchor) return;
+
+  /**
+   * A DETACHED anchor first, before anything reads geometry off it.
+   *
+   * This was a regression the first time round. A detached node has no
+   * ancestors, so `closest('.modal__body')` returns null and the scrollport
+   * check below was skipped in exactly the state it exists for; execution
+   * then fell through to the maths with an all-zero rect, and the popover
+   * teleported to the top-left corner of the window and stayed there, still
+   * writing to the original title. Measured: closest() null, rect 0,0,0,0,
+   * computed position 12,6.
+   *
+   * Recover if the row is still in the table under a rebuilt node; close if
+   * it is genuinely gone.
+   */
+  if (!tagPopAnchor.isConnected) {
+    tagPopAnchor = tagPopTarget ? liveGenreCell(tagPopTarget.kind, tagPopTarget.id) : null;
+    if (!tagPopAnchor) { closeTagPop(); return; }
+  }
+
   const pop = el('tagPop');
   const box = tagPopAnchor.getBoundingClientRect();
 
@@ -3170,11 +3190,26 @@ function positionTagPop() {
    * under it, which is a menu pointing at nothing. The scrollport, not the
    * window — a row hidden behind the modal's own overflow is gone as far as
    * the person is concerned even though it is still inside the viewport.
+   *
+   * Measured from the sticky HEADER's bottom edge, not the scrollport's top.
+   * `.locktable th` is position:sticky and 33px tall, so the top band of the
+   * scrollport is permanently covered — a row fully hidden behind the column
+   * headings is out of sight while still, on paper, inside the box.
    */
   const scroller = tagPopAnchor.closest('.modal__body');
   if (scroller) {
     const view = scroller.getBoundingClientRect();
-    if (box.bottom < view.top + 4 || box.top > view.bottom - 4) { closeTagPop(); return; }
+    /**
+     * The TH, not the THEAD. `position: sticky` is on the cells
+     * (styles.css .locktable th), so the thead's own rect scrolls away with
+     * the flow while the cells stay pinned — measuring the thead made
+     * Math.max collapse straight back to view.top and the guard did nothing
+     * at all. Caught by the probe, which is the only reason it is not still
+     * sitting here looking like a fix.
+     */
+    const head = scroller.querySelector('th');
+    const topEdge = head ? Math.max(view.top, head.getBoundingClientRect().bottom) : view.top;
+    if (box.bottom < topEdge + 4 || box.top > view.bottom - 4) { closeTagPop(); return; }
   }
 
   const height = pop.offsetHeight;
@@ -3195,10 +3230,18 @@ function closeTagPop() {
 function setTagsFor(kind, id, list) {
   state.tags = withTags(state, kind, id, list);
   persist();
-  // Re-acquired whenever the held node has left the document, so a table
-  // rebuild underneath an open popover cannot quietly stop the row updating.
+  /**
+   * Re-acquired whenever the held node has left the document, so a table
+   * rebuild underneath an open popover cannot quietly stop the row updating.
+   *
+   * And if it cannot be found at all, CLOSE. A null anchor used to mean "skip
+   * the paint", which is the same silent failure by another route — the row
+   * is not on screen (the tab was switched, the search narrowed it away), so
+   * the popover is editing something nobody can see.
+   */
   if (!tagPopAnchor || !tagPopAnchor.isConnected) tagPopAnchor = liveGenreCell(kind, id);
-  if (tagPopAnchor) paintGenreCell(tagPopAnchor, kind, id);
+  if (!tagPopAnchor) { closeTagPop(); return; }
+  paintGenreCell(tagPopAnchor, kind, id);
   renderGenreFilter();
   if (browseOpen()) renderBrowse();
 }
@@ -3244,22 +3287,10 @@ function renderTagPop() {
   const list = el('tagPopList');
   list.textContent = '';
 
-  /**
-   * Narrow on the FOLDED key as well as the raw text.
-   *
-   * These were two different notions of equality in one render pass, and
-   * they disagreed for exactly the inputs keyFor exists to handle: the list
-   * filtered on a raw substring, while the Create row below was suppressed
-   * by the folded key. Typing "sci fi" therefore matched no option (because
-   * "Sci-Fi" does not contain that substring) AND offered no Create row
-   * (because the key says it already exists) — an empty picker, a hint that
-   * was false in both directions, and no way forward but guessing the
-   * punctuation.
-   */
-  const typedKey = keyFor(typed);
-  const matches = allTags(state).filter((tag) => !typed
-    || tag.toLowerCase().includes(typed.toLowerCase())
-    || (typedKey && keyFor(tag).includes(typedKey)));
+  // Both predicates live in src/shared/genres.js so the suite can pin the
+  // SHIPPED behaviour rather than a copy of it that drifts.
+  const vocabulary = allTags(state);
+  const matches = narrowTags(vocabulary, typed);
 
   const rows = [];
   for (const tag of matches) {
@@ -3318,18 +3349,8 @@ function renderTagPop() {
     list.append(row);
   }
 
-  /**
-   * The create row, last, and only when what was typed is genuinely new AND
-   * storable.
-   *
-   * The key test is the half that was missing. The store refuses a tag with
-   * no key — it could never be matched, counted or deleted again — so
-   * offering to create one produced a fully styled button that cleared the
-   * field and did nothing, with no error and no explanation. hasTag alone
-   * could not catch it: it returns false for a keyless tag, which reads as
-   * "not there yet", which is exactly wrong.
-   */
-  if (keyFor(typed) && !hasTag(allTags(state), typed)) {
+  // The create row, last, and only for something genuinely new AND storable.
+  if (offersCreate(vocabulary, typed)) {
     const row = document.createElement('div');
     row.className = 'tagopt tagopt--create';
     const make = document.createElement('button');
@@ -3371,6 +3392,17 @@ function renderTagPop() {
   rows.forEach((row, index) => {
     row.dataset.active = String(index === tagPopActive);
   });
+
+  /**
+   * Re-anchor, because THIS is what changes the popover's height.
+   *
+   * Positioning was hooked to scroll and resize and not to the render that
+   * actually resizes it. Every keystroke, chip toggle, chip removal and
+   * genre deletion rebuilds the option list — and in the flip-above branch
+   * the top edge is computed FROM the height, so the popover drifts away
+   * from its row while sitting perfectly still. Measured at 178px adrift.
+   */
+  positionTagPop();
 }
 
 /** Enter picks, arrows move, Escape closes, Backspace on empty removes. */
@@ -4150,10 +4182,14 @@ function wireEvents() {
   el('btnOpenMedia').addEventListener('click', openMedia);
   el('btnCloseMedia').addEventListener('click', closeMedia);
   el('mediaBackdrop').addEventListener('click', closeMedia);
-  el('mediaSearch').addEventListener('input', renderMediaTable);
+  // Both of these rebuild the table, and a row can vanish from it entirely —
+  // narrowed away by the search, or on the tab that was just left. The
+  // popover would then be editing a title nobody can see.
+  el('mediaSearch').addEventListener('input', () => { closeTagPop(); renderMediaTable(); });
   el('mediaTabs').addEventListener('click', (event) => {
     const button = event.target.closest('.mode');
     if (!button) return;
+    closeTagPop();
     mediaKind = button.dataset.kind;
     renderMediaTable();
   });

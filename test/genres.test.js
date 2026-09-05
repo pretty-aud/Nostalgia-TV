@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  DEFAULT_GENRES, tagsOf, cleanTag, keyFor, hasTag, sortTags, tagsFor, withTags,
+  DEFAULT_GENRES, tagsOf, cleanTag, keyFor, hasTag, sortTags, tagsFor, withTags, narrowTags, offersCreate,
   allTags, tagsInUse, matchesGenres, withCustomTag, withoutTag, countTagged,
 } from '../src/shared/genres.js';
 
@@ -97,12 +97,22 @@ describe('keyFor', () => {
     for (const tag of ['アニメ', 'Ужасы', '科幻', '드라마']) {
       expect(keyFor(tag)).not.toBe('');
     }
-    expect(keyFor('アニメ')).toBe(keyFor('アニメ'));
     expect(keyFor('Ужасы')).not.toBe(keyFor('科幻'));
   });
 
+  it('KEEPS the non-Latin characters rather than folding them away', () => {
+    // Asserted against a literal, not against keyFor of itself. Comparing two
+    // identical inputs only proves the function is deterministic, and passed
+    // just as happily when both sides were the empty string.
+    expect(keyFor('アニメ')).toBe('アニメ');
+    expect(keyFor('Ужасы')).toBe('ужасы');
+  });
+
   it('still folds punctuation and case inside a non-Latin tag', () => {
-    expect(keyFor('アニメ・SF')).toBe(keyFor('アニメ sf'));
+    // Against a literal for the same reason: the old ASCII strip deleted the
+    // kana and left 'sf' on BOTH sides, so a keyFor-to-keyFor comparison here
+    // passed with the bug fully present.
+    expect(keyFor('アニメ・SF')).toBe('アニメsf');
   });
 
   it('is still empty for an emoji, which is a picture and not a name', () => {
@@ -351,22 +361,21 @@ describe('withCustomTag', () => {
 });
 
 /**
- * The picker's two gates, pinned here rather than only in the renderer.
+ * The picker's two gates.
  *
- * These are the exact predicates src/renderer/index.js renders the option
- * list and the Create row from. They disagreed — the list narrowed on a raw
- * substring while the Create row was suppressed by the folded key — so
- * typing "sci fi" produced no option, no Create row, and a hint that was
- * false in both directions, with no way forward but guessing the punctuation.
+ * These are IMPORTED, not re-implemented. They used to be copied into this
+ * file, which meant the shipped renderer could be reverted with the whole
+ * suite still green — and the copy had already drifted from it. A test that
+ * exercises a replica proves the replica.
+ *
+ * What they encode: the list narrowed on a raw substring while the Create row
+ * was suppressed by the folded key, so typing "sci fi" produced no option, no
+ * Create row, and a hint that was false in both directions, with no way
+ * forward but guessing the punctuation.
  */
 describe('the picker predicates', () => {
-  const narrow = (typed) => {
-    const key = keyFor(typed);
-    return allTags({}).filter((tag) => !typed
-      || tag.toLowerCase().includes(typed.toLowerCase())
-      || (key && keyFor(tag).includes(key)));
-  };
-  const offersCreate = (typed) => Boolean(keyFor(typed)) && !hasTag(allTags({}), typed);
+  const narrow = (typed) => narrowTags(allTags({}), typed);
+  const offers = (typed) => offersCreate(allTags({}), typed);
 
   it('always offers a way forward for anything with a key', () => {
     // The invariant that was broken: for every plausible typing, EITHER an
@@ -377,25 +386,25 @@ describe('the picker predicates', () => {
       'horror', 'HORROR', 'anime', 'animé',
       'isekai', 'mecha', 'zombie apocalypse', 'アニメ',
     ]) {
-      const forward = narrow(typed).length > 0 || offersCreate(typed);
+      const forward = narrow(typed).length > 0 || offers(typed);
       expect(forward, `no way forward after typing "${typed}"`).toBe(true);
     }
   });
 
   it('offers the EXISTING tag, not a duplicate, for a punctuation variant', () => {
     expect(narrow('sci fi')).toContain('Sci-Fi');
-    expect(offersCreate('sci fi')).toBe(false);
+    expect(offers('sci fi')).toBe(false);
     expect(narrow('sliceoflife')).toContain('Slice of Life');
-    expect(offersCreate('sliceoflife')).toBe(false);
+    expect(offers('sliceoflife')).toBe(false);
   });
 
   it('offers Create only for something genuinely new AND storable', () => {
-    expect(offersCreate('Isekai')).toBe(true);
-    expect(offersCreate('アニメ')).toBe(true);
+    expect(offers('Isekai')).toBe(true);
+    expect(offers('アニメ')).toBe(true);
     // Keyless: the store would refuse these, so the button must not appear.
-    expect(offersCreate('---')).toBe(false);
-    expect(offersCreate('🔥')).toBe(false);
-    expect(offersCreate('   ')).toBe(false);
+    expect(offers('---')).toBe(false);
+    expect(offers('🔥')).toBe(false);
+    expect(offers('   ')).toBe(false);
   });
 });
 

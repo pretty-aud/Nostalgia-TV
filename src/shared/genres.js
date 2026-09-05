@@ -254,6 +254,42 @@ function matchesGenres(titleTags, selected) {
 }
 
 /**
+ * The picker's two questions, answered HERE rather than in the renderer.
+ *
+ * They used to live inline in renderTagPop, with the test file keeping its
+ * own copy — which meant the shipped predicates could be reverted with the
+ * whole suite still green, and the copy had already drifted (the renderer
+ * cleans the input first; the copy did not). A test that exercises a replica
+ * of the code is not a test of the code.
+ *
+ * narrowTags matches on the raw text OR the folded key. Both are needed: raw
+ * text alone missed "sci fi" against "Sci-Fi" while the create gate below
+ * said the tag already existed, so the picker offered nothing at all and its
+ * hint was false in both directions.
+ */
+function narrowTags(all, typed) {
+  const text = cleanTag(typed);
+  if (!text) return [...(all || [])];
+  const key = keyFor(text);
+  const lower = text.toLowerCase();
+  return (all || []).filter((tag) => String(tag).toLowerCase().includes(lower)
+    || (key && keyFor(tag).includes(key)));
+}
+
+/**
+ * Offer to create only what is genuinely new AND storable.
+ *
+ * The key test is the half that is easy to forget: the store refuses a tag
+ * with no key, so offering one produces a button that clears the field and
+ * does nothing. hasTag alone cannot catch it — it returns false for a
+ * keyless tag, which reads as "not there yet", which is exactly wrong.
+ */
+function offersCreate(all, typed) {
+  const text = cleanTag(typed);
+  return Boolean(keyFor(text)) && !hasTag(all, text);
+}
+
+/**
  * Add a tag to the vocabulary without attaching it to anything.
  *
  * Returns the tags object unchanged when the tag already exists in ANY form —
@@ -323,6 +359,8 @@ module.exports = {
   allTags,
   tagsInUse,
   matchesGenres,
+  narrowTags,
+  offersCreate,
   withCustomTag,
   withoutTag,
   countTagged,
