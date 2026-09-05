@@ -32,10 +32,6 @@ import {
 } from '../shared/scheduler.js';
 import {
   summarizeShow,
-  movieVerdict,
-  describeShowConversion,
-  describeMovieConversion,
-  describeEpisodeConversion,
 } from '../shared/mediaStatus.js';
 import {
   readyCopy,
@@ -2262,8 +2258,48 @@ let ingesting = false;
 async function autoIngest() {
   const note = el('ingestNote');
   if (!window.tv.ingestStatus || !window.tv.ingestRun) { note.textContent = ''; return; }
-  if (ingesting) return;
 
+  /**
+   * Claimed BEFORE the first await, and released in a finally.
+   *
+   * Checking the flag and then awaiting the status round-trip left a window
+   * wide enough for a second scan to walk straight through — boot followed
+   * by a Rescan is exactly that — and the loser would then clear the
+   * winner's flag on its way out, so a third could start on top of a running
+   * one. Two ingests against the same drive is precisely what the pause gate
+   * exists to prevent.
+   */
+  if (ingesting) return;
+  ingesting = true;
+  try {
+    await runIngest(note);
+  } finally {
+    ingesting = false;
+  }
+}
+
+/**
+ * Write the note WITHOUT starting anything.
+ *
+ * autoIngest is the only writer of this line, and it only runs off a scan —
+ * so with no folder chosen, or a scan that found nothing because the drive is
+ * unplugged, the line sat on its HTML placeholder ("Checking for new
+ * titles…") forever. A status line that is permanently mid-sentence is worse
+ * than no line. Reading the status is a ledger comparison; it touches no
+ * media and spawns nothing.
+ */
+async function refreshIngestNote() {
+  const note = el('ingestNote');
+  if (!window.tv.ingestStatus) { note.textContent = ''; return; }
+  if (ingesting) return;                       // a run is already narrating it
+  const status = await window.tv.ingestStatus(ingestItems()).catch(() => null);
+  if (!status) { note.textContent = 'Could not check for new titles.'; return; }
+  note.textContent = status.newCount === 0
+    ? 'Nothing new — artwork is up to date.'
+    : 'New titles found — artwork is captured in the background after a scan.';
+}
+
+async function runIngest(note) {
   const status = await window.tv.ingestStatus(ingestItems()).catch(() => null);
   if (!status) { note.textContent = 'Could not check for new titles.'; return; }
   if (status.newCount === 0) { note.textContent = 'Nothing new — artwork is up to date.'; return; }
@@ -2274,7 +2310,6 @@ async function autoIngest() {
   if (status.newMovies) bits.push(`${status.newMovies} movie${status.newMovies === 1 ? '' : 's'}`);
   note.textContent = `Found ${bits.join(', ')} — capturing artwork…`;
 
-  ingesting = true;
   // The run stands down while anything plays; a note that says so is the
   // difference between patience and a bug report.
   const stopProgress = window.tv.onIngestProgress
@@ -2287,7 +2322,6 @@ async function autoIngest() {
 
   const result = await window.tv.ingestRun(ingestItems()).catch(() => null);
   if (stopProgress) stopProgress();
-  ingesting = false;
 
   if (result && result.busy) return;               // another run had it
   if (!result || result.ok === false) {
@@ -2381,6 +2415,8 @@ function openSettings() {
   renderSettings();
   renderSettingsNav();
   renderManualSaveInfo();
+  // Not autoIngest: opening a settings sheet must not start disk work.
+  refreshIngestNote();
   el('btnCloseSettings').focus();
 }
 
@@ -2971,14 +3007,6 @@ function mediaOpen() {
 
 const hasArt = (kind, id) => Boolean(mediaData && mediaData.art.get(`${kind}\n${id}`));
 
-function conversionCell(text) {
-  const td = document.createElement('td');
-  td.textContent = text;
-  td.className = /not checked/.test(text) ? 'mediarow__unknown'
-    : (/need|converts/.test(text) ? 'mediarow__warn' : 'mediarow__ok');
-  return td;
-}
-
 function artCell(present, label) {
   const td = document.createElement('td');
   td.className = 'mediarow__art';
@@ -3021,7 +3049,7 @@ function renderMediaTable() {
   let shown = 0;
 
   if (mediaKind === 'show') {
-    ['Title', 'Episodes', 'Conversion', 'Artwork', 'Details'].forEach(th);
+    ['Title', 'Episodes', 'Artwork', 'Details'].forEach(th);
 
     for (const show of shows) {
       if (query && !show.name.toLowerCase().includes(query)) continue;
@@ -3050,7 +3078,7 @@ function renderMediaTable() {
       toggle.textContent = 'Episodes';
       detailTd.append(toggle);
 
-      tr.append(name, eps, conversionCell(describeShowConversion(summary)), art, detailTd);
+      tr.append(name, eps, art, detailTd);
       rows.append(tr);
 
       /**
@@ -3069,7 +3097,7 @@ function renderMediaTable() {
         detailRow = document.createElement('tr');
         detailRow.className = 'mediarow--detail';
         const cell = document.createElement('td');
-        cell.colSpan = 5;
+        cell.colSpan = 4;
         const list = document.createElement('ul');
         list.className = 'mediaeps';
         for (const episode of show.episodes) {
@@ -3077,14 +3105,10 @@ function renderMediaTable() {
           const label = document.createElement('span');
           label.className = 'mono';
           label.textContent = formatEpisodeLabel(episode);
-          const verdict = document.createElement('span');
-          verdict.textContent = describeEpisodeConversion(entries, episode.relPath);
-          verdict.className = /not checked/.test(verdict.textContent)
-            ? 'mediarow__unknown' : (/converts/.test(verdict.textContent) ? 'mediarow__warn' : 'mediarow__ok');
           const tick = document.createElement('span');
           tick.className = 'mediarow__art';
           tick.textContent = hasArt('episode', episode.relPath) ? '✓' : '—';
-          li.append(label, verdict, tick);
+          li.append(label, tick);
           list.append(li);
         }
         cell.append(list);
@@ -3094,7 +3118,7 @@ function renderMediaTable() {
       });
     }
   } else {
-    ['Title', 'Conversion', 'Artwork', 'Card image'].forEach(th);
+    ['Title', 'Artwork', 'Card image'].forEach(th);
 
     for (const movie of movieFiles) {
       if (query && !movie.name.toLowerCase().includes(query)) continue;
@@ -3123,7 +3147,7 @@ function renderMediaTable() {
       });
       setTd.append(set);
 
-      tr.append(name, conversionCell(describeMovieConversion(movieVerdict(movie, entries))), art, setTd);
+      tr.append(name, art, setTd);
       rows.append(tr);
     }
   }

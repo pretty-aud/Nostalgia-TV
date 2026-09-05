@@ -337,6 +337,38 @@ function locateLibrary(previousPath) {
   return { ok: false };
 }
 
+/**
+ * The last scan's sweep plan, so the sweep can be RESUMED.
+ *
+ * An ingest cancels the sweep — two ffmpegs against this drive is what
+ * neither should cause — and used to leave it cancelled until the next scan.
+ * That was fine while ingest was a button someone pressed. Now that it
+ * follows every scan, "the next scan restarts it" became "it never runs on
+ * any boot that found something new", which is exactly the boot where the
+ * library has the most art missing.
+ */
+let lastSweepPlan = null;
+
+/**
+ * Fill in missing artwork behind the scan, one file at a time.
+ *
+ * Fire-and-forget on purpose: the scan result must not wait on hundreds of
+ * frame grabs. Cancels any previous sweep so two never interleave,
+ * skip-existing makes it resumable, and it stands down whenever anything is
+ * playing — background art never competes for the disk with a viewer.
+ */
+function startArtworkSweep(shows, movies) {
+  if (shows || movies) lastSweepPlan = artwork.planFor({ shows: shows || [], movies: movies || [] });
+  if (!lastSweepPlan) return;
+  artwork.cancelSweep();
+  artwork.sweep(lastSweepPlan, {
+    // The VIEWER owns the disk: on a drive that has dropped off the bus under
+    // sustained reads, background frame-grabs while an episode streams are how
+    // the picture stutters and the drive dies.
+    shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive() || !mpvIdleActive,
+  }).catch(() => { /* art is best-effort; the library works without it */ });
+}
+
 async function scanLibrary(rootPath) {
   const exists = fs.existsSync(rootPath);
   if (!exists) return { ok: false, error: `Folder not found: ${rootPath}` };
@@ -357,21 +389,7 @@ async function scanLibrary(rootPath) {
     clip.mediaUrl = mediaUrlFor(clip.absPath);
   }
 
-  /**
-   * Fill in missing artwork behind the scan, one file at a time.
-   *
-   * Fire-and-forget on purpose: the scan result must not wait on hundreds of
-   * frame grabs. A rescan cancels the previous sweep so two never interleave,
-   * skip-existing makes it resumable, and it stands down whenever a conversion
-   * is running — background art never competes for the disk with a viewer.
-   */
-  artwork.cancelSweep();
-  artwork.sweep(artwork.planFor({ shows, movies }), {
-    // A conversion owns the disk, and so does the VIEWER: on a drive that has
-    // dropped off the bus under sustained reads, background frame-grabs while
-    // an episode streams are how the picture stutters and the drive dies.
-    shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive() || !mpvIdleActive,
-  }).catch(() => { /* art is best-effort; the library works without it */ });
+  startArtworkSweep(shows, movies);
 
   return {
     ok: true,
@@ -888,7 +906,6 @@ function registerIpc() {
       artwork.cancelSweep();
       return await ingest.run(Array.isArray(items) ? items : [], {
         artwork,
-        inspect: (absPath, options) => prepare.inspect(absPath, options),
         shouldPause: () => prepare.activeJobs().length > 0 || mediaStreamsActive() || !mpvIdleActive,
         onProgress: (progress) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
@@ -898,6 +915,10 @@ function registerIpc() {
       });
     } catch (error) {
       return { ok: false, error: String(error && error.message ? error.message : error) };
+    } finally {
+      // Hand the disk back. The ingest covered the NEW titles' art; everything
+      // else that is missing one is still the sweep's job, and it is resumable.
+      startArtworkSweep();
     }
   });
 
