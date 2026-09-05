@@ -66,7 +66,35 @@
      * Those branches only ever run against the real file.
      */
     loadState: async () => (window.__PREVIEW_STATE__
-      || { version: 1, rootPath: 'D:/TVandFilms', cursors: {}, queue: [], deck: [], history: [] }),
+      || {
+        version: 1,
+        rootPath: 'D:/TVandFilms',
+        cursors: {},
+        queue: [],
+        deck: [],
+        history: [],
+        /**
+         * Tagged on purpose. The genre column, the chips, and the filter
+         * menu all render from this — with an untagged fixture every design
+         * shot of the feature would be a picture of an empty column and a
+         * hidden dropdown, and nothing would fail to tell anyone why.
+         */
+        tags: {
+          shows: {
+            'scavengers-reign': ['Animation', 'Drama', 'Sci-Fi'],
+            'men-in-black': ['Action', 'Animation', 'Comedy'],
+            samuraix: ['Action', 'Anime', 'Animation', 'Drama'],
+            'night-raid-1931': ['Anime', 'Animation', 'Mystery', 'Supernatural'],
+            'the-office': ['Comedy'],
+          },
+          movies: {
+            'MOVIES/Blade Runner.mkv': ['Sci-Fi', 'Thriller'],
+            'MOVIES/Akira.mkv': ['Anime', 'Animation', 'Sci-Fi'],
+            'MOVIES/The Thing.mkv': ['Horror', 'Sci-Fi'],
+          },
+          custom: ['Isekai'],
+        },
+      }),
     // Counted so a test can assert what the REAL boot path did, rather than
     // what it looks like it should have done from reading the source.
     saveState: async () => { window.__tvCalls.saveState += 1; return { ok: true }; },

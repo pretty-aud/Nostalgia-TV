@@ -198,6 +198,14 @@ function createState(rootPath) {
      * hydrates with { ...createState(), ...saved }.
      */
     library: { shows: {}, movies: {}, seeded: false },
+    /**
+     * Genre tags, set by hand. Declared here for the same reason `library`
+     * is, and kept OUT of settings on purpose: settings describe how the
+     * channel behaves, and these describe the library itself. Shows are keyed
+     * by show.id and movies by relPath, matching every other per-title store.
+     * Never pruned against a scan — see src/shared/genres.js.
+     */
+    tags: { shows: {}, movies: {}, custom: [] },
     settings: { ...DEFAULT_SETTINGS },
   };
 }

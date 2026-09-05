@@ -193,6 +193,25 @@
       <h2 class="browse__title">Library</h2>
       <input class="browse__search" id="browseSearch" type="search"
              placeholder="Search shows and movies" aria-label="Search the library" />
+
+      <!-- Genre filter. Hidden until something in the library is tagged: a
+           control whose menu can only be empty is worse than no control. -->
+      <div class="genrefilter" id="genreFilter" hidden>
+        <button class="genrefilter__btn" id="btnGenreFilter" type="button"
+                aria-haspopup="listbox" aria-expanded="false"
+                aria-controls="genreMenu" aria-label="Filter by genre">
+          <span id="genreFilterLabel">All genres</span>
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 6.5l4 4 4-4" />
+          </svg>
+        </button>
+        <div class="genremenu" id="genreMenu" role="listbox" aria-multiselectable="true" hidden>
+          <div class="genremenu__list" id="genreMenuList"></div>
+          <button class="genremenu__clear" id="btnGenreClear" type="button">Clear</button>
+        </div>
+      </div>
+
       <span class="browse__count mono" id="browseCount"></span>
       <!-- Back to what was on screen, whatever that is. It used to say "Back to
            channel", which is a false statement half the time: open the gallery
@@ -724,6 +743,20 @@
      dropping a file you already have open, or browsing for one. The
      requirements are stated IN the window rather than left to be discovered
      by a rejection — an aspect ratio is not something anyone can guess. -->
+<!-- The genre editor, opened from a row in the library table.
+     A popover rather than a modal on purpose: tagging a library is a repeated
+     action down a column, and a full sheet that has to be dismissed between
+     every row turns twenty titles into forty extra clicks. It floats over the
+     table, the row underneath stays visible, and Escape or a click anywhere
+     else closes it. -->
+<div class="tagpop" id="tagPop" hidden role="dialog" aria-label="Genres">
+  <div class="tagpop__chips" id="tagPopChips"></div>
+  <input class="tagpop__input" id="tagPopInput" type="text" autocomplete="off"
+         spellcheck="false" placeholder="Search or create…" aria-label="Search or create a genre" />
+  <div class="tagpop__list" id="tagPopList" role="listbox" aria-label="Genres"></div>
+  <p class="tagpop__hint" id="tagPopHint"></p>
+</div>
+
 <div class="modal modal--narrow" id="artModal" hidden>
   <div class="modal__backdrop" id="artBackdrop"></div>
   <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="artTitle">

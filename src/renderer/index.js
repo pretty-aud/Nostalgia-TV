@@ -59,6 +59,10 @@ import { pickAudioTrackId, pickSubtitleTrackId, audioMenuFrom, subtitleMenuFrom 
 import { subStyleProperties } from '../shared/mpvSubStyle.js';
 import { cropSpecFor } from '../shared/mpvCrop.js';
 import { FONT_CHOICES, DEFAULT_FONTS, fontStackFor } from '../shared/fonts.js';
+import {
+  tagsFor, withTags, allTags, tagsInUse, matchesGenres,
+  withCustomTag, withoutTag, countTagged, cleanTag, keyFor, hasTag,
+} from '../shared/genres.js';
 
 // ---------------------------------------------------------------------------
 // module state
@@ -3016,6 +3020,285 @@ function artCell(present, label) {
   return td;
 }
 
+/* --- genre tags ----------------------------------------------------------- */
+
+/**
+ * One title's genres, as a cell you click to edit.
+ *
+ * The whole cell is the target, not a button beside the chips (Fitts) — and
+ * an untagged title still needs something to aim at, which is what the em
+ * dash is for. Chips are rendered by the same builder the popover uses, so
+ * the cell and the editor can never drift apart.
+ */
+function genreCell(kind, id, label) {
+  const td = document.createElement('td');
+  td.className = 'mediarow__genres';
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'genrecell';
+  button.setAttribute('aria-haspopup', 'dialog');
+  paintGenreCell(button, kind, id);
+
+  button.addEventListener('click', () => openTagPop(button, kind, id, label));
+  td.append(button);
+  return td;
+}
+
+/** Repaint a cell in place, so setting tags never re-renders the whole table. */
+function paintGenreCell(button, kind, id) {
+  button.textContent = '';
+  const tags = tagsFor(state, kind, id);
+  button.setAttribute('aria-label', tags.length
+    ? `Genres: ${tags.join(', ')}. Edit.`
+    : 'Add genres');
+  if (!tags.length) {
+    const empty = document.createElement('span');
+    empty.className = 'genrecell__empty';
+    empty.textContent = '—';
+    button.append(empty);
+    return;
+  }
+  for (const tag of tags) button.append(chipFor(tag));
+}
+
+/**
+ * A tag chip.
+ *
+ * Deliberately ONE look for every tag, with no per-genre colour.
+ *
+ * Notion and Airtable give each option its own hue, and it is genuinely good
+ * for scanning — but this app is three inks by design, it ships twelve themes
+ * including four light ones and one (02) whose whole identity is black hairs
+ * between panels, and a generated palette would have to survive all of them.
+ * The alternatives were a user-picked colour per tag, which is a colour
+ * picker nobody asked for, or an auto-assigned hue, which is arbitrary and
+ * clashes somewhere. So tags are told apart by their WORD, which is the thing
+ * that actually carries the meaning, and they all look alike because they all
+ * ARE alike (Law of Similarity). The signal colour stays reserved for what it
+ * already means here: this one is selected.
+ */
+function chipFor(tag) {
+  const chip = document.createElement('span');
+  chip.className = 'chip';
+  chip.textContent = tag;
+  return chip;
+}
+
+/* --- the tag picker ------------------------------------------------------- */
+
+/** What the popover is editing, or null when it is closed. */
+let tagPopTarget = null;
+/** The row button it was opened from, repainted in place when tags change. */
+let tagPopAnchor = null;
+/** Index of the highlighted row, for arrow keys and Enter. */
+let tagPopActive = 0;
+
+function tagPopOpen() {
+  return !el('tagPop').hidden;
+}
+
+/**
+ * Open under the cell that was clicked, flipping up when there is no room.
+ *
+ * Fixed positioning rather than absolute: the table scrolls inside
+ * .modal__body, and an absolutely positioned popover inside a scroll
+ * container is clipped by it — the classic version of this bug, where the
+ * menu simply cannot be seen for rows near the bottom.
+ */
+function openTagPop(anchor, kind, id, label) {
+  tagPopTarget = { kind, id, label };
+  tagPopAnchor = anchor;
+  tagPopActive = 0;
+
+  const pop = el('tagPop');
+  pop.hidden = false;
+  el('tagPopInput').value = '';
+  renderTagPop();
+
+  const box = anchor.getBoundingClientRect();
+  const height = pop.offsetHeight;
+  const below = window.innerHeight - box.bottom - 12;
+  pop.style.left = `${Math.max(12, Math.min(box.left, window.innerWidth - pop.offsetWidth - 12))}px`;
+  pop.style.top = below >= height
+    ? `${box.bottom + 6}px`
+    : `${Math.max(12, box.top - height - 6)}px`;
+
+  el('tagPopInput').focus();
+}
+
+function closeTagPop() {
+  el('tagPop').hidden = true;
+  tagPopTarget = null;
+  tagPopAnchor = null;
+}
+
+/** Write a title's tags, repaint everything that shows them, and save. */
+function setTagsFor(kind, id, list) {
+  state.tags = withTags(state, kind, id, list);
+  persist();
+  if (tagPopAnchor) paintGenreCell(tagPopAnchor, kind, id);
+  renderGenreFilter();
+  if (browseOpen()) renderBrowse();
+}
+
+function renderTagPop() {
+  if (!tagPopTarget) return;
+  const { kind, id } = tagPopTarget;
+  const current = tagsFor(state, kind, id);
+  const typed = cleanTag(el('tagPopInput').value);
+
+  // --- the chips already on this title, each removable
+  const chips = el('tagPopChips');
+  chips.textContent = '';
+  if (!current.length) {
+    const none = document.createElement('span');
+    none.className = 'tagpop__none';
+    none.textContent = 'No genres yet';
+    chips.append(none);
+  }
+  for (const tag of current) {
+    const chip = chipFor(tag);
+    chip.classList.add('chip--removable');
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'chip__x';
+    x.setAttribute('aria-label', `Remove ${tag}`);
+    x.textContent = '✕';
+    x.addEventListener('click', (event) => {
+      event.stopPropagation();
+      setTagsFor(kind, id, current.filter((entry) => keyFor(entry) !== keyFor(tag)));
+      renderTagPop();
+    });
+    chip.append(x);
+    chips.append(chip);
+  }
+
+  // --- the options, narrowed by whatever has been typed
+  const list = el('tagPopList');
+  list.textContent = '';
+  const matches = allTags(state).filter((tag) => !typed
+    || tag.toLowerCase().includes(typed.toLowerCase()));
+
+  const rows = [];
+  for (const tag of matches) {
+    const on = hasTag(current, tag);
+    const row = document.createElement('div');
+    row.className = 'tagopt';
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', String(on));
+    row.dataset.on = String(on);
+
+    const name = document.createElement('button');
+    name.type = 'button';
+    name.className = 'tagopt__pick';
+    name.textContent = tag;
+    name.addEventListener('click', () => {
+      setTagsFor(kind, id, on
+        ? current.filter((entry) => keyFor(entry) !== keyFor(tag))
+        : [...current, tag]);
+      renderTagPop();
+    });
+
+    /**
+     * Deleting a genre is a library-wide act, not a row-level one, so it
+     * says how many titles it will strip it from before doing it. window
+     * .confirm is the house pattern for this (three other sites use it) and
+     * a bare `confirm` would fail the free-identifier suite.
+     */
+    const drop = document.createElement('button');
+    drop.type = 'button';
+    drop.className = 'tagopt__drop';
+    drop.setAttribute('aria-label', `Delete the ${tag} genre everywhere`);
+    drop.textContent = '✕';
+    drop.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const used = countTagged(state, shows, movieFiles, tag);
+      const warning = used
+        ? `Delete the "${tag}" genre? It will be removed from ${used} title${used === 1 ? '' : 's'}.`
+        : `Delete the "${tag}" genre?`;
+      if (!window.confirm(warning)) return;
+      state.tags = withoutTag(state, tag);
+      persist();
+      if (tagPopAnchor) paintGenreCell(tagPopAnchor, kind, id);
+      renderGenreFilter();
+      renderMediaTable();
+      if (browseOpen()) renderBrowse();
+      renderTagPop();
+    });
+
+    row.append(name, drop);
+    rows.push(row);
+    list.append(row);
+  }
+
+  /**
+   * The create row, last, and only when what was typed is genuinely new.
+   * hasTag folds case and punctuation, so typing "sci fi" over an existing
+   * "Sci-Fi" offers to select it rather than to make a second one.
+   */
+  if (typed && !hasTag(allTags(state), typed)) {
+    const row = document.createElement('div');
+    row.className = 'tagopt tagopt--create';
+    const make = document.createElement('button');
+    make.type = 'button';
+    make.className = 'tagopt__pick';
+    make.textContent = `Create "${typed}"`;
+    make.addEventListener('click', () => {
+      state.tags = withCustomTag(state, typed);
+      setTagsFor(kind, id, [...current, typed]);
+      el('tagPopInput').value = '';
+      renderTagPop();
+      el('tagPopInput').focus();
+    });
+    row.append(make);
+    rows.push(row);
+    list.append(row);
+  }
+
+  const hint = el('tagPopHint');
+  if (!rows.length) {
+    hint.textContent = 'Nothing matches. Type a new name to create it.';
+    hint.hidden = false;
+  } else {
+    hint.hidden = true;
+  }
+
+  tagPopActive = Math.max(0, Math.min(tagPopActive, rows.length - 1));
+  rows.forEach((row, index) => {
+    row.dataset.active = String(index === tagPopActive);
+  });
+}
+
+/** Enter picks, arrows move, Escape closes, Backspace on empty removes. */
+function tagPopKeydown(event) {
+  const rows = [...el('tagPopList').querySelectorAll('.tagopt')];
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (!rows.length) return;
+    tagPopActive = (tagPopActive + (event.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length;
+    renderTagPop();
+    const row = el('tagPopList').querySelectorAll('.tagopt')[tagPopActive];
+    if (row) row.scrollIntoView({ block: 'nearest' });
+    return;
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const row = rows[tagPopActive];
+    const pick = row && row.querySelector('.tagopt__pick');
+    if (pick) pick.click();
+    return;
+  }
+  if (event.key === 'Backspace' && !el('tagPopInput').value && tagPopTarget) {
+    // The standard gesture: an empty field plus Backspace peels the last chip.
+    const current = tagsFor(state, tagPopTarget.kind, tagPopTarget.id);
+    if (!current.length) return;
+    event.preventDefault();
+    setTagsFor(tagPopTarget.kind, tagPopTarget.id, current.slice(0, -1));
+    renderTagPop();
+  }
+}
+
 function renderMediaTable() {
   const head = el('mediaHead');
   const rows = el('mediaRows');
@@ -3049,8 +3332,19 @@ function renderMediaTable() {
   const query = el('mediaSearch').value.trim().toLowerCase();
   let shown = 0;
 
+  /**
+   * The header list is the single source of truth for the column count.
+   *
+   * The expanded episode row spans the whole table, and its colSpan used to
+   * be a hand-written number — which is a value that must be edited every
+   * time a column is added and gives no sign when it was not. Adding the
+   * Card image column already broke it once.
+   */
+  let columnCount = 0;
+  const header = (labels) => { columnCount = labels.length; labels.forEach(th); };
+
   if (mediaKind === 'show') {
-    ['Title', 'Episodes', 'Artwork', 'Card image', 'Details'].forEach(th);
+    header(['Title', 'Episodes', 'Genres', 'Artwork', 'Card image', 'Details']);
 
     for (const show of shows) {
       if (query && !show.name.toLowerCase().includes(query)) continue;
@@ -3067,6 +3361,8 @@ function renderMediaTable() {
       const eps = document.createElement('td');
       eps.className = 'mediarow__meta';
       eps.textContent = String(show.episodes.length);
+
+      const genres = genreCell('show', show.id, show.name);
 
       const art = artCell(hasArt('show', show.id),
         `${hasArt('show', show.id) ? '✓ card' : '— card'} · ${artCount}/${show.episodes.length} eps`);
@@ -3093,7 +3389,7 @@ function renderMediaTable() {
       toggle.textContent = 'Episodes';
       detailTd.append(toggle);
 
-      tr.append(name, eps, art, setTd, detailTd);
+      tr.append(name, eps, genres, art, setTd, detailTd);
       rows.append(tr);
 
       /**
@@ -3112,7 +3408,7 @@ function renderMediaTable() {
         detailRow = document.createElement('tr');
         detailRow.className = 'mediarow--detail';
         const cell = document.createElement('td');
-        cell.colSpan = 5;
+        cell.colSpan = columnCount;
         const list = document.createElement('ul');
         list.className = 'mediaeps';
         for (const episode of show.episodes) {
@@ -3133,7 +3429,7 @@ function renderMediaTable() {
       });
     }
   } else {
-    ['Title', 'Artwork', 'Card image'].forEach(th);
+    header(['Title', 'Genres', 'Artwork', 'Card image']);
 
     for (const movie of movieFiles) {
       if (query && !movie.name.toLowerCase().includes(query)) continue;
@@ -3143,6 +3439,8 @@ function renderMediaTable() {
       const name = document.createElement('td');
       name.className = 'mediarow__name';
       name.textContent = movie.name;
+
+      const genres = genreCell('movie', movie.relPath, movie.name);
 
       const art = artCell(hasArt('movie', movie.relPath));
 
@@ -3156,7 +3454,7 @@ function renderMediaTable() {
       });
       setTd.append(set);
 
-      tr.append(name, art, setTd);
+      tr.append(name, genres, art, setTd);
       rows.append(tr);
     }
   }
@@ -3755,6 +4053,40 @@ function wireEvents() {
     if (!button) return;
     mediaKind = button.dataset.kind;
     renderMediaTable();
+  });
+
+  // --- genre tags ----------------------------------------------------------
+
+  el('tagPopInput').addEventListener('input', () => { tagPopActive = 0; renderTagPop(); });
+  el('tagPopInput').addEventListener('keydown', tagPopKeydown);
+
+  el('btnGenreFilter').addEventListener('click', () => {
+    if (genreMenuOpen()) closeGenreMenu(); else openGenreMenu();
+  });
+  el('btnGenreClear').addEventListener('click', () => {
+    browseGenres = [];
+    renderGenreFilter();
+    renderBrowse();
+  });
+
+  /**
+   * One outside-click listener for both popovers.
+   *
+   * Captured on the document, because the tag popover is opened from inside
+   * a scrolling modal and the filter menu from the browse header — there is
+   * no common ancestor to hang this on. Each guard checks containment rather
+   * than target identity, so clicking a chip, a count or an SVG inside the
+   * control does not count as clicking outside it.
+   */
+  document.addEventListener('mousedown', (event) => {
+    if (tagPopOpen()
+      && !el('tagPop').contains(event.target)
+      && !(tagPopAnchor && tagPopAnchor.contains(event.target))) {
+      closeTagPop();
+    }
+    if (genreMenuOpen() && !el('genreFilter').contains(event.target)) {
+      closeGenreMenu();
+    }
   });
 
   // --- the card image picker -----------------------------------------------
@@ -4549,6 +4881,23 @@ function onGlobalKey(event) {
   // peels one layer at a time — the show card, then the grid — and nothing else
   // gets through: space must not pause an episode nobody can see, and N must
   // not advance a channel that is not the thing on screen.
+  /**
+   * The two genre popovers are checked FIRST, above even the image picker.
+   *
+   * Both float over a surface that has its own Escape handler — the tag
+   * popover over the library table, the filter menu over the browse page —
+   * so without this, Escape would close the thing UNDERNEATH and leave a
+   * menu hanging over nothing.
+   */
+  if (tagPopOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeTagPop(); }
+    return;
+  }
+  if (genreMenuOpen()) {
+    if (event.key === 'Escape') { event.preventDefault(); closeGenreMenu(); }
+    return;
+  }
+
   // Checked before everything: the picker opens over the show-settings sheet
   // AND over the library table, so it is always the layer in front.
   if (artPickOpen()) {
@@ -4732,6 +5081,8 @@ boot();
 let browseItem = null;      // { kind: 'show'|'movie', show, episodeIndex, movie }
 let browseDetailShow = null;
 let browseQuery = '';
+/** Genres ticked in the filter menu. Empty means no genre filter at all. */
+let browseGenres = [];
 let browseSavedScroll = 0;
 
 function browsing() {
@@ -4770,7 +5121,13 @@ function openBrowse() {
 
   browseQuery = '';
   el('browseSearch').value = '';
+  // The genre filter resets with the search box, for the same reason: a
+  // narrowing you set last time and cannot see is a library that looks like
+  // it has lost things.
+  browseGenres = [];
+  closeGenreMenu();
   el('browse').hidden = false;
+  renderGenreFilter();
   renderBrowse();
   el('browseBody').scrollTop = browseSavedScroll;
   el('browseSearch').focus();
@@ -4823,28 +5180,36 @@ function matchesQuery(name) {
   return String(name).toLowerCase().includes(browseQuery);
 }
 
+/** Both filters at once — the search box AND the genre menu. */
+function matchesBrowse(name, kind, id) {
+  return matchesQuery(name) && matchesGenres(tagsFor(state, kind, id), browseGenres);
+}
+
 function renderBrowse() {
   const body = el('browseBody');
   body.textContent = '';
 
   /**
-   * No rail while searching.
+   * No rail while filtering, by search OR by genre.
    *
-   * A search is a question about the whole library, and the answer has to be
+   * A filter is a question about the whole library, and the answer has to be
    * one list read straight down. Leaving the rail up gives the same title two
    * places to appear, and "carry on where you were" is not an answer to
-   * "where is Akira" — it is a second, louder thing sitting in front of it.
-   * Typing turns the page into results and nothing else.
+   * "where is Akira" or to "show me horror" — it is a second, louder thing
+   * sitting in front of it. Narrowing turns the page into results and nothing
+   * else.
    *
-   * Not computed at all while a query is live, rather than computed and
+   * Not computed at all while either filter is live, rather than computed and
    * filtered away: this runs on every keystroke.
    */
-  const rows = browseQuery ? [] : continueWatching(shows, movieFiles, state, 12);
-  const showList = shows.filter((s) => matchesQuery(s.name));
-  const movieList = movieFiles.filter((m) => matchesQuery(m.name));
+  const filtering = Boolean(browseQuery) || browseGenres.length > 0;
+  const rows = filtering ? [] : continueWatching(shows, movieFiles, state, 12);
+  const showList = shows.filter((s) => matchesBrowse(s.name, 'show', s.id));
+  const movieList = movieFiles.filter((m) => matchesBrowse(m.name, 'movie', m.relPath));
 
-  el('browseCount').textContent = browseQuery
-    ? `${showList.length + movieList.length} match${showList.length + movieList.length === 1 ? '' : 'es'}`
+  const found = showList.length + movieList.length;
+  el('browseCount').textContent = filtering
+    ? `${found} match${found === 1 ? '' : 'es'}`
     : `${shows.length} shows · ${movieFiles.length} movies`;
 
   if (rows.length) {
@@ -4859,9 +5224,99 @@ function renderBrowse() {
   if (!showList.length && !movieList.length) {
     const empty = document.createElement('p');
     empty.className = 'browse__empty';
-    empty.textContent = browseQuery ? `Nothing matching "${browseQuery}".` : 'Nothing in the library yet.';
+    empty.textContent = emptyBrowseCopy();
     body.append(empty);
   }
+}
+
+/**
+ * What to say when nothing matched.
+ *
+ * Four cases, because a sentence naming only the search term is a lie when a
+ * genre is also on — someone who has forgotten they left "Horror" ticked
+ * would read "Nothing matching Akira" and conclude the film is missing.
+ */
+function emptyBrowseCopy() {
+  const genres = browseGenres.join(', ');
+  if (browseQuery && browseGenres.length) return `Nothing matching "${browseQuery}" in ${genres}.`;
+  if (browseQuery) return `Nothing matching "${browseQuery}".`;
+  if (browseGenres.length) return `Nothing tagged ${genres}.`;
+  return 'Nothing in the library yet.';
+}
+
+/* --- the genre filter ----------------------------------------------------- */
+
+/**
+ * Build the filter menu from the tags something in the library actually
+ * carries, per the rule that a menu whose options mostly return an empty page
+ * is worse than no menu. Hides the whole control when nothing is tagged yet,
+ * which is every library before this feature is used.
+ */
+function renderGenreFilter() {
+  const used = tagsInUse(state, shows, movieFiles);
+  const wrap = el('genreFilter');
+  wrap.hidden = used.length === 0;
+  if (used.length === 0) {
+    // Nothing left to filter BY, so a stale selection would silently hide
+    // the whole library behind a control that is no longer on screen.
+    if (browseGenres.length) browseGenres = [];
+    closeGenreMenu();
+    return;
+  }
+
+  // A selection can outlive the tag it names — the last title carrying it was
+  // untagged or deleted. Drop those rather than filtering on a ghost.
+  const live = new Set(used.map((entry) => keyFor(entry.name)));
+  browseGenres = browseGenres.filter((tag) => live.has(keyFor(tag)));
+
+  el('genreFilterLabel').textContent = browseGenres.length === 0
+    ? 'All genres'
+    : (browseGenres.length === 1 ? browseGenres[0] : `${browseGenres.length} genres`);
+  el('genreFilter').dataset.on = String(browseGenres.length > 0);
+
+  const list = el('genreMenuList');
+  list.textContent = '';
+  for (const entry of used) {
+    const on = hasTag(browseGenres, entry.name);
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'genreopt';
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', String(on));
+    row.dataset.on = String(on);
+
+    const name = document.createElement('span');
+    name.textContent = entry.name;
+    const count = document.createElement('span');
+    count.className = 'genreopt__count mono';
+    count.textContent = String(entry.count);
+    row.append(name, count);
+
+    row.addEventListener('click', () => {
+      browseGenres = on
+        ? browseGenres.filter((tag) => keyFor(tag) !== keyFor(entry.name))
+        : [...browseGenres, entry.name];
+      renderGenreFilter();
+      renderBrowse();
+    });
+    list.append(row);
+  }
+
+  el('btnGenreClear').hidden = browseGenres.length === 0;
+}
+
+function genreMenuOpen() {
+  return !el('genreMenu').hidden;
+}
+
+function openGenreMenu() {
+  el('genreMenu').hidden = false;
+  el('btnGenreFilter').setAttribute('aria-expanded', 'true');
+}
+
+function closeGenreMenu() {
+  el('genreMenu').hidden = true;
+  el('btnGenreFilter').setAttribute('aria-expanded', 'false');
 }
 
 /**

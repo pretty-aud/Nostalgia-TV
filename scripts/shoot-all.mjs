@@ -20,6 +20,15 @@ const SHOTS = [
   'transport-volume-full',
   'transport-volume-mid',
   'transport-volume-muted',
+  'sidebar-footer',
+  'browse-rail',
+  'browse-search',
+  'art-picker',
+  'art-picker-drag',
+  'genre-table',
+  'genre-pop',
+  'genre-filter',
+  'genre-filtered',
 ];
 
 let failed = 0;

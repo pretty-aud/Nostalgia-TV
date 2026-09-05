@@ -191,21 +191,27 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
    it, rather than a full-width block hard against the panel edge. */
 .sidebar__scroll,
 .modal__body,
-.trackmenu {
+.trackmenu,
+.tagpop__list,
+.genremenu__list {
   scrollbar-width: thin;                              /* Firefox and the standard */
   scrollbar-color: var(--ink-mute) transparent;
 }
 
 .sidebar__scroll::-webkit-scrollbar,
 .modal__body::-webkit-scrollbar,
-.trackmenu::-webkit-scrollbar {
+.trackmenu::-webkit-scrollbar,
+.tagpop__list::-webkit-scrollbar,
+.genremenu__list::-webkit-scrollbar {
   width: 11px;
   height: 11px;
 }
 
 .sidebar__scroll::-webkit-scrollbar-track,
 .modal__body::-webkit-scrollbar-track,
-.trackmenu::-webkit-scrollbar-track {
+.trackmenu::-webkit-scrollbar-track,
+.tagpop__list::-webkit-scrollbar-track,
+.genremenu__list::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -215,7 +221,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
    all that is wanted here — only the colour is being set. */
 .sidebar__scroll::-webkit-scrollbar-thumb,
 .modal__body::-webkit-scrollbar-thumb,
-.trackmenu::-webkit-scrollbar-thumb {
+.trackmenu::-webkit-scrollbar-thumb,
+.tagpop__list::-webkit-scrollbar-thumb,
+.genremenu__list::-webkit-scrollbar-thumb {
   /* --ink-mute, not --ink-faint: the faint tint vanished on a light panel and
      was barely there on a dark one, and a scrollbar you cannot find is not a
      scrollbar. */
@@ -228,14 +236,18 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 .sidebar__scroll::-webkit-scrollbar-thumb:hover,
 .modal__body::-webkit-scrollbar-thumb:hover,
-.trackmenu::-webkit-scrollbar-thumb:hover {
+.trackmenu::-webkit-scrollbar-thumb:hover,
+.tagpop__list::-webkit-scrollbar-thumb:hover,
+.genremenu__list::-webkit-scrollbar-thumb:hover {
   background-color: var(--ink);
 }
 
 /* The little square where two bars meet, which otherwise stays default grey. */
 .sidebar__scroll::-webkit-scrollbar-corner,
 .modal__body::-webkit-scrollbar-corner,
-.trackmenu::-webkit-scrollbar-corner {
+.trackmenu::-webkit-scrollbar-corner,
+.tagpop__list::-webkit-scrollbar-corner,
+.genremenu__list::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -1186,6 +1198,219 @@ input[type="range"]::-webkit-slider-thumb {
   line-height: 1.5;
   color: #ff8f6b;
 }
+
+/* ── genre tags ───────────────────────────────────────────────────────────
+   ONE look for every tag. Notion and Airtable give each option its own hue
+   and it genuinely helps them scan — but this app is three inks by design,
+   ships twelve themes including four light ones and one whose whole identity
+   is black hairlines, and a generated palette would have to survive all of
+   them. Tags are told apart by their WORD, which is what carries the meaning;
+   they look alike because they ARE alike (Law of Similarity), and the signal
+   colour stays reserved for what it already means here: this one is on. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.5);
+  padding: 2px calc(var(--u) * 0.875);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: var(--lift);
+  color: var(--ink-mute);
+  font-size: var(--t-micro);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.chip--removable { padding-right: calc(var(--u) * 0.5); }
+.chip__x {
+  border: 0;
+  padding: 0 2px;
+  background: none;
+  color: var(--ink-faint);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--fast);
+}
+.chip__x:hover { color: var(--ink); }
+.chip__x:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+
+/* The whole cell is the target, not a button beside the chips (Fitts), and
+   an untagged row still needs something to aim at — that is the em dash. */
+.mediarow__genres { max-width: 260px; }
+.genrecell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--u) * 0.5);
+  width: 100%;
+  padding: calc(var(--u) * 0.75);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--fast), background var(--fast);
+}
+.genrecell:hover { border-color: var(--hair); background: var(--lift); }
+.genrecell:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.genrecell__empty { color: var(--ink-faint); font-size: var(--t-meta); }
+
+/* FIXED, not absolute: the table scrolls inside .modal__body, and an
+   absolutely positioned popover inside a scroll container is clipped by it —
+   which is the version of this bug where rows near the bottom open a menu
+   nobody can see. Above the sheet it belongs to, hence 95 over 90. */
+.tagpop {
+  position: fixed;
+  z-index: 95;
+  width: 260px;
+  padding: calc(var(--u) * 1.25);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  background: var(--paper-high);
+  box-shadow: var(--e-3), var(--rim);
+  animation: modal-in var(--fast) both;
+}
+.tagpop__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--u) * 0.5);
+  margin-bottom: var(--u);
+}
+.tagpop__none { color: var(--ink-faint); font-size: var(--t-micro); }
+.tagpop__input {
+  width: 100%;
+  padding: calc(var(--u) * 0.75) var(--u);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-meta);
+}
+.tagpop__input::placeholder { color: var(--ink-faint); }
+.tagpop__input:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.tagpop__list {
+  max-height: 232px;
+  overflow-y: auto;
+  margin-top: var(--u);
+}
+.tagpop__hint {
+  margin: var(--u) 0 0;
+  color: var(--ink-faint);
+  font-size: var(--t-micro);
+  line-height: 1.5;
+}
+
+.tagopt {
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-sm);
+}
+/* Keyboard highlight and mouse hover are the same look on purpose: two
+   different "this one" marks on screen at once is two cursors. */
+.tagopt:hover,
+.tagopt[data-active="true"] { background: var(--lift); }
+.tagopt__pick {
+  flex: 1 1 auto;
+  padding: calc(var(--u) * 0.75) var(--u);
+  border: 0;
+  background: none;
+  color: var(--ink-mute);
+  font: inherit;
+  font-size: var(--t-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.tagopt:hover .tagopt__pick,
+.tagopt[data-active="true"] .tagopt__pick { color: var(--ink); }
+/* Selected is marked by a bar AND the ink, never by colour alone. */
+.tagopt[data-on="true"] .tagopt__pick { color: var(--ink); box-shadow: inset 2px 0 0 var(--signal); }
+.tagopt--create .tagopt__pick { color: var(--signal); }
+.tagopt__drop {
+  flex: 0 0 auto;
+  padding: 0 var(--u);
+  border: 0;
+  background: none;
+  color: transparent;           /* revealed on hover: destructive, not decorative */
+  font-size: 9px;
+  cursor: pointer;
+  transition: color var(--fast);
+}
+.tagopt:hover .tagopt__drop { color: var(--ink-faint); }
+.tagopt__drop:hover { color: #ff8f6b; }
+.tagopt__drop:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; color: var(--ink-faint); }
+
+/* ── the genre filter, beside the library search ──────────────────────── */
+.genrefilter { position: relative; flex: 0 0 auto; }
+.genrefilter__btn {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.75);
+  padding: calc(var(--u) * 0.875) calc(var(--u) * 1.25);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-mute);
+  font: inherit;
+  font-size: var(--t-meta);
+  cursor: pointer;
+  transition: color var(--fast), border-color var(--fast);
+}
+.genrefilter__btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+.genrefilter__btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+/* The one place the signal is spent here: a filter is ON and the page you are
+   looking at is not the whole library (Von Restorff). */
+.genrefilter[data-on="true"] .genrefilter__btn { color: var(--signal); border-color: var(--signal-soft); }
+
+.genremenu {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 220px;
+  padding: calc(var(--u) * 0.75);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  background: var(--paper-high);
+  box-shadow: var(--e-3), var(--rim);
+  animation: modal-in var(--fast) both;
+}
+.genremenu__list { max-height: 300px; overflow-y: auto; }
+.genreopt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--u);
+  width: 100%;
+  padding: calc(var(--u) * 0.75) var(--u);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-mute);
+  font: inherit;
+  font-size: var(--t-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.genreopt:hover { background: var(--lift); color: var(--ink); }
+.genreopt:focus-visible { outline: 1px solid var(--signal); outline-offset: -1px; }
+.genreopt[data-on="true"] { color: var(--ink); box-shadow: inset 2px 0 0 var(--signal); }
+.genreopt__count { color: var(--ink-faint); font-size: var(--t-micro); }
+.genremenu__clear {
+  width: 100%;
+  margin-top: calc(var(--u) * 0.75);
+  padding: calc(var(--u) * 0.75);
+  border: 0;
+  border-top: 1px solid var(--hair-soft);
+  border-radius: 0;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: var(--t-micro);
+  cursor: pointer;
+  transition: color var(--fast);
+}
+.genremenu__clear:hover { color: var(--ink); }
+.genremenu__clear:focus-visible { outline: 1px solid var(--signal); outline-offset: -1px; }
 
 /* ── play order ───────────────────────────────────────────────────────────
    A wider sheet than Settings, because a row here carries a title plus three
