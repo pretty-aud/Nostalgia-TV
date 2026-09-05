@@ -2582,12 +2582,188 @@ input[type="range"]::-webkit-slider-thumb {
   padding: calc(var(--u) * 3) calc(var(--u) * 5) calc(var(--u) * 8);
 }
 
-.browsesec { margin-bottom: calc(var(--u) * 5); }
+.browsesec { margin-bottom: calc(var(--u) * 6); }
+.browsesec:last-child { margin-bottom: 0; }
 .browsesec__head {
   display: flex;
   align-items: baseline;
   gap: calc(var(--u) * 1.5);
-  margin-bottom: calc(var(--u) * 2);
+  /* Closer to its tiles than to the section above: proximity is what makes a
+     heading belong to the row under it rather than float between two. */
+  margin-bottom: calc(var(--u) * 1.75);
+}
+
+/* ── the resume rail ──────────────────────────────────────────────────────
+
+   Full-bleed, and deliberately the ONLY thing on this page that is. The page
+   had three identical grids and therefore no primary; the one row that
+   answers "what was I watching" now differs in every dimension that reads at
+   a glance — size, count, axis, and the fact that it runs off both edges.
+
+   The negative margin cancels .browse__body's padding exactly. Written from
+   the same token, so the two cannot drift apart. */
+.browsesec--rail {
+  position: relative;
+  margin-left: calc(var(--u) * -5);
+  margin-right: calc(var(--u) * -5);
+}
+.browsesec--rail .browsesec__head { padding: 0 calc(var(--u) * 5); }
+/* The head is inset with the page; the strip beneath it is not. */
+.browsesec--rail .rail { scroll-padding-inline: 0; }
+
+.rail {
+  display: flex;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  /* Snapping aligns a tile to the SCROLLPORT edge, which is the window edge
+     here — so without this the snap pulled the row flush against the frame and
+     ate the page margin, every time, undoing whatever scrollLeft had just been
+     set to. Measured: the position was landing 40px out, exactly the padding.
+     scroll-padding tells the snap where the content actually starts. */
+  scroll-padding-inline: calc(var(--u) * 5);
+  /* The scrollbar is noise under a row that has arrows and drags. */
+  scrollbar-width: none;
+  /* Tiles are sized against THIS box, not the window: the page's own vertical
+     scrollbar makes 100vw wider than the rail, and the third tile spilled off
+     the right edge by exactly that much. */
+  container-type: inline-size;
+}
+.rail::-webkit-scrollbar { display: none; }
+
+/* No gaps and no padding. The row is a strip of picture running off both
+   edges of the window — the moment a margin or a gutter appears, it reads as
+   three cards on a page rather than a continuous band, which is the whole
+   difference between this and the grid below. */
+.rail__track {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+/* Exactly a third of the rail, so three fill it edge to edge with nothing
+   sliced. cqw rather than vw: the page's own scrollbar makes the window wider
+   than this box, and that difference spilled the third card off the right. */
+.rail__track > .railcard {
+  flex: 0 0 calc(100cqw / 3);
+  scroll-snap-align: start;
+}
+
+/* ── the rail card ────────────────────────────────────────────────────────
+   The picture IS the card. Title over the lower third, episode code under it,
+   progress along the bottom edge, and nothing else — this row exists to
+   resume one thing, and every caption is a line to read first. */
+.railcard {
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+}
+.railcard__art {
+  aspect-ratio: 16 / 9;
+  border-radius: 0;        /* flush neighbours: a radius would cut white notches between them */
+  border: 0;
+}
+/* A hairline between neighbours, so a run of dark frames does not read as one
+   wide image. Inset rather than a border, which would add width and break the
+   exact thirds. */
+.railcard + .railcard { box-shadow: inset 1px 0 0 var(--hair-soft); }
+
+.railcard__scrim {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 62%;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.55) 38%, transparent 100%);
+  pointer-events: none;
+}
+.railcard__text {
+  position: absolute;
+  left: calc(var(--u) * 2.5);
+  right: calc(var(--u) * 2.5);
+  bottom: calc(var(--u) * 2.25);
+  pointer-events: none;
+}
+.railcard__title {
+  font-size: var(--t-sub);
+  font-weight: 600;
+  line-height: var(--lh-name);
+  letter-spacing: var(--tr-tight);
+  color: #fff;                       /* over a photograph, not over the theme's paper */
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.railcard__code {
+  margin-top: 2px;
+  font-size: var(--t-micro);
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.6);
+}
+.railcard:hover .railcard__art img,
+.railcard:focus-visible .railcard__art img { transform: scale(1.03); }
+.railcard__art img { transition: transform var(--med) ease-out; }
+.railcard:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+
+/* ── page dots ──────────────────────────────────────────────────────────── */
+.raildots {
+  display: flex;
+  justify-content: center;
+  gap: var(--u);
+  padding-top: calc(var(--u) * 1.75);
+}
+.raildot {
+  width: 22px;
+  height: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--hair);
+  cursor: pointer;
+  transition: background var(--fast), width var(--fast);
+}
+.raildot[data-on="true"] { background: var(--signal); width: 34px; }
+.raildot:hover { background: var(--ink-mute); }
+
+@media (prefers-reduced-motion: reduce) {
+  .railcard__art img { transition: none; }
+  .raildot { transition: none; }
+}
+
+/* Full height at the very edge. Fitts: the cursor is already travelling to
+   the edge to scroll, and a floating circle over artwork is a smaller target
+   in a worse place. The scrim is what keeps the glyph legible over a bright
+   frame without putting a box around it. */
+.rail__arrow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--u) * 6);
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--fast);
+}
+.rail__arrow--prev {
+  left: 0;
+  background: linear-gradient(to right, var(--paper) 35%, transparent);
+}
+.rail__arrow--next {
+  right: 0;
+  background: linear-gradient(to left, var(--paper) 35%, transparent);
+}
+/* Shown on hover, and ALWAYS on focus — a control that only exists under a
+   pointer is a control a keyboard cannot find. */
+.browsesec--rail:hover .rail__arrow,
+.rail__arrow:focus-visible { opacity: 1; }
+.rail__arrow:hover { color: var(--signal); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rail { scroll-behavior: auto; }
 }
 .browsesec__title {
   font-size: var(--t-title);
@@ -2600,8 +2776,11 @@ input[type="range"]::-webkit-slider-thumb {
    holding three titles stretches them across the whole window like a banner. */
 .tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: calc(var(--u) * 2.5) calc(var(--u) * 2);
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  /* More air between ROWS than between columns. A tile's own caption sits
+     under its art, so an equal gap both ways lets the caption read as if it
+     belonged to the tile beneath it. */
+  gap: calc(var(--u) * 4) calc(var(--u) * 2);
   list-style: none;
 }
 

@@ -4658,7 +4658,7 @@ function renderBrowse() {
     : `${shows.length} shows · ${movieFiles.length} movies`;
 
   if (rows.length) {
-    body.append(section('Continue watching', rows.length, rows.map(continueTile)));
+    body.append(carousel('Continue watching', rows.map(continueTile)));
   }
   if (showList.length) {
     body.append(section('TV Shows', showList.length, showList.map(showTile)));
@@ -4672,6 +4672,202 @@ function renderBrowse() {
     empty.textContent = browseQuery ? `Nothing matching "${browseQuery}".` : 'Nothing in the library yet.';
     body.append(empty);
   }
+}
+
+/**
+ * The resume row, as a rail.
+ *
+ * This page had three identical five-up grids, which meant it had no primary
+ * — nothing stood out, so everything read as equally important and the page
+ * felt like a file listing. Resuming something is the one thing this screen
+ * is for, so that row is now physically different: bigger tiles, three to a
+ * view, running edge to edge past the page margin, and horizontal.
+ *
+ * A REAL SCROLLER, not a transform. Wheel, trackpad, touch, drag and the
+ * keyboard all work because the browser is doing the scrolling; the arrows
+ * just call scrollBy. Reinventing that with transforms is how a carousel ends
+ * up feeling wrong in ways nobody can name.
+ *
+ * The loop is done by wrapping the scroll POSITION, not by animating: the
+ * tiles are laid out three times and the scroller silently jumps a set
+ * forward or back when it crosses a boundary. Because every set is identical
+ * the jump is invisible, and because it is a jump rather than a transition it
+ * cannot fight the user's own momentum. The clones are aria-hidden and
+ * untabbable, so the row reads once to a screen reader and tabs through its
+ * real tiles only.
+ */
+const CAROUSEL_MIN_TO_LOOP = 4;
+
+function carousel(title, tiles) {
+  const wrap = document.createElement('section');
+  wrap.className = 'browsesec browsesec--rail';
+
+  const head = document.createElement('div');
+  head.className = 'browsesec__head';
+  const h = document.createElement('h3');
+  h.className = 'browsesec__title';
+  h.textContent = title;
+  head.append(h);
+
+  const viewport = document.createElement('div');
+  viewport.className = 'rail';
+
+  const track = document.createElement('ul');
+  track.className = 'rail__track';
+
+  // Fewer than a viewport's worth has nothing to loop THROUGH — cloning two
+  // more copies of three tiles just puts the same three back on screen.
+  const loops = tiles.length >= CAROUSEL_MIN_TO_LOOP;
+  const clone = (node) => {
+    const copy = node.cloneNode(true);
+    copy.setAttribute('aria-hidden', 'true');
+    copy.tabIndex = -1;
+    // A clone carries no listeners, so give it the original's click.
+    copy.addEventListener('click', () => node.click());
+    return copy;
+  };
+
+  if (loops) track.append(...tiles.map(clone));
+  track.append(...tiles);
+  if (loops) track.append(...tiles.map(clone));
+
+  viewport.append(track);
+
+  const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const setWidthOnce = () => {
+    const all = track.children;
+    if (all.length < tiles.length * 2 + 1) return 0;
+    return all[tiles.length].offsetLeft - all[0].offsetLeft;
+  };
+
+  const arrow = (direction) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `rail__arrow rail__arrow--${direction}`;
+    // Full height and at the very edge: the cursor is already travelling
+    // there, and a 32px circle floating over artwork is a worse target than
+    // the strip it sits in.
+    button.setAttribute('aria-label', direction === 'prev' ? 'Earlier titles' : 'More titles');
+    button.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" '
+      + 'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'
+      + (direction === 'prev' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7') + '" /></svg>';
+    button.addEventListener('click', () => {
+      // A WHOLE view. With the cards flush against each other, moving by
+      // anything less leaves a card sliced by the frame edge, which is the
+      // one thing a gapless rail must not do.
+      const step = viewport.clientWidth;
+      viewport.scrollBy({
+        left: direction === 'prev' ? -step : step,
+        behavior: reducedMotion() ? 'auto' : 'smooth',
+      });
+    });
+    return button;
+  };
+
+  /**
+   * Page dots, not tile dots.
+   *
+   * The rail moves a viewport at a time, so the dots count VIEWS — three
+   * cards each. One dot per card would be a row of twelve markers under a row
+   * of three pictures, which measures nothing anybody asked about.
+   */
+  const perPage = 3;
+  const pages = Math.max(1, Math.ceil(tiles.length / perPage));
+  const dots = document.createElement('div');
+  dots.className = 'raildots';
+  dots.setAttribute('role', 'tablist');
+  dots.setAttribute('aria-label', 'Pages');
+  const dotEls = [];
+  if (pages > 1) {
+    for (let i = 0; i < pages; i += 1) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'raildot';
+      dot.setAttribute('aria-label', `Page ${i + 1} of ${pages}`);
+      dot.addEventListener('click', () => {
+        const first = track.children[loops ? tiles.length : 0];
+        const target = track.children[(loops ? tiles.length : 0) + i * perPage];
+        if (target && first) {
+          viewport.scrollTo({
+            left: target.offsetLeft - first.offsetLeft + (loops ? setWidthOnce() : 0),
+            behavior: reducedMotion() ? 'auto' : 'smooth',
+          });
+        }
+      });
+      dots.append(dot);
+      dotEls.push(dot);
+    }
+  }
+
+  wrap.append(head, viewport, arrow('prev'), arrow('next'), dots);
+
+  /**
+   * Which page is on screen, from the scroll position rather than from a
+   * counter we increment. A counter and a scroller disagree the moment
+   * anybody uses a trackpad.
+   */
+  const markDot = () => {
+    if (!dotEls.length) return;
+    const one = loops ? setWidthOnce() : 0;
+    const width = viewport.clientWidth || 1;
+    const offset = loops ? viewport.scrollLeft - one : viewport.scrollLeft;
+    const page = ((Math.round(offset / width) % pages) + pages) % pages;
+    dotEls.forEach((d, i) => { d.dataset.on = String(i === page); });
+  };
+  requestAnimationFrame(markDot);
+  if (!loops) viewport.addEventListener('scroll', markDot);
+
+  if (loops) {
+    /**
+     * Start on the middle set, and wrap when a boundary is crossed.
+     *
+     * Measured BETWEEN TILES, never as scrollWidth / 3. The track carries the
+     * page margin as its own left and right padding, so scrollWidth is three
+     * sets plus 80px — dividing it by three puts a third of that padding into
+     * every set, and the row opens a fraction of a tile off, with the first
+     * title sliced down its left edge. The distance from one set's first tile
+     * to the next set's first tile is the set width by definition, padding
+     * and gaps included, and it needs no arithmetic to be right.
+     */
+    const kids = () => track.children;
+    const setWidth = () => {
+      const all = kids();
+      if (all.length < tiles.length * 2 + 1) return 0;
+      return all[tiles.length].offsetLeft - all[0].offsetLeft;
+    };
+    /**
+     * Home is ONE SET WIDTH, and nothing more.
+     *
+     * At scrollLeft 0 the first clone sits at the track's left padding, which
+     * is the page margin. Scrolling by exactly one set puts the first REAL
+     * tile in that same spot, margin included — so the padding never enters
+     * the arithmetic. Trying to compute the tile's own offset instead landed
+     * the row flush against the rail's edge and sliced the first title down
+     * its left side.
+     */
+    const home = setWidth;
+    requestAnimationFrame(() => { viewport.scrollLeft = home(); });
+
+    let wrapping = false;
+    viewport.addEventListener('scroll', () => {
+      if (wrapping) return;
+      const one = setWidth();
+      if (one <= 0) return;
+      const start = home();
+      const x = viewport.scrollLeft;
+      // Half a set of slack either side, so a wrap never lands mid-gesture.
+      if (x < start - one * 0.5 || x > start + one * 0.5) {
+        wrapping = true;
+        viewport.scrollLeft = x < start ? x + one : x - one;
+        // Cleared on the next frame, not synchronously: the assignment above
+        // fires this same handler again.
+        requestAnimationFrame(() => { wrapping = false; });
+      }
+      markDot();
+    });
+  }
+
+  return wrap;
 }
 
 function section(title, count, tiles) {
@@ -4906,24 +5102,77 @@ function movieTile(movie) {
  * middle of" is answered by "Big O, episode nine", and a tile that only says
  * Big O makes you open the card to find out.
  */
+/**
+ * A rail card is NOT a grid tile.
+ *
+ * The grid below is for browsing, so its tiles carry counts and captions
+ * under the art. This row is for resuming one specific thing, and every extra
+ * line is one more thing to read before doing that. So the card is the
+ * picture: the frame fills it, the title sits IN it over the lower third, and
+ * the only other marks are the episode code and how far in you are.
+ *
+ * Selective Attention: at three-up and edge to edge, the artwork is doing the
+ * identifying. A caption block underneath would be read second and add
+ * nothing the frame did not already say.
+ *
+ * No progress bar either. It is real information and it is still on the grid
+ * below, where browsing is the job — but on a full-bleed strip of picture it
+ * is a second amber mark competing with the title for the same lower third,
+ * and this row has to stay quiet enough to read as one image per card. The
+ * episode code says where you are; that is enough.
+ */
+function railCard({ name, code, initials, thumbFrom, onOpen }) {
+  const li = document.createElement('li');
+  li.className = 'railcard';
+  li.tabIndex = 0;
+
+  const art = document.createElement('div');
+  art.className = 'railcard__art tile__art';
+  art.dataset.empty = 'true';
+  art.dataset.initials = initials;
+
+  // A scrim, not a panel. The title has to stay legible over a bright frame
+  // without putting a box on top of the picture.
+  const scrim = document.createElement('div');
+  scrim.className = 'railcard__scrim';
+
+  const text = document.createElement('div');
+  text.className = 'railcard__text';
+  const title = document.createElement('div');
+  title.className = 'railcard__title';
+  title.textContent = name;
+  text.append(title);
+  if (code) {
+    const meta = document.createElement('div');
+    meta.className = 'railcard__code mono';
+    meta.textContent = code;
+    text.append(meta);
+  }
+
+  li.append(art, scrim, text);
+  li.addEventListener('click', onOpen);
+  li.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(); }
+  });
+  paintArt(art, thumbFrom || [], null);
+  return li;
+}
+
 function continueTile(row) {
   if (row.kind === 'movie') {
-    return tile({
+    return railCard({
       name: row.name,
+      code: 'Movie',
       initials: initialsOf(row.name),
-      sub: 'Movie · part way through',
       thumbFrom: [{ absPath: row.movie.absPath, mediaUrl: row.movie.mediaUrl }],
-      fraction: 0,
       onOpen: () => playMovieFromLibrary(row.movie),
     });
   }
-  return tile({
+  return railCard({
     name: row.name,
+    code: formatEpisodeLabel(row.episode),
     initials: initialsOf(row.name),
-    subStrong: formatEpisodeLabel(row.episode),
-    sub: row.episode.title || '',
     thumbFrom: [row.episode],
-    fraction: 0,
     onOpen: () => playFromLibrary(row.show, row.episodeIndex),
   });
 }
