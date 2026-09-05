@@ -1336,7 +1336,12 @@ input[type="range"]::-webkit-slider-thumb {
   transition: color var(--fast);
 }
 .tagopt:hover .tagopt__drop { color: var(--ink-faint); }
-.tagopt__drop:hover { color: #ff8f6b; }
+/* Two classes, not one. A pointer on the ✕ is by definition also inside
+   .tagopt, so a bare `.tagopt__drop:hover` (0-2-0) loses to the row rule
+   above it (0-3-0) no matter what order they sit in — and the ONE control
+   that strips a genre from every title in the library gave no danger colour
+   at all, reading identically to hovering the row. */
+.tagopt:hover .tagopt__drop:hover { color: #ff8f6b; }
 .tagopt__drop:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; color: var(--ink-faint); }
 
 /* ── the genre filter, beside the library search ──────────────────────── */
@@ -1360,6 +1365,11 @@ input[type="range"]::-webkit-slider-thumb {
 /* The one place the signal is spent here: a filter is ON and the page you are
    looking at is not the whole library (Von Restorff). */
 .genrefilter[data-on="true"] .genrefilter__btn { color: var(--signal); border-color: var(--signal-soft); }
+/* Restated at equal specificity, because the rule above (0-3-0) outranks the
+   plain :hover (0-2-0) — so once a filter was on, the button gave no pointer
+   feedback at all, at exactly the moment it is most likely to be reached for
+   again to change or clear the selection. */
+.genrefilter[data-on="true"] .genrefilter__btn:hover { border-color: var(--signal); }
 
 .genremenu {
   position: absolute;

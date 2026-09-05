@@ -29,6 +29,7 @@ const SHOTS = [
   'genre-pop',
   'genre-filter',
   'genre-filtered',
+  'genre-checks',
 ];
 
 let failed = 0;

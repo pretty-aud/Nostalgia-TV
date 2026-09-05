@@ -110,15 +110,36 @@ function cleanTag(text) {
 }
 
 /**
- * The identity of a tag for comparison — case- and punctuation-insensitive.
+ * The identity of a tag for comparison — case-, accent- and
+ * punctuation-insensitive, in any script.
  *
  * Typing "sci fi" when "Sci-Fi" already exists must select the existing one
  * rather than create a near-duplicate that then splits the shelf in two.
- * Punctuation is folded for the same reason: "slice-of-life" and "Slice of
- * Life" are one tag by any reading a person would give them.
+ * Punctuation folds for the same reason: "slice-of-life" and "Slice of Life"
+ * are one tag by any reading a person would give them.
+ *
+ * Unicode-aware on purpose, and it was not at first. An ASCII-only
+ * `[^a-z0-9]` strip DELETES anything else instead of folding it, which turns
+ * the function into the opposite of what it is for: "Animé" keyed as "anim"
+ * and so became a second shelf beside "Anime", and every tag written in
+ * Japanese, Cyrillic or Korean keyed as EMPTY — storable in name only, then
+ * impossible to match, count or delete. On a library this size and this
+ * anime-heavy, both are things a person would actually type.
+ *
+ * NFD then dropping combining marks is what folds the accent rather than
+ * removing the letter under it. \p{L}\p{N} then keeps letters and digits in
+ * every script while still discarding spaces and punctuation.
+ *
+ * An emoji-only tag still keys to empty, and that is correct — it is a
+ * picture, not a name. Callers must treat an empty key as "not a usable tag"
+ * rather than as "new".
  */
 function keyFor(tag) {
-  return cleanTag(tag).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return cleanTag(tag)
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 /** Case-insensitive membership, so a list never gains a near-duplicate. */

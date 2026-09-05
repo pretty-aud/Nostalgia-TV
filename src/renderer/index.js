@@ -3004,6 +3004,11 @@ async function openMedia() {
 
 function closeMedia() {
   el('mediaModal').hidden = true;
+  // The popover floats OVER this sheet rather than inside it, so hiding the
+  // sheet leaves it on screen and still writing to state. Closing from the
+  // keyboard produces a click with no mousedown, so the outside-click guard
+  // never fires — this is the only thing that catches that path.
+  closeTagPop();
   mediaData = null;
 }
 
@@ -3040,9 +3045,33 @@ function genreCell(kind, id, label) {
   button.setAttribute('aria-haspopup', 'dialog');
   paintGenreCell(button, kind, id);
 
+  // Stamped so the cell can be found again after the table rebuilds — see
+  // liveGenreCell.
+  button.dataset.genreKind = kind;
+  button.dataset.genreId = id;
+
   button.addEventListener('click', () => openTagPop(button, kind, id, label));
   td.append(button);
   return td;
+}
+
+/**
+ * Find the cell for a title in the table as it stands NOW.
+ *
+ * renderMediaTable wipes #mediaRows and rebuilds every row, so any button
+ * captured before it ran is a detached node. Painting one is completely
+ * silent — the store is correct, the save has happened, the popover's own
+ * chips update — and the row inches away simply stops changing, which reads
+ * exactly like tags not saving.
+ *
+ * Matched by walking the cells rather than by a CSS attribute selector: a
+ * movie's id is a relative path and can contain quotes and brackets that
+ * would need escaping into a selector, and getting that wrong is another
+ * silent miss.
+ */
+function liveGenreCell(kind, id) {
+  return [...el('mediaRows').querySelectorAll('.genrecell')]
+    .find((cell) => cell.dataset.genreKind === kind && cell.dataset.genreId === id) || null;
 }
 
 /** Repaint a cell in place, so setting tags never re-renders the whole table. */
@@ -3116,15 +3145,44 @@ function openTagPop(anchor, kind, id, label) {
   el('tagPopInput').value = '';
   renderTagPop();
 
-  const box = anchor.getBoundingClientRect();
+  positionTagPop();
+  el('tagPopInput').focus();
+}
+
+/**
+ * Put the popover under its row, flipping above when there is no room below.
+ *
+ * Re-run on scroll and resize, not just on open. position:fixed escapes the
+ * table's scroll clipping, but it also means the popover stays nailed to the
+ * viewport while the row it is editing travels away underneath — so it ended
+ * up captioning an unrelated title while still writing to the original one.
+ * With 32 shows the table always scrolls, so this was not an edge case.
+ */
+function positionTagPop() {
+  if (!tagPopOpen() || !tagPopAnchor) return;
+  const pop = el('tagPop');
+  const box = tagPopAnchor.getBoundingClientRect();
+
+  /**
+   * Scrolled out of its own scrollport: close rather than follow.
+   *
+   * Following would pin the popover to the edge of the screen with nothing
+   * under it, which is a menu pointing at nothing. The scrollport, not the
+   * window — a row hidden behind the modal's own overflow is gone as far as
+   * the person is concerned even though it is still inside the viewport.
+   */
+  const scroller = tagPopAnchor.closest('.modal__body');
+  if (scroller) {
+    const view = scroller.getBoundingClientRect();
+    if (box.bottom < view.top + 4 || box.top > view.bottom - 4) { closeTagPop(); return; }
+  }
+
   const height = pop.offsetHeight;
   const below = window.innerHeight - box.bottom - 12;
   pop.style.left = `${Math.max(12, Math.min(box.left, window.innerWidth - pop.offsetWidth - 12))}px`;
   pop.style.top = below >= height
     ? `${box.bottom + 6}px`
     : `${Math.max(12, box.top - height - 6)}px`;
-
-  el('tagPopInput').focus();
 }
 
 function closeTagPop() {
@@ -3137,6 +3195,9 @@ function closeTagPop() {
 function setTagsFor(kind, id, list) {
   state.tags = withTags(state, kind, id, list);
   persist();
+  // Re-acquired whenever the held node has left the document, so a table
+  // rebuild underneath an open popover cannot quietly stop the row updating.
+  if (!tagPopAnchor || !tagPopAnchor.isConnected) tagPopAnchor = liveGenreCell(kind, id);
   if (tagPopAnchor) paintGenreCell(tagPopAnchor, kind, id);
   renderGenreFilter();
   if (browseOpen()) renderBrowse();
@@ -3169,6 +3230,11 @@ function renderTagPop() {
       event.stopPropagation();
       setTagsFor(kind, id, current.filter((entry) => keyFor(entry) !== keyFor(tag)));
       renderTagPop();
+      // renderTagPop destroys the button that was just clicked, dropping
+      // focus to <body> — which silently kills arrows, Enter and Backspace
+      // for the rest of the session. Every path that re-renders must put it
+      // back on the field.
+      el('tagPopInput').focus();
     });
     chip.append(x);
     chips.append(chip);
@@ -3177,8 +3243,23 @@ function renderTagPop() {
   // --- the options, narrowed by whatever has been typed
   const list = el('tagPopList');
   list.textContent = '';
+
+  /**
+   * Narrow on the FOLDED key as well as the raw text.
+   *
+   * These were two different notions of equality in one render pass, and
+   * they disagreed for exactly the inputs keyFor exists to handle: the list
+   * filtered on a raw substring, while the Create row below was suppressed
+   * by the folded key. Typing "sci fi" therefore matched no option (because
+   * "Sci-Fi" does not contain that substring) AND offered no Create row
+   * (because the key says it already exists) — an empty picker, a hint that
+   * was false in both directions, and no way forward but guessing the
+   * punctuation.
+   */
+  const typedKey = keyFor(typed);
   const matches = allTags(state).filter((tag) => !typed
-    || tag.toLowerCase().includes(typed.toLowerCase()));
+    || tag.toLowerCase().includes(typed.toLowerCase())
+    || (typedKey && keyFor(tag).includes(typedKey)));
 
   const rows = [];
   for (const tag of matches) {
@@ -3198,6 +3279,7 @@ function renderTagPop() {
         ? current.filter((entry) => keyFor(entry) !== keyFor(tag))
         : [...current, tag]);
       renderTagPop();
+      el('tagPopInput').focus();      // see the chip ✕ handler above
     });
 
     /**
@@ -3220,11 +3302,15 @@ function renderTagPop() {
       if (!window.confirm(warning)) return;
       state.tags = withoutTag(state, tag);
       persist();
-      if (tagPopAnchor) paintGenreCell(tagPopAnchor, kind, id);
       renderGenreFilter();
+      // The whole table is rebuilt — every row could have carried this tag —
+      // so the anchor must be re-acquired AFTER it, not painted before it.
       renderMediaTable();
+      tagPopAnchor = liveGenreCell(kind, id);
+      if (tagPopAnchor) paintGenreCell(tagPopAnchor, kind, id);
       if (browseOpen()) renderBrowse();
       renderTagPop();
+      el('tagPopInput').focus();
     });
 
     row.append(name, drop);
@@ -3233,11 +3319,17 @@ function renderTagPop() {
   }
 
   /**
-   * The create row, last, and only when what was typed is genuinely new.
-   * hasTag folds case and punctuation, so typing "sci fi" over an existing
-   * "Sci-Fi" offers to select it rather than to make a second one.
+   * The create row, last, and only when what was typed is genuinely new AND
+   * storable.
+   *
+   * The key test is the half that was missing. The store refuses a tag with
+   * no key — it could never be matched, counted or deleted again — so
+   * offering to create one produced a fully styled button that cleared the
+   * field and did nothing, with no error and no explanation. hasTag alone
+   * could not catch it: it returns false for a keyless tag, which reads as
+   * "not there yet", which is exactly wrong.
    */
-  if (typed && !hasTag(allTags(state), typed)) {
+  if (keyFor(typed) && !hasTag(allTags(state), typed)) {
     const row = document.createElement('div');
     row.className = 'tagopt tagopt--create';
     const make = document.createElement('button');
@@ -3256,8 +3348,19 @@ function renderTagPop() {
     list.append(row);
   }
 
+  /**
+   * The hint has to be true for the reason the list is empty.
+   *
+   * "Type a new name to create it" was advice that could not be followed
+   * whenever the reason was that the name has no key — typing more of it
+   * keeps producing nothing. Now the only way to an empty list is a tag with
+   * no letters or digits at all, and it says so.
+   */
   const hint = el('tagPopHint');
-  if (!rows.length) {
+  if (typed && !keyFor(typed)) {
+    hint.textContent = 'A genre needs at least one letter or number.';
+    hint.hidden = false;
+  } else if (!rows.length) {
     hint.textContent = 'Nothing matches. Type a new name to create it.';
     hint.hidden = false;
   } else {
@@ -4059,6 +4162,17 @@ function wireEvents() {
 
   el('tagPopInput').addEventListener('input', () => { tagPopActive = 0; renderTagPop(); });
   el('tagPopInput').addEventListener('keydown', tagPopKeydown);
+
+  /**
+   * Keep the popover attached to its row.
+   *
+   * Captured at the document, because the scroll happens on .modal__body and
+   * scroll events do not bubble — a listener on window would never see it.
+   * Resize matters too: the flip-above decision is made from the window
+   * height.
+   */
+  document.addEventListener('scroll', positionTagPop, true);
+  window.addEventListener('resize', positionTagPop);
 
   el('btnGenreFilter').addEventListener('click', () => {
     if (genreMenuOpen()) closeGenreMenu(); else openGenreMenu();
@@ -5136,6 +5250,12 @@ function openBrowse() {
 function closeBrowse() {
   browseSavedScroll = el('browseBody').scrollTop;
   el('browse').hidden = true;
+  // The menu lives INSIDE #browse, so hiding the page makes it invisible
+  // while leaving its own hidden flag false — and that flag is the first
+  // thing the global key handler consults, above every other layer and above
+  // the player's own keys. An invisible open menu was swallowing space, N, M,
+  // F and the arrows for the whole app until Escape was pressed.
+  closeGenreMenu();
   dropPendingDecodes();
   closeDetail();
 }
@@ -5305,8 +5425,15 @@ function renderGenreFilter() {
   el('btnGenreClear').hidden = browseGenres.length === 0;
 }
 
+/**
+ * Belt and braces: a menu inside a hidden page is not open.
+ *
+ * closeBrowse() now closes it properly, but this guard gates every keystroke
+ * in the app, so it must not be able to answer "yes" for a control nobody can
+ * see — whatever future path forgets to tidy up.
+ */
 function genreMenuOpen() {
-  return !el('genreMenu').hidden;
+  return !el('genreMenu').hidden && browseOpen();
 }
 
 function openGenreMenu() {

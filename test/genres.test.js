@@ -78,6 +78,37 @@ describe('keyFor', () => {
     expect(keyFor('---')).toBe('');
     expect(keyFor('   ')).toBe('');
   });
+
+  /**
+   * The Unicode cases. An ASCII-only strip does the OPPOSITE of what this
+   * function is for: it deletes what it cannot fold, so an accented spelling
+   * became a second shelf and a non-Latin tag became keyless — storable in
+   * name only, then impossible to match, count or delete.
+   */
+  it('FOLDS accents rather than deleting the letter under them', () => {
+    expect(keyFor('Animé')).toBe(keyFor('Anime'));
+    expect(keyFor('Pokémon')).toBe(keyFor('Pokemon'));
+    expect(keyFor('Naïve')).toBe(keyFor('Naive'));
+    expect(keyFor('Café')).toBe(keyFor('Cafe'));
+  });
+
+  it('gives a real key to tags in any script', () => {
+    // An anime-heavy library is a plausible place to type these.
+    for (const tag of ['アニメ', 'Ужасы', '科幻', '드라마']) {
+      expect(keyFor(tag)).not.toBe('');
+    }
+    expect(keyFor('アニメ')).toBe(keyFor('アニメ'));
+    expect(keyFor('Ужасы')).not.toBe(keyFor('科幻'));
+  });
+
+  it('still folds punctuation and case inside a non-Latin tag', () => {
+    expect(keyFor('アニメ・SF')).toBe(keyFor('アニメ sf'));
+  });
+
+  it('is still empty for an emoji, which is a picture and not a name', () => {
+    expect(keyFor('🔥')).toBe('');
+    expect(keyFor('🔥💀')).toBe('');
+  });
 });
 
 describe('hasTag', () => {
@@ -153,6 +184,17 @@ describe('withTags', () => {
     const state = stateWith({ shows: { a: ['Horror'] } });
     withTags(state, 'show', 'a', ['Action']);
     expect(state.tags.shows.a).toEqual(['Horror']);
+  });
+
+  it('stores a tag in a non-Latin script rather than silently dropping it', () => {
+    // It was offered as "Create", then discarded by the store's own empty-key
+    // guard: the field cleared, no chip appeared, no error was shown.
+    expect(withTags({}, 'show', 'a', ['アニメ']).shows.a).toEqual(['アニメ']);
+    expect(withTags({}, 'show', 'a', ['Ужасы']).shows.a).toEqual(['Ужасы']);
+  });
+
+  it('treats an accented spelling as the SAME tag, not a second shelf', () => {
+    expect(withTags({}, 'show', 'a', ['Anime', 'Animé']).shows.a).toEqual(['Anime']);
   });
 
   it('refuses a tag that is only punctuation', () => {
@@ -296,6 +338,64 @@ describe('withCustomTag', () => {
   it('ignores an empty or punctuation-only tag', () => {
     expect(withCustomTag({}, '   ').custom).toEqual([]);
     expect(withCustomTag({}, '---').custom).toEqual([]);
+    expect(withCustomTag({}, '🔥').custom).toEqual([]);
+  });
+
+  it('accepts a tag in a non-Latin script', () => {
+    expect(withCustomTag({}, 'アニメ').custom).toEqual(['アニメ']);
+  });
+
+  it('refuses an accented spelling of an existing tag', () => {
+    expect(withCustomTag({}, 'Animé').custom).toEqual([]);
+  });
+});
+
+/**
+ * The picker's two gates, pinned here rather than only in the renderer.
+ *
+ * These are the exact predicates src/renderer/index.js renders the option
+ * list and the Create row from. They disagreed — the list narrowed on a raw
+ * substring while the Create row was suppressed by the folded key — so
+ * typing "sci fi" produced no option, no Create row, and a hint that was
+ * false in both directions, with no way forward but guessing the punctuation.
+ */
+describe('the picker predicates', () => {
+  const narrow = (typed) => {
+    const key = keyFor(typed);
+    return allTags({}).filter((tag) => !typed
+      || tag.toLowerCase().includes(typed.toLowerCase())
+      || (key && keyFor(tag).includes(key)));
+  };
+  const offersCreate = (typed) => Boolean(keyFor(typed)) && !hasTag(allTags({}), typed);
+
+  it('always offers a way forward for anything with a key', () => {
+    // The invariant that was broken: for every plausible typing, EITHER an
+    // option is listed OR the Create row appears. Never neither.
+    for (const typed of [
+      'scifi', 'sci fi', 'sci-fi', 'Sci Fi', 'SCIFI',
+      'slice of life', 'slice-of-life', 'sliceoflife',
+      'horror', 'HORROR', 'anime', 'animé',
+      'isekai', 'mecha', 'zombie apocalypse', 'アニメ',
+    ]) {
+      const forward = narrow(typed).length > 0 || offersCreate(typed);
+      expect(forward, `no way forward after typing "${typed}"`).toBe(true);
+    }
+  });
+
+  it('offers the EXISTING tag, not a duplicate, for a punctuation variant', () => {
+    expect(narrow('sci fi')).toContain('Sci-Fi');
+    expect(offersCreate('sci fi')).toBe(false);
+    expect(narrow('sliceoflife')).toContain('Slice of Life');
+    expect(offersCreate('sliceoflife')).toBe(false);
+  });
+
+  it('offers Create only for something genuinely new AND storable', () => {
+    expect(offersCreate('Isekai')).toBe(true);
+    expect(offersCreate('アニメ')).toBe(true);
+    // Keyless: the store would refuse these, so the button must not appear.
+    expect(offersCreate('---')).toBe(false);
+    expect(offersCreate('🔥')).toBe(false);
+    expect(offersCreate('   ')).toBe(false);
   });
 });
 
