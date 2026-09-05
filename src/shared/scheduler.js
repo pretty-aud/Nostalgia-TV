@@ -143,6 +143,9 @@ const DEFAULT_SETTINGS = {
    * the existing merge for free.
    */
   vhsFont: 'homevideo',
+  /** The VHS pair. Flat keys, for the same reason as vhsFont above. */
+  vhsInk: 'white',
+  vhsGround: 'blue',
 
   autoCrop: true,
   interstitialZoom: 100,    // scale % for bumpers/promos ONLY, to crop baked-in bars

@@ -3033,24 +3033,31 @@ input[type="range"]::-webkit-slider-thumb {
   --paper-lift: #0b0bb4;
   --paper-high: #0b0bb4;
 
+  /* --paper and --ink come from the ground and pair blocks below; this is the
+     white-on-blue default for anything that somehow renders before they
+     apply. Everything else is DERIVED from those two, so changing the pair
+     changes the whole interface and a pair stays two hex values. */
   --ink:        #ffffff;
-  /* Only two levels of ink, both bright. The ROM had one colour and used
-     BLANKING for absence; a 62%-opacity grey is a modern idea and it makes
-     pixel type look broken rather than quiet. */
-  --ink-mute:   #c8c8f0;
-  --ink-faint:  #9a9ad8;
 
-  --signal:      #ffffff;
-  --signal-soft: rgba(255, 255, 255, 0.75);
-  --signal-wash: rgba(255, 255, 255, 0.14);
-  --signal-alt:  #ffffff;
+  /* Only two levels of ink, both close to full. The ROM had one colour and
+     used BLANKING for absence; a 62%-opacity grey is a modern idea and it
+     makes pixel type look broken rather than quiet. Mixed toward the paper
+     rather than toward grey, so they stay in the pair's own hue. */
+  --ink-mute:   color-mix(in srgb, var(--ink) 82%, var(--paper));
+  --ink-faint:  color-mix(in srgb, var(--ink) 62%, var(--paper));
 
-  /* Hairlines are SOLID and thick. A 10%-alpha rule is invisible against a
-     saturated blue, and a character generator drew a line or it drew nothing. */
-  --hair:       rgba(255, 255, 255, 0.55);
-  --hair-soft:  rgba(255, 255, 255, 0.28);
-  --lift:       rgba(255, 255, 255, 0.12);
-  --card-edge:  rgba(255, 255, 255, 0.55);
+  --signal:      var(--ink);
+  --signal-soft: color-mix(in srgb, var(--ink) 75%, transparent);
+  --signal-wash: color-mix(in srgb, var(--ink) 14%, transparent);
+  --signal-alt:  var(--ink);
+
+  /* Hairlines are SOLID and heavy. A 10%-alpha rule is invisible against a
+     saturated ground, and a character generator drew a line or it drew
+     nothing. */
+  --hair:       color-mix(in srgb, var(--ink) 55%, transparent);
+  --hair-soft:  color-mix(in srgb, var(--ink) 28%, transparent);
+  --lift:       color-mix(in srgb, var(--ink) 12%, transparent);
+  --card-edge:  color-mix(in srgb, var(--ink) 55%, transparent);
 
   /* The cell is 8x16, so the type is hard-edged only at multiples of 16.
      Three sizes, not seven — bigger than the app's default but deliberately
@@ -3094,6 +3101,49 @@ input[type="range"]::-webkit-slider-thumb {
 
   --mono: "IBM VGA 8x16", "JetBrains Mono", ui-monospace, monospace;
 }
+
+/* The four grounds. Everything except --paper and --ink is DERIVED with
+   color-mix, so a pair is two hex values rather than a twelve-line block —
+   sixteen hand-written blocks is sixteen chances for one token to drift. */
+:root[data-theme="vhs"][data-osd-ground="blue"] {
+  --paper:      #0b0bb4;
+  --paper-lift: #0b0bb4;
+  --paper-high: #0b0bb4;
+}
+:root[data-theme="vhs"][data-osd-ground="black"] {
+  --paper:      #050505;
+  --paper-lift: #050505;
+  --paper-high: #050505;
+}
+:root[data-theme="vhs"][data-osd-ground="green"] {
+  --paper:      #063a0c;
+  --paper-lift: #063a0c;
+  --paper-high: #063a0c;
+}
+:root[data-theme="vhs"][data-osd-ground="white"] {
+  --paper:      #f4f4f4;
+  --paper-lift: #f4f4f4;
+  --paper-high: #f4f4f4;
+}
+
+/* The resolved ink for each of the sixteen pairs. */
+:root[data-theme="vhs"][data-osd-ground="blue"][data-osd-ink="white"] { --ink: #ffffff; }
+:root[data-theme="vhs"][data-osd-ground="blue"][data-osd-ink="blue"] { --ink: #b3d2ff; }
+:root[data-theme="vhs"][data-osd-ground="blue"][data-osd-ink="green"] { --ink: #66f066; }
+:root[data-theme="vhs"][data-osd-ground="blue"][data-osd-ink="orange"] { --ink: #ffb454; }
+:root[data-theme="vhs"][data-osd-ground="black"][data-osd-ink="white"] { --ink: #f4f1ea; }
+:root[data-theme="vhs"][data-osd-ground="black"][data-osd-ink="blue"] { --ink: #7fb2ff; }
+:root[data-theme="vhs"][data-osd-ground="black"][data-osd-ink="green"] { --ink: #5be85b; }
+:root[data-theme="vhs"][data-osd-ground="black"][data-osd-ink="orange"] { --ink: #ffa733; }
+:root[data-theme="vhs"][data-osd-ground="green"][data-osd-ink="white"] { --ink: #f4f1ea; }
+:root[data-theme="vhs"][data-osd-ground="green"][data-osd-ink="blue"] { --ink: #8fc0ff; }
+:root[data-theme="vhs"][data-osd-ground="green"][data-osd-ink="green"] { --ink: #a8f5a8; }
+:root[data-theme="vhs"][data-osd-ground="green"][data-osd-ink="orange"] { --ink: #ffb454; }
+:root[data-theme="vhs"][data-osd-ground="white"][data-osd-ink="white"] { --ink: #141414; }
+:root[data-theme="vhs"][data-osd-ground="white"][data-osd-ink="blue"] { --ink: #0a1f8c; }
+:root[data-theme="vhs"][data-osd-ground="white"][data-osd-ink="green"] { --ink: #0a5c12; }
+:root[data-theme="vhs"][data-osd-ground="white"][data-osd-ink="orange"] { --ink: #7a3b00; }
+
 
 /* ── VHS: the skin half ───────────────────────────────────────────────────
    Everything here restyles a COMPONENT, which every other theme is forbidden
@@ -3294,6 +3344,16 @@ input[type="range"]::-webkit-slider-thumb {
 }
 /* The cursor slot is reserved at REST, so the ► appearing moves nothing. */
 .osdcell__cursor { width: 1ch; flex: 0 0 auto; white-space: pre; }
+
+/* The colour chip. Outlined in the live ink so a chip the same colour as the
+   ground still reads as a chip rather than as a hole in the cell — which is
+   exactly the case for BLACK on black and WHITE on white. */
+.osdcell__chip {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+}
 
 /* Hover marks the cell WITHOUT filling it — a fill means chosen, and the two
    marks must never be confusable. */

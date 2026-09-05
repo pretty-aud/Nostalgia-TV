@@ -63,6 +63,9 @@ import {
   tagsFor, withTags, allTags, tagsInUse, matchesGenres, narrowTags, offersCreate,
   withCustomTag, withoutTag, countTagged, cleanTag, keyFor, hasTag,
 } from '../shared/genres.js';
+import {
+  LIGHT_GROUNDS, groundOf, inkOf, inkOptionsFor, groundOptions,
+} from '../shared/vhsPalette.js';
 
 // ---------------------------------------------------------------------------
 // module state
@@ -948,18 +951,33 @@ function renderSettings() {
    * settings navigation grow and shrink as you changed theme.
    */
   const skinned = Boolean(SKINS[theme]);
-  el('vhsFontField').hidden = !skinned;
+  for (const id of ['vhsFontField', 'vhsInkField', 'vhsGroundField']) el(id).hidden = !skinned;
   if (skinned) {
-    renderOsdRail(el('vhsFontRail'), OSD_FACES, osdFace(), (key) => {
-      // applySettings + persist directly, NOT wireEvents' setSetting helper:
-      // that one is a local const inside wireEvents and is not in scope here.
-      // Calling it looked right, threw a ReferenceError on every click, and
-      // the cell simply did nothing.
-      state = applySettings(shows, state, { vhsFont: key }, {});
+    /**
+     * Save, re-apply, redraw. applySettings + persist directly, NOT
+     * wireEvents' setSetting helper — that one is a local const inside
+     * wireEvents and is not in scope here. Calling it looked right, threw a
+     * ReferenceError on every click, and the cell silently did nothing.
+     *
+     * applyTheme runs for the colour rails because the pair lives in
+     * attributes on <html>; applyFonts for all three because leaving the
+     * skin has to give her own faces back.
+     */
+    const pick = (patch) => {
+      state = applySettings(shows, state, patch, {});
+      applyTheme();
       applyFonts();
       renderSettings();
       persist();
-    });
+    };
+    renderOsdRail(el('vhsFontRail'), OSD_FACES, osdFace(), (key) => pick({ vhsFont: key }));
+    // The ink swatches are drawn for the CURRENT ground, so changing the
+    // ground redraws this rail with different chips — which is the point.
+    const ground = groundOf(state.settings.vhsGround);
+    renderOsdRail(el('vhsInkRail'), inkOptionsFor(ground), inkOf(state.settings.vhsInk),
+      (key) => pick({ vhsInk: key }));
+    renderOsdRail(el('vhsGroundRail'), groundOptions(), ground,
+      (key) => pick({ vhsGround: key }));
   }
 
   /**
@@ -2243,10 +2261,33 @@ const SKINS = { vhs: 'vcr' };
 function applyTheme() {
   const theme = resolveTheme(String((state.settings || {}).theme || 'midnight'));
   const root = document.documentElement;
+  const settings = state.settings || {};
   root.dataset.theme = theme;
-  root.dataset.light = String(LIGHT_THEMES.includes(theme));
-  if (SKINS[theme]) root.dataset.skin = SKINS[theme];
-  else delete root.dataset.skin;
+
+  if (SKINS[theme]) {
+    root.dataset.skin = SKINS[theme];
+    root.dataset.osdGround = groundOf(settings.vhsGround);
+    root.dataset.osdInk = inkOf(settings.vhsInk);
+  } else {
+    // Deleted, not blanked: a stale [data-osd-ground=""] would still match an
+    // attribute selector written without a value.
+    delete root.dataset.skin;
+    delete root.dataset.osdGround;
+    delete root.dataset.osdInk;
+  }
+
+  /**
+   * Lightness is a SETTING under the skin, not a property of the theme name.
+   *
+   * Every other theme is light or dark by definition, so this was a lookup in
+   * a static list. VHS is the first whose panels can be either, depending on
+   * the ground chosen — and fourteen rules key off [data-light="true"] to
+   * keep type legible over the picture.
+   */
+  root.dataset.light = String(
+    LIGHT_THEMES.includes(theme)
+    || (Boolean(SKINS[theme]) && LIGHT_GROUNDS.includes(groundOf(settings.vhsGround))),
+  );
 }
 
 
@@ -2361,10 +2402,28 @@ function renderOsdRail(rail, options, current, onPick) {
     const cursor = document.createElement('span');
     cursor.className = 'osdcell__cursor';
     cursor.textContent = key === current ? '►' : ' ';
+    cell.append(cursor);
+
+    /**
+     * A colour option carries a chip of the colour it will ACTUALLY resolve
+     * to, which is not always what its name suggests — on a white ground the
+     * ink called WHITE is near-black. The chip makes that honest before the
+     * choice rather than after it.
+     *
+     * Outlined in the current ink, so a chip the same colour as the ground
+     * still reads as a chip rather than as a hole in the cell.
+     */
+    if (options[key].swatch) {
+      const chip = document.createElement('span');
+      chip.className = 'osdcell__chip';
+      chip.style.background = options[key].swatch;
+      cell.append(chip);
+    }
+
     const word = document.createElement('span');
     word.className = 'osdcell__word';
     word.textContent = options[key].label;
-    cell.append(cursor, word);
+    cell.append(word);
 
     cell.addEventListener('click', () => onPick(key));
     cell.addEventListener('keydown', (event) => {
@@ -4745,6 +4804,12 @@ The channel keeps its own place.`)) return;
     setSetting({
       theme: DEFAULT_SETTINGS.theme,
       fonts: { ...DEFAULT_SETTINGS.fonts },
+      // The VHS skin's three too, or "back to the defaults" would quietly
+      // leave a face and a colour pair behind, waiting to surprise her the
+      // next time she picked the theme.
+      vhsFont: DEFAULT_SETTINGS.vhsFont,
+      vhsInk: DEFAULT_SETTINGS.vhsInk,
+      vhsGround: DEFAULT_SETTINGS.vhsGround,
     });
     applyTheme();
     applyFonts();
