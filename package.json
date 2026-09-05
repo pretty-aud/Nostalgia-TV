@@ -63,6 +63,7 @@
     ]
   },
   "devDependencies": {
+    "acorn": "^8.18.0",
     "electron": "^43.4.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",

@@ -127,27 +127,60 @@ function sampleAppCentre(pid, { verbose = false } = {}) {
   };
 }
 
-/** Two tiny shows, a bumper and a promo — 6-second episodes so transitions
- *  happen while we watch. Colours are distinct so a failure names its file. */
+/**
+ * Two tiny shows, a bumper and a promo — 6-second episodes so transitions
+ * happen while we watch, distinct colours so a failure names its file.
+ *
+ * The EPISODES carry two audio tracks (English + Japanese) and an English
+ * subtitle track, because single-language fixtures cannot tell a working
+ * track menu from an empty one — and an empty track menu is exactly what
+ * shipped past this harness to a viewer whose anime is all dual-audio.
+ *
+ * Rebuilt every run: a cached library from an older shape would quietly
+ * keep testing yesterday's fixtures.
+ */
 async function makeLibrary() {
-  const clip = (out, color, seconds) => {
-    if (fs.existsSync(out)) return;
-    const made = spawnSync(FFMPEG, [
-      '-y',
-      '-f', 'lavfi', '-i', `color=c=${color}:s=320x180:d=${seconds}:r=30`,
-      '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`,
-      '-shortest', '-pix_fmt', 'yuv420p', '-c:a', 'aac', out,
-    ], { windowsHide: true, timeout: 60000 });
-    if (made.error || made.status !== 0) throw new Error(`could not generate ${out}`);
-  };
-
+  await fsp.rm(library, { recursive: true, force: true });
   for (const dir of ['Show Alpha', 'Show Beta', 'BUMPERS', 'PROMOS']) {
     await fsp.mkdir(path.join(library, dir), { recursive: true });
   }
-  clip(path.join(library, 'Show Alpha', 'Alpha S01E01.mp4'), 'red', 6);
-  clip(path.join(library, 'Show Alpha', 'Alpha S01E02.mp4'), 'darkred', 6);
-  clip(path.join(library, 'Show Beta', 'Beta S01E01.mp4'), 'blue', 6);
-  clip(path.join(library, 'Show Beta', 'Beta S01E02.mp4'), 'darkblue', 6);
+
+  const srt = path.join(work, 'subs.srt');
+  fs.writeFileSync(srt, '1\n00:00:00,000 --> 00:00:30,000\nFIXTURE SUBTITLE\n');
+
+  const run = (args, what) => {
+    const made = spawnSync(FFMPEG, args, { windowsHide: true, timeout: 90000 });
+    if (made.error || made.status !== 0) {
+      throw new Error(`could not generate ${what}: ${(made.stderr || '').toString().slice(-300)}`);
+    }
+  };
+
+  /** An episode: solid colour, eng + jpn audio, one English subtitle track. */
+  const episode = (out, color, seconds) => run([
+    '-y',
+    '-f', 'lavfi', '-i', `color=c=${color}:s=320x180:d=${seconds}:r=30`,
+    '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`,
+    '-f', 'lavfi', '-i', `sine=frequency=880:duration=${seconds}`,
+    '-i', srt,
+    '-map', '0:v', '-map', '1:a', '-map', '2:a', '-map', '3:s',
+    '-metadata:s:a:0', 'language=eng', '-metadata:s:a:1', 'language=jpn',
+    '-metadata:s:s:0', 'language=eng',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-c:s', 'srt',
+    out,
+  ], out);
+
+  /** An interstitial: one track, nothing to choose. */
+  const clip = (out, color, seconds) => run([
+    '-y',
+    '-f', 'lavfi', '-i', `color=c=${color}:s=320x180:d=${seconds}:r=30`,
+    '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`,
+    '-shortest', '-pix_fmt', 'yuv420p', '-c:a', 'aac', out,
+  ], out);
+
+  episode(path.join(library, 'Show Alpha', 'Alpha S01E01.mkv'), 'red', 6);
+  episode(path.join(library, 'Show Alpha', 'Alpha S01E02.mkv'), 'darkred', 6);
+  episode(path.join(library, 'Show Beta', 'Beta S01E01.mkv'), 'blue', 6);
+  episode(path.join(library, 'Show Beta', 'Beta S01E02.mkv'), 'darkblue', 6);
   clip(path.join(library, 'BUMPERS', 'sting.mp4'), 'green', 2);
   clip(path.join(library, 'PROMOS', 'promo.mp4'), 'purple', 3);
 }
@@ -331,6 +364,38 @@ async function main() {
       afterResize ? `centre pixel rgb(${afterResize.r},${afterResize.g},${afterResize.b}) at ${afterResize.at}` : 'probe found no window');
     await evaluate(ws, 'window.tv.toggleMaximizeWindow()');
     await sleep(800);
+
+    /**
+     * THE TRACK MENUS LIST WHAT THE FILE HAS.
+     *
+     * Invisible to every earlier check because the fixtures had one audio
+     * track and no subtitles — nothing to choose, so an empty menu and a
+     * correct menu looked identical. Her library is dual-audio anime; she
+     * opened the menu and found nothing to pick.
+     */
+    const menus = JSON.parse(await evaluate(ws, `JSON.stringify({
+      audio: Array.from(document.querySelectorAll('#audioTrackList button')).map((b) => b.textContent),
+      subs: Array.from(document.querySelectorAll('#subTrackList button')).map((b) => b.textContent),
+    })`));
+    if (menus.audio.length === 0) {
+      // Ask mpv directly, from the page, so the answer separates "the IPC
+      // is broken" from "nothing ever asked".
+      await evaluate(ws, `window.__TL = 'pending';
+        window.tv.mpvTrackList().then(
+          (l) => { window.__TL = JSON.stringify((l || []).map((t) => t.type + ':' + (t.lang || '?'))); },
+          (e) => { window.__TL = 'ERR ' + e.message; });
+        true`);
+      await sleep(700);
+      console.error(`mpv track-list from the page: ${await evaluate(ws, 'window.__TL')}`);
+    }
+    const audioText = menus.audio.join(' | ');
+    const subText = menus.subs.join(' | ');
+    verdict("the audio menu lists the file's languages",
+      menus.audio.length >= 2 && /English/.test(audioText) && /Japanese/.test(audioText),
+      `audio: [${audioText}]`);
+    verdict("the subtitle menu lists the file's subtitle track",
+      menus.subs.length >= 2 && /English/.test(subText),
+      `subs: [${subText}]`);
 
     // The 6-second episode ends on its own: the card appears, then the next
     // programme — the whole transition running on facade events.

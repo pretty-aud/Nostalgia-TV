@@ -1047,6 +1047,45 @@ async function loadAndPlay(item, seekTo = 0) {
   renderSidebar();
   persist();
 
+  /**
+   * Registered BEFORE the open, not after it.
+   *
+   * mpv can report the new file's duration before `open()`'s own IPC reply
+   * gets back to us, and this is a ONE-SHOT event: attaching afterwards
+   * meant it had already fired into an empty room. Nothing then applied the
+   * show's audio and subtitle preferences, nothing filled the track menus
+   * (a viewer with dual-audio anime opened the menu to find NOTHING to
+   * pick), nothing ran the auto-crop, and the failure breaker never reset.
+   * The <video> element never showed this because src=/load() could not
+   * outrun the next line of code; an IPC player can.
+   *
+   * Still token-guarded, and now for two reasons: a rapid Next must not land
+   * the old show's language on the new file, and moving the registration
+   * earlier means a stale firing is possible from THIS side of the open too.
+   */
+  player.addEventListener('loadedmetadata', () => {
+    if (token !== playToken) return;
+    /**
+     * REAL progress is what resets the failure breaker — not the open call,
+     * which resolves even for a missing file (mpv accepts the command and
+     * reports the failure later as an error event). Resetting on open made
+     * an unplugged drive an infinite skip loop that churned every cursor in
+     * the library at one episode per one-and-a-half seconds.
+     */
+    failedInARow = 0;
+    /**
+     * Both calls are async and neither is awaited — this handler must not
+     * hold anything up. So each carries its OWN catch, because an unawaited
+     * rejection in a renderer is INVISIBLE, and that is not hypothetical: a
+     * helper deleted by an unrelated cleanup (prefFor) made the first call
+     * throw a ReferenceError on every single episode. The menus opened
+     * empty, the show's language preference never applied, the crop never
+     * ran, and nothing anywhere said a word about it.
+     */
+    applyTrackPrefs(item).catch((error) => console.error('track preferences failed:', error));
+    loadCropForCurrent().catch((error) => console.error('auto-crop failed:', error));
+  }, { once: true });
+
   try {
     await player.open(item.episode.absPath, { startSeconds: seekTo > 0 ? seekTo : 0 });
   } catch {
@@ -1067,23 +1106,6 @@ async function loadAndPlay(item, seekTo = 0) {
   }
   if (token !== playToken) return;      // the user moved on while we opened
   player.play();
-
-  // Preferences and the crop want the track list and the coded frame size,
-  // which exist once metadata lands. Token-guarded: a rapid Next must not
-  // land the old show's language on the new file.
-  player.addEventListener('loadedmetadata', () => {
-    if (token !== playToken) return;
-    /**
-     * REAL progress is what resets the failure breaker — not the open call,
-     * which resolves even for a missing file (mpv accepts the command and
-     * reports the failure later as an error event). Resetting on open made
-     * an unplugged drive an infinite skip loop that churned every cursor in
-     * the library at one episode per one-and-a-half seconds.
-     */
-    failedInARow = 0;
-    applyTrackPrefs(item);
-    loadCropForCurrent();
-  }, { once: true });
 
   // Warm the next bumper's thumbnail while this episode plays, so the
   // interstitial has a picture the moment it appears.
@@ -2965,6 +2987,26 @@ function renderMediaTable() {
 /** The show whose settings dialog is on screen. */
 let showSetShow = null;
 
+/**
+ * This show's saved playback preferences, or an empty object.
+ *
+ * Lost in the switchover: it sat inside the conversion-era block that the
+ * mpv commit deleted wholesale (the wanted-audio cache, the preference
+ * generation counter), and went out with it while its FOUR callers stayed —
+ * the load-time preference pass, the ingest ledger, and both halves of the
+ * per-show settings dialog. Every one of them threw a ReferenceError on
+ * every use, and the two that matter most were swallowed by unawaited
+ * promises: the track menus opened empty, the show's language preference
+ * never applied, and the auto-crop never ran, in silence.
+ *
+ * The bundler cannot see this either — a free identifier is a legal
+ * reference to a global that might exist, so esbuild emits it without a
+ * word. test/freeIdentifiers.test.js is what catches it now.
+ */
+function prefFor(showId) {
+  return (state.settings.showPrefs || {})[showId] || {};
+}
+
 function openShowSettings(show) {
   if (!show) return;
   showSetShow = show;
@@ -3191,7 +3233,17 @@ function toggleTrackMenu(force) {
   el('btnTracks').setAttribute('aria-expanded', String(open));
   if (open) {
     showChrome();
-    renderTrackMenu();
+    renderTrackMenu();      // paint from cache: no blank flash
+    /**
+     * Then ASK, because the cache had exactly one filler — the load-time
+     * preference pass — and when that pass silently stopped running, the
+     * menu had no second source and opened empty on a dual-audio file. The
+     * viewer's own gesture is the cheapest possible moment to re-read mpv;
+     * the async re-render lands a frame or two later and corrects anything
+     * stale. Not awaited, so it carries its own catch: a failed read leaves
+     * the cached menu standing rather than vanishing into a dead promise.
+     */
+    refreshTrackMenus().catch((error) => console.error('track menu refresh failed:', error));
   }
 }
 
