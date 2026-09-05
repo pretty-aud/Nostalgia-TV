@@ -74,15 +74,21 @@
       </span>
     </label>
 
+    <!-- The count belongs to the PICKER, not to the list.
+         It answers "what did that choice leave me", so it stays with the
+         control that caused it and closes the fixed block — which also means
+         it never scrolls away. A count you have to scroll back up to read is
+         not a count, it is a caption on the first card.
+
+         No schedule name here: the picker directly above already says which
+         one is in force, and repeating it under its own control is the word
+         twice. The number is the part that changes, so it is all this says. -->
+    <h2 class="sectionhead sectionhead--count" id="showCount"></h2>
+
     <!-- The only scrolling region. Everything above and below stays put, so
-         the schedule and the marathon picker never scroll out of reach. -->
+         the schedule, the count and the marathon picker never scroll out of
+         reach. -->
     <div class="sidebar__scroll">
-      <!-- No name here. The picker directly above already says which schedule
-           is in force — repeating it under its own control is the word twice.
-           What is NOT obvious from up there is how many shows that leaves,
-           and that number is the thing which changes, so it is the only thing
-           this line says. -->
-      <h2 class="sectionhead sectionhead--count" id="showCount"></h2>
       <ul class="shows" id="showList"></ul>
       <p class="emptyshows" id="showsEmpty" hidden></p>
     </div>

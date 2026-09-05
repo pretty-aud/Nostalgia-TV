@@ -65,6 +65,12 @@
   --hair-soft:  rgba(244, 241, 234, 0.055);
   --lift:       rgba(244, 241, 234, 0.035);   /* hover plane */
 
+  /* The show card's edge at rest. Transparent everywhere but 02, whose whole
+     look is panels with black lines between them — a theme cannot add a
+     border to a component, so the component reads a token and the theme
+     fills it in. */
+  --card-edge: transparent;
+
   --grotesque: "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
   --display: "Space Grotesk", "Inter", system-ui, sans-serif;   /* wordmark only */
@@ -373,10 +379,15 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 /* The count line carries no name, so it does not need the space-between that
    pushed a heading and a number apart — it is one short phrase, set left, and
    sits closer to the list it counts. */
+/* Sits in the FIXED block with the picker, not in the scroller, so it is
+   always above the cards rather than scrolling away with them. The rule
+   underneath is what closes that block off from the list. */
 .sectionhead--count {
   display: block;
-  padding-top: calc(var(--u) * 2);
+  flex: 0 0 auto;
+  padding: calc(var(--u) * 2) var(--gutter);
   color: var(--ink-mute);
+  border-bottom: 1px solid var(--hair);
 }
 /* Only the NUMBER takes the accent: it is the part that changes when the
    schedule does, and colouring the noun with it would say the whole phrase
@@ -385,7 +396,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 .sectionhead__n { color: var(--ink-mute); letter-spacing: var(--tr-label); }
 
-.shows { list-style: none; padding-bottom: var(--u); }
+.shows { list-style: none; padding-top: calc(var(--u) * 1.5); padding-bottom: var(--u); }
 
 /* Hairline rules, not cards. Common Region is satisfied by the rule plus the
    shared left margin — a card would add weight for nothing. */
@@ -396,7 +407,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   margin: 0 var(--gutter) 6px;
   padding: calc(var(--u) * 1.5) calc(var(--u) * 2);
   background: rgba(244, 241, 234, 0.022);
-  border: 1px solid transparent;
+  border: 1px solid var(--card-edge);
   border-radius: var(--r-md);
   cursor: pointer;
   transition: background var(--fast), border-color var(--fast), transform var(--fast);
@@ -681,8 +692,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .field--schedule {
   flex: 0 0 auto;
   padding-top: calc(var(--u) * 2.5);
-  padding-bottom: calc(var(--u) * 2.5);
-  border-bottom: 1px solid var(--hair);
+  padding-bottom: 0;
 }
 .field__label {
   display: block;
@@ -2483,9 +2493,14 @@ input[type="range"]::-webkit-slider-thumb {
   --signal:      #ff8c2b;
   --signal-soft: rgba(255, 140, 43, 0.72);
   --signal-wash: rgba(255, 140, 43, 0.10);
-  --hair:       rgba(255, 255, 255, 0.16);
-  --hair-soft:  rgba(255, 255, 255, 0.08);
-  --lift:       rgba(255, 255, 255, 0.06);
+  /* BLACK rules, not white ones. Unit-02 is red plate divided by black
+     panel lines, and on a scarlet ground a black hairline reads as a seam
+     where a white one reads as a highlight. This is the only theme in the
+     set whose hairlines are darker than the surface they sit on. */
+  --hair:       rgba(0, 0, 0, 0.62);
+  --hair-soft:  rgba(0, 0, 0, 0.34);
+  --lift:       rgba(0, 0, 0, 0.18);
+  --card-edge:  rgba(0, 0, 0, 0.55);
 }
 
 /* Ceefax at six in the morning. Pure #000 is correct exactly here and nowhere
