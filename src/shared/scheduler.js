@@ -320,6 +320,28 @@ function activeSchedule(settings) {
   return found || null;
 }
 
+/**
+ * The shows a schedule actually contains, for the sidebar to list.
+ *
+ * `items` is an ORDERED list that may name the same show more than once —
+ * that is how a show gets two blocks in one rotation — so membership is a
+ * SET question and the answer is deduped by construction. Ids naming a show
+ * the library no longer has are simply absent from the result; a schedule
+ * outliving a deleted folder is ordinary, not an error.
+ *
+ * Library order is kept deliberately. The schedule decides WHICH shows are
+ * listed, not where each one sits, so finding a show by eye works the same
+ * way in every view.
+ *
+ * A null schedule means no schedule — every show.
+ */
+function showsInSchedule(shows, schedule) {
+  const all = Array.isArray(shows) ? shows : [];
+  if (!schedule) return all;
+  const wanted = new Set(schedule.items || []);
+  return all.filter((show) => show && wanted.has(show.id));
+}
+
 /** Episodes per block for whichever running order is in force. */
 function blockSizeFor(settings) {
   const schedule = activeSchedule(settings);
@@ -1099,6 +1121,7 @@ function applySettings(shows, state, patch, options = {}) {
 module.exports = {
   DEFAULT_SETTINGS,
   activeSchedule,
+  showsInSchedule,
   blockSizeFor,
   createState,
   reconcileCursors,

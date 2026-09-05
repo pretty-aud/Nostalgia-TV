@@ -10,6 +10,7 @@ import {
   reconcileCursors,
   pruneQueue,
   formatEpisodeLabel,
+  showsInSchedule,
 } from '../src/shared/scheduler.js';
 
 /** Deterministic PRNG so a failure is reproducible rather than "sometimes". */
@@ -408,5 +409,56 @@ describe('formatEpisodeLabel', () => {
   it('falls back to the filename when nothing parsed', () => {
     expect(formatEpisodeLabel({ season: null, episode: null, fileName: 'weird.mp4' }))
       .toBe('weird.mp4');
+  });
+});
+
+/**
+ * The sidebar lists what the schedule contains.
+ *
+ * Selecting a schedule stopped being only a playback decision the moment the
+ * picker moved above the show list: it now decides which cards are there at
+ * all, so "which shows does this schedule contain" became a real question
+ * with two answers that are easy to get wrong — a repeated show is ONE card,
+ * and a show the library has since lost is NO card rather than a crash.
+ */
+describe('the shows a schedule contains', () => {
+  const shows = [
+    { id: 'alpha', name: 'Alpha', episodes: [] },
+    { id: 'beta', name: 'Beta', episodes: [] },
+    { id: 'gamma', name: 'Gamma', episodes: [] },
+  ];
+
+  it('is every show when no schedule is in force', () => {
+    expect(showsInSchedule(shows, null).map((s) => s.id)).toEqual(['alpha', 'beta', 'gamma']);
+  });
+
+  it('keeps only the shows the schedule names', () => {
+    const schedule = { id: 's1', items: ['gamma', 'alpha'] };
+    expect(showsInSchedule(shows, schedule).map((s) => s.id)).toEqual(['alpha', 'gamma']);
+  });
+
+  it('lists a twice-scheduled show ONCE', () => {
+    // Two blocks of Alpha is one show on the channel, not two cards in a list.
+    const schedule = { id: 's1', items: ['alpha', 'beta', 'alpha'] };
+    expect(showsInSchedule(shows, schedule).map((s) => s.id)).toEqual(['alpha', 'beta']);
+  });
+
+  it('keeps LIBRARY order, not the order the schedule happens to list them in', () => {
+    // The schedule decides which shows appear; where each one sits is the
+    // library's business, so finding one by eye works the same in every view.
+    const schedule = { id: 's1', items: ['gamma', 'beta', 'alpha'] };
+    expect(showsInSchedule(shows, schedule).map((s) => s.id)).toEqual(['alpha', 'beta', 'gamma']);
+  });
+
+  it('ignores ids the library no longer has, without emptying the list', () => {
+    const schedule = { id: 's1', items: ['beta', 'deleted-show'] };
+    expect(showsInSchedule(shows, schedule).map((s) => s.id)).toEqual(['beta']);
+  });
+
+  it('returns nothing for a schedule with no items, rather than everything', () => {
+    // The empty-state copy in the sidebar depends on this: an empty schedule
+    // must read as "nothing in it yet", never silently as the whole library.
+    expect(showsInSchedule(shows, { id: 's1', items: [] })).toEqual([]);
+    expect(showsInSchedule(shows, { id: 's1' })).toEqual([]);
   });
 });

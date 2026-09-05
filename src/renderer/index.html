@@ -58,11 +58,28 @@
            shows themselves. -->
     </header>
 
-    <!-- The only scrolling region. Everything below stays put, so the schedule
-         and the marathon picker never scroll out of reach. -->
+    <!-- Which running order is in force, and — since it also decides WHICH
+         SHOWS the list below contains — it sits directly above that list
+         rather than down in the footer. A filter has to be next to the thing
+         it filters, or the list looks like it lost shows on its own.
+
+         It doubles as the marathon's status line: while one is running this
+         goes quiet and reads "<show> — marathon playing", and picking a
+         schedule from it is what ends the marathon. One control for "what
+         decides the order", rather than two that can disagree. -->
+    <label class="field field--schedule" id="scheduleField">
+      <span class="field__label mono">Schedule</span>
+      <span class="field__control">
+        <select class="select" id="scheduleSelect" aria-label="Set schedule"></select>
+      </span>
+    </label>
+
+    <!-- The only scrolling region. Everything above and below stays put, so
+         the schedule and the marathon picker never scroll out of reach. -->
     <div class="sidebar__scroll">
-      <h2 class="sectionhead"><span>Shows</span><span id="showCount" class="sectionhead__n"></span></h2>
+      <h2 class="sectionhead"><span id="showsHead">Shows</span><span id="showCount" class="sectionhead__n"></span></h2>
       <ul class="shows" id="showList"></ul>
+      <p class="emptyshows" id="showsEmpty" hidden></p>
     </div>
 
     <footer class="sidebar__foot">
@@ -77,19 +94,8 @@
         <span class="filmnext__name" id="scheduleMovieName"></span>
         <span class="filmnext__when mono" id="scheduleMovieWhen"></span>
       </p>
-      <!-- Which running order is in force. Sits exactly where the marathon
-           picker used to, so "Up next" above it is undisturbed.
-
-           It doubles as the marathon's status line: while one is running this
-           goes quiet and reads "<show> — marathon playing", and picking a
-           schedule from it is what ends the marathon. One control for "what
-           decides the order", rather than two that can disagree. -->
-      <label class="field" id="scheduleField">
-        <span class="field__label mono">Schedule</span>
-        <span class="field__control">
-          <select class="select" id="scheduleSelect" aria-label="Set schedule"></select>
-        </span>
-      </label>
+      <!-- The schedule picker used to sit here. It moved above the show list,
+           because it decides what that list contains. -->
 
       <div class="footactions">
         <!-- Marathon is a question, not a toggle: it has to know WHICH show, so

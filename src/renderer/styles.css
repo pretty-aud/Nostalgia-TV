@@ -340,6 +340,24 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 .sidebar__scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
+/* The schedule picker sits between the head and the list it filters, and must
+   never be squeezed by a long library — it is how you get back to All Shows. */
+.field--schedule {
+  flex: 0 0 auto;
+  padding-bottom: calc(var(--u) * 1.5);
+  border-bottom: 1px solid var(--hair);
+}
+
+/* Said when a schedule names no show the library still has. Without it the
+   list is simply blank, which reads as the app having lost them. */
+.emptyshows {
+  margin: 0 var(--gutter);
+  padding: calc(var(--u) * 2) 0;
+  font-size: var(--t-micro);
+  line-height: 1.5;
+  color: var(--ink-mute);
+}
+
 .sectionhead {
   display: flex;
   justify-content: space-between;
@@ -382,6 +400,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Inside a schedule the toggle is gone, so the column it lived in has to go
+   too: the card auto-places its children, and an empty second track would
+   pull the meta line up beside the show's name instead of under it. */
+.shows[data-toggles="false"] .show { grid-template-columns: 1fr; }
 
 .show__toggle {
   grid-row: span 2;

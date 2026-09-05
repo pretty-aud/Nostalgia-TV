@@ -28,6 +28,7 @@ import {
   applySettings,
   formatEpisodeLabel,
   activeSchedule,
+  showsInSchedule,
 } from '../shared/scheduler.js';
 import {
   summarizeShow,
@@ -421,14 +422,57 @@ function renderSidebar() {
   el('libraryStats').textContent = shows.length
     ? `${shows.length} shows · ${episodeCount} episodes`
     : '';
-  el('showCount').textContent = shows.length ? String(shows.length) : '';
+  /**
+   * The list follows the schedule picker above it.
+   *
+   * With a schedule in force the sidebar shows THAT schedule's shows and
+   * nothing else — the question "what is on this channel" has a different
+   * answer once a running order is fixed, and scrolling the whole library to
+   * find out was answering the wrong one. "All Shows" is the way back.
+   *
+   * Library order, not schedule order: the membership changes, the place a
+   * show sits does not, so finding one by eye still works the same way. A
+   * schedule may list the same show twice — that is how it gets two blocks —
+   * so the set is deduped by construction.
+   */
+  const running = activeSchedule(state.settings);
+  const visible = showsInSchedule(shows, running);
+
+  /**
+   * The switch-off checkbox belongs to the whole library, not to a schedule.
+   *
+   * Inside a schedule the running order already decides what plays, so a tick
+   * box there would be a second, quieter answer to the same question — and
+   * switching a show off from a list that only exists because a schedule
+   * named it reads as removing it FROM the schedule, which it does not do.
+   * The card still plays on click; only the toggle goes.
+   */
+  const showToggles = !running;
+
+  el('showsHead').textContent = running ? running.name : 'Shows';
+  el('showCount').textContent = visible.length ? String(visible.length) : '';
 
   const list = el('showList');
   list.textContent = '';
+  // The card is a two-column grid built around the toggle, so dropping the
+  // toggle has to drop the column with it — otherwise the meta line
+  // auto-places into the empty second column and sits BESIDE the show's name
+  // instead of under it.
+  list.dataset.toggles = String(showToggles);
   const disabled = new Set(state.settings.disabledShows || []);
   const marathonId = state.settings.marathonShowId || null;
 
-  for (const show of shows) {
+  const empty = el('showsEmpty');
+  if (running && visible.length === 0) {
+    empty.hidden = false;
+    empty.textContent = (running.items || []).length
+      ? 'The shows in this schedule are not in the library any more.'
+      : 'This schedule has no shows in it yet.';
+  } else {
+    empty.hidden = true;
+  }
+
+  for (const show of visible) {
     const cursor = state.cursors[show.id] || { index: 0 };
     const position = Math.min(cursor.index, show.episodes.length);
     const nextEpisode = show.episodes[position % show.episodes.length];
@@ -438,7 +482,9 @@ function renderSidebar() {
     li.className = 'show';
     li.dataset.off = String(off);
     li.dataset.showId = show.id;
-    li.title = off ? 'Switched off — click to include' : 'Click to switch off';
+    li.title = showToggles
+      ? (off ? 'Switched off — click to include' : 'Click to switch off')
+      : 'Click to play this show now';
 
     const name = document.createElement('div');
     name.className = 'show__name';
@@ -490,7 +536,9 @@ function renderSidebar() {
     fill.style.width = `${show.episodes.length ? (position / show.episodes.length) * 100 : 0}%`;
     bar.append(fill);
 
-    li.append(name, toggle, meta, bar, showControls(show, marathonId === show.id));
+    li.append(name);
+    if (showToggles) li.append(toggle);
+    li.append(meta, bar, showControls(show, marathonId === show.id));
     list.append(li);
   }
 
@@ -709,10 +757,18 @@ function renderScheduleField() {
     select.append(status);
   }
 
-  const off = document.createElement('option');
-  off.value = '';
-  off.textContent = savedSchedules().length ? 'Off — shuffle the rotation' : 'No schedules yet';
-  select.append(off);
+  /**
+   * "All Shows" is the same choice the "Off — shuffle the rotation" entry
+   * was: no schedule in force. The label changed because this control now
+   * decides the LIST as well as the order, and from the list's side the
+   * honest name for "no schedule" is "everything". It is never "No schedules
+   * yet" any more either — with nothing saved, All Shows is still exactly
+   * what you are looking at, and Create new… below says what to do next.
+   */
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = 'All Shows';
+  select.append(all);
 
   for (const sc of savedSchedules()) {
     const option = document.createElement('option');
@@ -721,6 +777,17 @@ function renderScheduleField() {
     option.textContent = `${sc.name} · ${blocks} block${blocks === 1 ? '' : 's'}`;
     select.append(option);
   }
+
+  /**
+   * An ACTION in a list of states, which a <select> is not really for — but
+   * it belongs here: "make another one" is the same question as "which one",
+   * asked when the answer is none of these. It never becomes the value; the
+   * change handler opens the editor and puts the selection straight back.
+   */
+  const create = document.createElement('option');
+  create.value = '__create__';
+  create.textContent = savedSchedules().length ? 'Create new…' : 'Create a schedule…';
+  select.append(create);
 
   select.value = marathonShow ? '__marathon__' : (running ? running.id : '');
   select.disabled = shows.length === 0;
@@ -3332,6 +3399,21 @@ function wireEvents() {
     const id = event.target.value;
     // Re-selecting the status line itself is not a choice; put it back.
     if (id === '__marathon__') { renderScheduleField(); return; }
+
+    /**
+     * Create new… is an action, not a running order. Open the editor on a
+     * BLANK draft — picking "create" and being shown the schedule you already
+     * had would be the wrong answer to the question asked — and put the
+     * selection back to whatever is actually in force, so the control never
+     * sits displaying a verb.
+     */
+    if (id === '__create__') {
+      loadDraft(null);
+      el('scheduleModal').hidden = false;
+      renderScheduleEditor();
+      renderScheduleField();
+      return;
+    }
 
     state = applySettings(shows, state, {
       activeScheduleId: id || null,
