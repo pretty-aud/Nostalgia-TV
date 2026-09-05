@@ -2443,7 +2443,11 @@ input[type="range"]::-webkit-slider-thumb {
 /* Drawn from WILSON, the sibling app: its own burnt orange on its own warm
    stone greys, read from its stylesheet rather than guessed. The warmth is the
    point — every neutral tints toward brown, which is what keeps it a workshop
-   rather than the cockpit that ember and foundry already are. */
+   rather than the cockpit that ember and foundry already are.
+
+   ONE accent, deliberately. An amber second accent was tried and taken back
+   out: --signal-alt drives the show progress bars and the checkboxes, so it
+   put YELLOW bars on an orange theme. WILSON is orange. */
 :root[data-theme="wilson"] {
   --paper:      #14110f;
   --paper-lift: #221e1a;
@@ -2454,33 +2458,34 @@ input[type="range"]::-webkit-slider-thumb {
   --signal:      #ea580c;
   --signal-soft: rgba(234, 88, 12, 0.78);
   --signal-wash: rgba(234, 88, 12, 0.10);
-  --signal-alt:  #fbbf24;
-  --signal-alt-soft: rgba(251, 191, 36, 0.85);
   --hair:       rgba(240, 233, 225, 0.14);
   --hair-soft:  rgba(240, 233, 225, 0.07);
   --lift:       rgba(240, 233, 225, 0.05);
 }
 
-/* Unit-02. Armour red for the live state, hazard orange for the trim, warm
-   white for type, on a near-black that has red left in it. The field stays
-   dark on purpose: a red ground would fight every frame of video. Against
-   siren the difference is warmth and the orange — siren is a clinical red on
-   neutral black with no second accent at all. */
-:root[data-theme="unit02"] {
-  --paper:      #0c0505;
-  --paper-lift: #180a0a;
-  --paper-high: #251110;
-  --ink:        #fff4ef;
-  --ink-mute:   #b39a97;
-  --ink-faint:  #7a6360;
-  --signal:      #f0432c;
-  --signal-soft: rgba(240, 67, 44, 0.66);
-  --signal-wash: rgba(240, 67, 44, 0.10);
-  --signal-alt:  #ff9e1b;
-  --signal-alt-soft: rgba(255, 158, 27, 0.85);
-  --hair:       rgba(255, 244, 239, 0.14);
-  --hair-soft:  rgba(255, 244, 239, 0.07);
-  --lift:       rgba(255, 244, 239, 0.05);
+/* 02.
+
+   Asuka's unit is RED, and the first attempt got that wrong: it kept the app
+   near-black with a red accent, which reads as "a dark theme" rather than as
+   the machine. The red belongs in the SURFACES — the sidebar is the thing you
+   actually look at — with orange for the trim and white for the type.
+
+   --paper stays dark all the same, because that is the plane video plays on
+   and a red field would fight every frame. So the picture sits on near-black
+   while the interface around it is armour. */
+:root[data-theme="02"] {
+  --paper:      #200706;
+  --paper-lift: #6b1a14;
+  --paper-high: #8a2018;
+  --ink:        #ffffff;
+  --ink-mute:   #e8c3bd;
+  --ink-faint:  #b3877f;
+  --signal:      #ff8c2b;
+  --signal-soft: rgba(255, 140, 43, 0.72);
+  --signal-wash: rgba(255, 140, 43, 0.10);
+  --hair:       rgba(255, 255, 255, 0.16);
+  --hair-soft:  rgba(255, 255, 255, 0.08);
+  --lift:       rgba(255, 255, 255, 0.06);
 }
 
 /* Ceefax at six in the morning. Pure #000 is correct exactly here and nowhere

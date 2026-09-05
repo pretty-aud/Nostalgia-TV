@@ -2121,13 +2121,18 @@ function applyVolume() {
 }
 
 const THEMES = [
+  // Grouped by colour family, five to a row — the order the menu shows them
+  // in. A theme appended to the end lands next to whatever happened to be
+  // last, which is how a grey-and-green ended up beside Kawaii.
   'midnight', 'signal', 'foundry', 'siren', 'mono',
+  'teletext',
   'slate', 'bone', 'clay', 'arctic', '78',
   'ember', 'searchlight', 'nitrate', 'crimson', 'marigold',
+  'wilson', '02',
   'greenbox', 'forest', 'mint', 'oceanic', 'orbital',
+  'bench',
   '01', 'neon', 'vhs', 'sunset', 'lilac',
   'kawaii',
-  'bench', 'wilson', 'unit02', 'teletext',
 ];
 
 /**
@@ -2139,7 +2144,7 @@ const THEMES = [
  * able from the setting not having saved, which is the exact complaint this
  * app has already been through once.
  */
-const THEME_ALIASES = { grape: '01' };
+const THEME_ALIASES = { grape: '01', unit02: '02' };
 
 /**
  * Themes whose panels are LIGHT.
