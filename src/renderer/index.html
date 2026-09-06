@@ -231,6 +231,17 @@
         <div class="detail__head">
           <h3 class="detail__title" id="detailTitle"></h3>
           <p class="detail__meta mono" id="detailMeta"></p>
+          <!-- What the file IS: picture size, the languages you can hear it
+               in, and a CC badge when it carries subtitles. Hidden until the
+               probe answers, so the panel opens instantly and this fills in —
+               and stays hidden for anything unreadable rather than printing a
+               row of question marks. CC is deliberately two ASCII letters:
+               the VHS skin's two faces do not share a subtitle glyph, and a
+               badge nobody has to have a font for cannot fall back. -->
+          <p class="detail__media mono" id="detailMedia" hidden>
+            <span id="detailMediaText"></span>
+            <span class="ccbadge" id="detailCC" hidden>CC</span>
+          </p>
           <div class="detail__actions">
             <button class="btn btn--signal" id="btnDetailPlay" type="button">Play</button>
             <button class="btn btn--quiet" id="btnDetailSettings" type="button"

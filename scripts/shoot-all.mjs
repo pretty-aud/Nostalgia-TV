@@ -22,6 +22,7 @@ const SHOTS = [
   'transport-volume-muted',
   'sidebar-footer',
   'browse-rail',
+  'detail-media',
   'browse-search',
   'art-picker',
   'art-picker-drag',

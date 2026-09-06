@@ -4270,6 +4270,42 @@ input[type="range"]::-webkit-slider-thumb {
   line-height: var(--lh-name);
 }
 .detail__meta { font-size: var(--t-meta); color: var(--ink-mute); }
+
+/**
+ * What the file is — resolution, audio languages, and the subtitle badge.
+ *
+ * A step quieter than the episode count above it: this is reference detail
+ * you read once before pressing play, not something to scan the panel for.
+ */
+.detail__media {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  margin-top: 4px;
+  font-size: var(--t-micro);
+  color: var(--ink-faint);
+}
+
+/**
+ * CC, in a box. Two ASCII letters ON PURPOSE.
+ *
+ * Every Unicode subtitle mark is a glyph a font has to carry, and the VHS
+ * skin's two faces have very nearly disjoint coverage of exactly that kind of
+ * symbol — one of them would have fallen back to an OS font, which is the bug
+ * this project has already spent a day on. C and C are in every face there
+ * has ever been. It is also the mark people already read as "subtitles".
+ */
+.ccbadge {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: 1.4;
+  letter-spacing: var(--tr-label);
+  color: var(--ink-mute);
+}
 .detail__actions { display: flex; gap: var(--u); margin-top: auto; flex-wrap: wrap; }
 
 .eplist {

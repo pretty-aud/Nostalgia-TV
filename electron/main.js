@@ -1133,6 +1133,20 @@ function registerIpc() {
     try { return await prepare.detectCrop(absPath, { cachedOnly }); } catch { return null; }
   });
 
+  /**
+   * What a file IS — picture size, audio languages, whether it has subtitles.
+   *
+   * For the library's detail panel, so a show can say what it is before you
+   * commit to playing it. Backed by the probe memo, which is keyed on path,
+   * size and mtime: opening the same show twice reads no disk at all. Null on
+   * anything unreadable, so the panel omits the line instead of printing a
+   * row of question marks.
+   */
+  ipcMain.handle('media:summary', async (_event, absPath) => {
+    if (typeof absPath !== 'string' || !isInsideAllowedRoot(absPath)) return null;
+    try { return await prepare.describeMedia(absPath); } catch { return null; }
+  });
+
 }
 
 // ---------------------------------------------------------------------------

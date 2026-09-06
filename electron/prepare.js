@@ -22,6 +22,7 @@ const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 
 const { probeMatroska } = require('../src/shared/probeMatroska.js');
+const { mediaSummary } = require('../src/shared/mediaSummary.js');
 const {
   planPlayback, ffmpegArgsFor, TIER,
   codecIdFromFfprobe, isTextSubtitle, describeLanguage, isCommentary, pickAudioTrack,
@@ -417,6 +418,40 @@ async function probeWithFfprobeUncached(absPath) {
  * `index` counts within its own kind, because that is what both ffmpeg's
  * `-map 0:a:N` and the UI need.
  */
+/**
+ * What a file IS, for the library's detail panel: how big the picture is,
+ * what languages you can hear it in, and whether it carries subtitles.
+ *
+ * The same two-step as inspect(): ffprobe when it exists — it reads every
+ * container and carries the language tags — with the Matroska header parser
+ * as the no-ffmpeg fallback. Both are memoised on path plus size and mtime,
+ * so opening the same show a second time costs nothing and touches no disk.
+ * That memo is the whole reason this is safe to call from a panel that opens
+ * on a click, on a library that lives on an external drive.
+ *
+ * The header parser reads languages but not dimensions, so without ffmpeg the
+ * resolution comes back null and the panel simply omits it. Null overall when
+ * neither could read the file — the caller shows nothing rather than "unknown".
+ */
+async function describeMedia(absPath) {
+  const ext = path.extname(absPath).toLowerCase();
+  let probe = await probeWithFfprobe(absPath);
+
+  if ((!probe || !probe.ok) && (ext === '.mkv' || ext === '.webm')) {
+    try {
+      probe = probeMatroska(await readHead(absPath, HEAD_BYTES));
+      if (!probe.ok && probe.truncated) {
+        probe = probeMatroska(await readHead(absPath, HEAD_BYTES_RETRY));
+      }
+    } catch {
+      probe = null;
+    }
+  }
+
+  if (!probe || !probe.ok || !Array.isArray(probe.tracks)) return null;
+  return mediaSummary(probe.tracks);
+}
+
 async function listTracks(absPath, options = {}) {
   const probe = (await probeWithFfprobe(absPath)) || { ok: false, tracks: [] };
 
@@ -1154,6 +1189,7 @@ module.exports = {
   writeVerdict,
   inspect,
   listTracks,
+  describeMedia,
   detectCrop,
   extractSubtitle,
   ensurePlayable,

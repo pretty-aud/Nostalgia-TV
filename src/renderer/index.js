@@ -59,6 +59,7 @@ import { pickAudioTrackId, pickSubtitleTrackId, audioMenuFrom, subtitleMenuFrom 
 import { subStyleProperties } from '../shared/mpvSubStyle.js';
 import { cropSpecFor } from '../shared/mpvCrop.js';
 import { titleLines } from '../shared/titleLines.js';
+import { summaryLine } from '../shared/mediaSummary.js';
 import { FONT_CHOICES, DEFAULT_FONTS, fontStackFor } from '../shared/fonts.js';
 import {
   tagsFor, withTags, allTags, tagsInUse, matchesGenres, narrowTags, offersCreate,
@@ -6465,8 +6466,64 @@ function openDetail(show) {
     : (watched > 0 ? `Play ${formatEpisodeLabel(next)}` : 'Play');
 
   renderEpisodes(show);
+  showMediaSummary(show, next);
   el('browseDetail').hidden = false;
   play.focus();
+}
+
+/**
+ * What the file IS, under the title: picture size, audio languages, and a CC
+ * badge when it carries subtitles.
+ *
+ * Read from ONE episode, not all of them. A season is encoded as a set and
+ * probing twenty-six files to print one line would be twenty-six reads of an
+ * external drive for an answer that does not vary. The next episode is the
+ * one already computed for the Play button, so it is also the one she is
+ * about to watch.
+ *
+ * Deliberately not awaited before the panel opens: the panel is instant and
+ * this line appears when the probe answers. The stamp guards against a slow
+ * probe for show A landing after she has opened show B — the same hazard the
+ * artwork painter has, and the same fix.
+ */
+const mediaSummaryCache = new Map();
+let mediaSummaryStamp = 0;
+
+async function showMediaSummary(show, episode) {
+  const row = el('detailMedia');
+  const text = el('detailMediaText');
+  const cc = el('detailCC');
+  row.hidden = true;
+  cc.hidden = true;
+  text.textContent = '';
+
+  const absPath = episode && episode.absPath;
+  if (!absPath || !window.tv.mediaSummary) return;
+
+  const stamp = (mediaSummaryStamp += 1);
+  const key = show.id;
+  let summary = mediaSummaryCache.get(key);
+  if (summary === undefined) {
+    summary = await window.tv.mediaSummary(absPath).catch(() => null);
+    mediaSummaryCache.set(key, summary);
+  }
+  // She opened something else while this was in flight.
+  if (stamp !== mediaSummaryStamp || browseDetailShow !== show) return;
+  if (!summary) return;
+
+  const line = summaryLine(summary);
+  if (!line && !summary.hasSubtitles) return;
+
+  text.textContent = line;
+  if (summary.dimensions) row.title = summary.dimensions;
+  if (summary.hasSubtitles) {
+    cc.hidden = false;
+    cc.title = summary.subtitles.length
+      ? `Subtitles: ${summary.subtitles.join(', ')}`
+      : `${summary.subtitleCount} subtitle track${summary.subtitleCount === 1 ? '' : 's'}`;
+    cc.setAttribute('aria-label', cc.title);
+  }
+  row.hidden = false;
 }
 
 function closeDetail() {

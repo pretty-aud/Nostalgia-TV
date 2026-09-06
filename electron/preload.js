@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('tv', {
    * and main's boot sweep clears any remainder without being asked.
    */
   detectCrop: (absPath, options) => ipcRenderer.invoke('prepare:crop', absPath, options),
+  mediaSummary: (absPath) => ipcRenderer.invoke('media:summary', absPath),
 
   // --- the mpv player (mpv-player branch) ----------------------------------
   // Typed verbs, not a raw command pipe: each one is validated in

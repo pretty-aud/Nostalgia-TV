@@ -142,6 +142,17 @@
     chooseArtwork: async () => ({ ok: false, cancelled: true }),
     setArtworkFromData: async () => ({ ok: false, error: 'not in the preview' }),
     rebuildArtwork: async () => ({ ok: true, removed: 0 }),
+    // Enough shape for the detail panel to render its media line in the
+    // preview: a dual-audio 1080p file that carries subtitles.
+    mediaSummary: async () => ({
+      resolution: '1080p',
+      dimensions: '1920×1080',
+      audio: ['Japanese', 'English'],
+      audioCount: 2,
+      subtitles: ['English'],
+      subtitleCount: 1,
+      hasSubtitles: true,
+    }),
 
     /**
      * The window verbs and the crop probe. A browser has no window to
