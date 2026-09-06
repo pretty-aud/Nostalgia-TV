@@ -3119,9 +3119,25 @@ input[type="range"]::-webkit-slider-thumb {
   --e-2:  none;
   --e-3:  none;
 
-  /* Full caps at 16px need the room, and she asked for the layout to move
-     rather than for titles to truncate. */
-  --sidebar-w: 400px;
+  /**
+   * Full caps at 16px need the room, and she asked for the layout to move
+   * rather than for titles to truncate.
+   *
+   * 400 was not enough, and it failed in the least obvious way: the show
+   * card's meta line is the widest fixed string in the app, and at 400 it got
+   * 283px for 288px of text. Five pixels. So a show with a THREE-DIGIT
+   * episode count — "NEXT S01E04 · 3 WATCHED OF 112" — wrapped, orphaning the
+   * count on a line of its own and making that one card 24px taller than its
+   * neighbours. Nothing overflowed; it just read as text falling out of the
+   * frame, which is how she described it.
+   *
+   * 440 leaves 323px, which carries the worst case the library can produce
+   * (a three-digit code AND a four-digit count, 307px). Widening rather than
+   * truncating, because BOTH numbers on that line are deliberately labelled —
+   * they disagree by one by design, and "3/112" is the misread the labels
+   * exist to prevent.
+   */
+  --sidebar-w: 440px;
 
   --mono: "IBM VGA 8x16", "JetBrains Mono", ui-monospace, monospace;
 }
