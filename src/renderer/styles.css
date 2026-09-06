@@ -4123,6 +4123,19 @@ input[type="range"]::-webkit-slider-thumb {
 .rail__arrow:focus-visible { opacity: 1; }
 .rail__arrow:hover { color: var(--signal); }
 
+/**
+ * NO FADE UNDER THE SKIN.
+ *
+ * The arrows sit on a gradient that dissolves the tile beneath them. A
+ * character generator drew a box or it drew nothing — there is no in-between
+ * pixel, which is the same rule that kills every radius and shadow in this
+ * skin. A solid ground rather than none: the arrow still has to be legible
+ * over a bright frame, and hard-edged opacity is exactly how the hardware
+ * would have done it.
+ */
+:root[data-skin="vcr"] .rail__arrow--prev,
+:root[data-skin="vcr"] .rail__arrow--next { background: var(--paper); }
+
 @media (prefers-reduced-motion: reduce) {
   .rail { scroll-behavior: auto; }
 }

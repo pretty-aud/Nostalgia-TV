@@ -6030,6 +6030,17 @@ function closeGenreMenu() {
  * real tiles only.
  */
 const CAROUSEL_MIN_TO_LOOP = 4;
+/**
+ * How long a view of three sits before the row moves on by itself.
+ *
+ * Read when a rail is BUILT rather than baked in at module load, so the
+ * preview can shorten it: the behaviour is a timer, and a probe that had to
+ * spend fifteen real seconds per assertion would blow the screenshot runner's
+ * own timeout long before it proved anything. Nothing in the packaged app sets
+ * that global — there is no path to it through the preload bridge.
+ */
+const CAROUSEL_ADVANCE_MS = 15000;
+const advanceInterval = () => Number(window.__railAdvanceMs) || CAROUSEL_ADVANCE_MS;
 
 function carousel(title, rows, build) {
   const wrap = document.createElement('section');
@@ -6210,6 +6221,56 @@ function carousel(title, rows, build) {
       }
       markDot();
     });
+  }
+
+  /**
+   * THE ROW MOVES ON BY ITSELF, a view at a time.
+   *
+   * Fifteen seconds, and a whole viewport — the same step the arrows take, so
+   * a card is never left sliced by the frame edge.
+   *
+   * What it must not do is fight her. It stands down while the pointer is
+   * over the row, while anything inside it has focus, while a detail panel is
+   * open on top, while the window is in the background, and while the library
+   * page is not on screen at all — a hidden rail scrolling in the background
+   * would just mean reopening the library to find it somewhere unexpected.
+   *
+   * It also does not run under prefers-reduced-motion. Unrequested motion is
+   * precisely what that setting exists to stop, and this is the only motion in
+   * the app nobody asked for.
+   *
+   * The interval clears itself when the row leaves the DOM. renderBrowse()
+   * rebuilds these wholesale, so without that check every redraw would leave
+   * another timer running against a discarded element for the rest of the
+   * session.
+   */
+  if (pages > 1) {
+    let paused = false;
+    const hold = () => { paused = true; };
+    const release = () => { paused = false; };
+    wrap.addEventListener('pointerenter', hold);
+    wrap.addEventListener('pointerleave', release);
+    wrap.addEventListener('focusin', hold);
+    wrap.addEventListener('focusout', release);
+
+    const timer = setInterval(() => {
+      if (!wrap.isConnected) { clearInterval(timer); return; }
+      if (paused || reducedMotion() || document.hidden) return;
+      // offsetParent is null whenever an ancestor is display:none — which is
+      // how the library page is put away.
+      if (wrap.offsetParent === null) return;
+      if (detailOpen()) return;
+
+      const step = viewport.clientWidth;
+      if (!step) return;
+      // A short rail does not loop by cloning, so it rewinds at the end
+      // instead of stopping there with nowhere left to go.
+      const atEnd = viewport.scrollLeft + step >= viewport.scrollWidth - 4;
+      viewport.scrollTo({
+        left: (!loops && atEnd) ? 0 : viewport.scrollLeft + step,
+        behavior: 'smooth',
+      });
+    }, advanceInterval());
   }
 
   return wrap;

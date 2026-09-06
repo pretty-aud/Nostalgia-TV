@@ -22,6 +22,7 @@ const SHOTS = [
   'transport-volume-muted',
   'sidebar-footer',
   'browse-rail',
+  'rail-autoplay',
   'detail-media',
   'detail-movie',
   'library-transport',

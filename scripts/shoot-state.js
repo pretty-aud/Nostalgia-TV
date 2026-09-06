@@ -17,7 +17,7 @@
  * Design tooling only. Not part of the build.
  */
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, screen } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -48,6 +48,22 @@ app.whenReady().then(async () => {
     app.exit(3);
     return;
   }
+
+  /**
+   * ON THE SECOND MONITOR WHENEVER THERE IS ONE.
+   *
+   * This runs thirty-nine times in a full pass and each one puts a window on
+   * screen. Landing them on the primary display means stealing the screen
+   * from whatever is playing there — which is exactly what happened, and it
+   * is not acceptable for a review tool to interrupt the thing being
+   * reviewed. Same convention electron/main.js uses for NTV_SMOKE_PLACE.
+   *
+   * Positioned BEFORE the show, so it never appears on the wrong screen even
+   * for a frame.
+   */
+  const primary = screen.getPrimaryDisplay();
+  const other = screen.getAllDisplays().find((d) => d.id !== primary.id);
+  if (other) win.setPosition(other.workArea.x + 60, other.workArea.y + 60);
 
   win.showInactive();
   await win.webContents.executeJavaScript('document.fonts.ready.then(() => true)').catch(() => {});
