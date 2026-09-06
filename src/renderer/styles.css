@@ -3275,6 +3275,26 @@ input[type="range"]::-webkit-slider-thumb {
   background: transparent;
   color: var(--ink);
 }
+/**
+ * THE DROPDOWN LIST WAS WHITE ON WHITE.
+ *
+ * A select's popup is drawn by the operating system, not by the page, and it
+ * paints its own light background behind whatever colour the options carry.
+ * The options inherited the skin's ink — measured, `rgb(255,255,255)` on
+ * `rgba(0,0,0,0)` — so every unselected row was white text on the OS's white,
+ * and only the highlighted row, which gets the OS's own colours, could be
+ * read at all.
+ *
+ * Both halves have to be stated on the option itself; setting them on the
+ * select does not reach the popup. Chromium honours option background-color
+ * and color on Windows, which is what this is. The closed control keeps the
+ * skin's own transparent-on-paper look from the rule below.
+ */
+:root[data-skin="vcr"] option {
+  background-color: var(--paper);
+  color: var(--ink);
+}
+
 /* Selected reads as INVERSE VIDEO, the era's own highlight. */
 :root[data-skin="vcr"] .mode[aria-pressed="true"],
 :root[data-skin="vcr"] .btn--primary {
@@ -3670,13 +3690,47 @@ input[type="range"]::-webkit-slider-thumb {
 /* 80px = the OSD line's own bottom edge (32 top + 32 tall) plus a 16px gap.
    Measured rather than guessed: 56 left them overlapping by eight pixels. */
 :root[data-skin="vcr"] .chrome__top { padding-top: 80px; }
+/**
+ * THE COUNTER CLEARS THE CHROME BY SITTING ON IT, NOT BY GUESSING AT IT.
+ *
+ * This was `bottom: 128px`, a number measured against a ONE-ROW transport.
+ * The transport now reflows to two rows on a narrow window and 128px stopped
+ * clearing it: at 980 wide the counter landed on the timeline, overlapping
+ * the scrub by its own full 32px height. She found that; the constant was
+ * flagged in review and I left it.
+ *
+ * So the counter is no longer a corner of the OSD overlay measured up from
+ * the floor — it is a child of .chrome__bottom parked immediately above it.
+ * `bottom: 100%` puts its bottom edge on that box's top edge whatever height
+ * the box happens to be, which is exactly the relationship that was being
+ * approximated. One row, two rows, or a control added later: it follows.
+ *
+ * (CSS anchor positioning is supported by this engine and would express the
+ * same thing, but `bottom: calc(anchor(top) + 16px)` resolved to 688px here
+ * and threw the counter to the top of the screen — the anchor sits AFTER the
+ * positioned element in DOM order. Not worth the debugging.)
+ *
+ * It keeps the .osd class prefix because it is still OSD furniture; it just
+ * no longer lives inside .osd, so its font, colour, blanking and outline are
+ * all restated here rather than inherited.
+ */
+.osd__count { display: none; }
+
+:root[data-skin="vcr"] .chrome__bottom { position: relative; }
 :root[data-skin="vcr"] .osd__count {
-  right: 48px;
-  bottom: 128px;             /* clear of the transport, which owns the floor */
   display: grid;
+  position: absolute;
+  right: 48px;
+  bottom: 100%;
+  margin-bottom: 16px;
   justify-items: end;
   gap: 6px;
   text-align: right;
+  font-family: var(--mono);
+  font-size: var(--t-title);
+  line-height: 1;
+  color: var(--ink);
+  pointer-events: none;      /* a readout, never a target */
 }
 
 /**
@@ -3690,6 +3744,7 @@ input[type="range"]::-webkit-slider-thumb {
  * centred on the outline and eats into the letterform instead of ringing it.
  */
 :root[data-skin="vcr"] .osd,
+:root[data-skin="vcr"] .osd__count,
 :root[data-skin="vcr"] .nowplaying,
 :root[data-skin="vcr"] .chrome .time,
 :root[data-skin="vcr"] .chrome .upnext {

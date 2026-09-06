@@ -48,12 +48,47 @@ out.whiteIsLight = root.dataset.light === 'true';
 await wait(400);
 out.blueIsDark = root.dataset.light === 'false';
 
+/**
+ * THE DROPDOWN LIST, which no screenshot of this page can ever show.
+ *
+ * A select's popup is drawn by the operating system and paints its own light
+ * background behind whatever colour the options carry. The options were
+ * inheriting the skin's white ink with no background of their own — measured
+ * rgb(255,255,255) on rgba(0,0,0,0) — so the programming list was white on
+ * white and only the highlighted row was readable. Nothing in the rendered
+ * page looks wrong, which is why this has to be asserted rather than seen.
+ *
+ * Failing control: delete the `:root[data-skin="vcr"] option` rule and this
+ * throws on the transparent background before it even reaches the ratio.
+ */
+const opt = document.querySelector('#scheduleSelect option');
+if (!opt) throw new Error('no programming options to check');
+const optStyle = getComputedStyle(opt);
+const optBg = optStyle.backgroundColor;
+const optFg = optStyle.color;
+if (/rgba\(0, 0, 0, 0\)|transparent/.test(optBg)) {
+  throw new Error(`dropdown options carry no background of their own (${optBg}), so the OS paints its own behind ${optFg}`);
+}
+const chan = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number).map((v) => {
+  const s = v / 255;
+  return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+});
+const lum = (c) => { const [r, g, b] = chan(c); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const contrast = (a, b) => {
+  const [hi, lo] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (hi + 0.05) / (lo + 0.05);
+};
+out.dropdownContrast = +contrast(optFg, optBg).toFixed(2);
+if (out.dropdownContrast < 4.5) {
+  throw new Error(`dropdown options measure ${out.dropdownContrast}:1 — ${optFg} on ${optBg}`);
+}
+
 // Leaving the skin must clear the pair attributes entirely.
 sel.value = 'midnight'; sel.dispatchEvent(new Event('change', { bubbles: true }));
 await wait(600);
 out.attributesCleared = !root.dataset.osdInk && !root.dataset.osdGround && !root.dataset.skin;
 
-const bad = Object.entries(out).filter(([k, v]) => !['defaultPair', 'sample', 'inkCells', 'groundCells', 'pairsResolved'].includes(k) && !v);
+const bad = Object.entries(out).filter(([k, v]) => !['defaultPair', 'sample', 'inkCells', 'groundCells', 'pairsResolved', 'dropdownContrast'].includes(k) && !v);
 if (out.inkCells !== 4 || out.groundCells !== 4) throw new Error('rails not 4+4: ' + out.inkCells + '/' + out.groundCells);
 if (out.pairsResolved !== 16) throw new Error('only ' + out.pairsResolved + ' pairs walked');
 if (bad.length) throw new Error(`colour rails: ${bad.map(([k]) => k).join(', ')} — ${JSON.stringify(out)}`);

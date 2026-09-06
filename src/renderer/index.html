@@ -314,9 +314,6 @@
       <div class="osd" aria-hidden="true">
         <span class="osd__state" id="osdState" data-state="play">PLAY</span>
         <span class="osd__speed">SP</span>
-        <span class="osd__count">
-          <span class="osd__clock" id="osdClock">00:00:00</span>
-        </span>
       </div>
       <div class="chrome__top">
         <div class="nowplaying">
@@ -327,6 +324,14 @@
       </div>
 
       <div class="chrome__bottom">
+        <!-- The tape counter. OSD furniture, and drawn in no theme but the
+             VHS skin, but it lives HERE rather than in .osd because it has to
+             sit immediately above this box — and this box changes height when
+             the transport reflows onto a second row. Anchored to the thing it
+             must clear instead of to a constant that went stale. -->
+        <span class="osd__count" aria-hidden="true">
+          <span class="osd__clock" id="osdClock">00:00:00</span>
+        </span>
         <div class="scrub" id="scrub">
           <div class="scrub__track"><i class="scrub__fill" id="scrubFill"></i></div>
         </div>

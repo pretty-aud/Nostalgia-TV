@@ -95,6 +95,26 @@ if (chrome && chrome.scrollHeight > chrome.clientHeight + 1) {
   throw new Error('the chrome cannot hold the reflowed transport');
 }
 
+/**
+ * The tape counter must CLEAR the chrome, at whatever height the chrome is.
+ *
+ * It used to be positioned with a constant measured against a one-row
+ * transport, so the moment the row reflowed it landed on the timeline —
+ * overlapping the scrub by its own full height, which is how she found it.
+ * Failing control: put `bottom: 128px` back on .osd__count and this fires at
+ * 980 wide with "overlaps the timeline by 32px".
+ */
+const counter = document.querySelector('.osd__count');
+if (!counter) throw new Error('the tape counter is gone');
+const cr = counter.getBoundingClientRect();
+const chromeTop = chrome.getBoundingClientRect().top;
+if (cr.bottom > chromeTop + 1) {
+  const scrubBox = document.querySelector('.scrub').getBoundingClientRect();
+  const over = Math.round(Math.min(cr.bottom, scrubBox.bottom) - Math.max(cr.top, scrubBox.top));
+  throw new Error(`the tape counter overlaps the timeline by ${over}px (counter bottom ${Math.round(cr.bottom)}, chrome top ${Math.round(chromeTop)})`);
+}
+if (cr.height < 8) throw new Error('the tape counter has no box — it is not being drawn');
+
 return {
   x: box.x - 8,
   y: box.y - 10,
