@@ -357,11 +357,12 @@ let lastSweepPlan = null;
  * skip-existing makes it resumable, and it stands down whenever anything is
  * playing — background art never competes for the disk with a viewer.
  */
-function startArtworkSweep(shows, movies) {
+function startArtworkSweep(shows, movies, options = {}) {
   if (shows || movies) lastSweepPlan = artwork.planFor({ shows: shows || [], movies: movies || [] });
   if (!lastSweepPlan) return;
   artwork.cancelSweep();
   artwork.sweep(lastSweepPlan, {
+    force: Boolean(options.force),
     // The VIEWER owns the disk: on a drive that has dropped off the bus under
     // sustained reads, background frame-grabs while an episode streams are how
     // the picture stutters and the drive dies.
@@ -617,9 +618,37 @@ function saveStateSync() {
   } catch { /* shutting down anyway; nothing useful left to do */ }
 }
 
+/**
+ * The thumbnail cache is GENERATIONAL.
+ *
+ * Every entry written before this version is 480px wide at quality 0.72, and
+ * a card is wider than that — so they are the soft, visibly rasterised
+ * pictures. They are keyed by a hash of the path, so raising the size alone
+ * would have changed nothing: every existing key would still hit, and only a
+ * file she had never opened would come back sharp.
+ *
+ * -v2 retires the whole old generation at once. It is a CACHE, not a store:
+ * a miss costs one decode and the frame is regenerated at the new size.
+ */
+const THUMB_GENERATION = 'v2';
+
 function thumbPathFor(absPath) {
   const hash = crypto.createHash('sha1').update(absPath).digest('hex');
-  return path.join(thumbDir(), `${hash}.jpg`);
+  return path.join(thumbDir(), `${hash}-${THUMB_GENERATION}.jpg`);
+}
+
+/**
+ * Sweep the previous generation out. Bare `<40 hex>.jpg` is the v1 name and
+ * nothing writes it any more, so anything matching it is dead weight in the
+ * user's profile — a few hundred files that will never be read again.
+ */
+async function pruneOldThumbs() {
+  try {
+    for (const name of await fsp.readdir(thumbDir())) {
+      if (!/^[0-9a-f]{40}\.jpg$/.test(name)) continue;
+      await fsp.unlink(path.join(thumbDir(), name)).catch(() => {});
+    }
+  } catch { /* no cache dir yet, which is fine */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -940,22 +969,22 @@ function registerIpc() {
    * reuses the plan from the last scan: one file at a time, a pause between
    * them, and standing down entirely while anything is playing.
    */
+  /**
+   * Take every card picture again — WITHOUT deleting anything first.
+   *
+   * The first version of this deleted the store and let the sweep refill it,
+   * which destroyed images the user had placed by hand and left every card on
+   * the low-resolution thumbnail fallback until the sweep caught up. Now the
+   * sweep simply re-captures with force and each new frame replaces its old
+   * file when it lands; a hand-picked image is skipped outright.
+   */
   ipcMain.handle('artwork:rebuild', async () => {
-    /**
-     * REFUSE IF THERE IS NOTHING TO REFILL FROM.
-     *
-     * startArtworkSweep() with no arguments reuses lastSweepPlan, and that is
-     * null until a scan has run in THIS process — it does not survive a
-     * restart. Deleting first and discovering that second would throw the
-     * library's artwork away with nothing queued to make it again, and the
-     * next scan only captures what is missing, so it would come back slowly
-     * and only then. Check before deleting, never after.
-     */
+    // lastSweepPlan is null until a scan has run in THIS process. With nothing
+    // queued there is nothing to re-take, and saying so beats doing nothing.
     if (!lastSweepPlan) return { ok: false, error: 'no-plan' };
     try {
-      const result = await artwork.rebuild();
-      startArtworkSweep();
-      return { ok: true, ...result };
+      startArtworkSweep(null, null, { force: true });
+      return { ok: true, queued: lastSweepPlan.length };
     } catch (error) {
       return { ok: false, error: String((error && error.message) || error) };
     }
@@ -1140,6 +1169,9 @@ if (!app.requestSingleInstanceLock()) {
      */
     prepare.cleanupCache(undefined, { minAgeMs: 48 * 60 * 60 * 1000 }).catch(() => {});
     artwork.init({ dir: path.join(app.getPath('userData'), 'artwork'), findFfmpeg: prepare.findFfmpeg });
+    // Fire and forget: the previous thumbnail generation is unreadable by
+    // anything now, and clearing it must never hold up the window opening.
+    pruneOldThumbs();
     ingest.init({ file: path.join(app.getPath('userData'), 'ingest.json') });
 
     protocol.handle('media', serveMedia);

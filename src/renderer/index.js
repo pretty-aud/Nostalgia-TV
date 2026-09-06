@@ -367,14 +367,29 @@ async function ensureThumb(episode) {
     probe.currentTime = target;
     await waitFor(probe, 'seeked', 9000);
 
-    const width = 480;
+    /**
+     * 1280, not 480.
+     *
+     * This cache is what a card falls back to whenever the permanent store has
+     * nothing — which is most cards, most of the time, because the artwork
+     * sweep fills in slowly and in the background. So THIS is the picture she
+     * actually sees, and at 480px wide it was being blown up to fill a rail
+     * card of around 500 CSS pixels, more on a scaled display. That is the
+     * softness and the visible rasterising, and raising the permanent store
+     * alone never touched it.
+     *
+     * Clamped to the source, so a standard-definition file is not stretched,
+     * and quality 0.85 rather than 0.72: at this size 0.72 leaves visible
+     * blocking on exactly the flat areas animation is full of.
+     */
+    const width = Math.min(1280, probe.videoWidth || 1280);
     const height = Math.round(width * (probe.videoHeight / probe.videoWidth || 0.5625));
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     canvas.getContext('2d').drawImage(probe, 0, 0, width, height);
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
     thumbCache.set(episode.absPath, dataUrl);
     window.tv.putThumb(episode.absPath, dataUrl);
     return dataUrl;
@@ -4315,18 +4330,18 @@ function wireEvents() {
 
   el('btnRebuildArt').addEventListener('click', async () => {
     /**
-     * Destructive in one specific way, and it says which: a picture chosen by
-     * hand BEFORE this version is byte-for-byte indistinguishable on disk
-     * from a captured frame, so the rebuild cannot spare it. Choices made
-     * from now on are recorded and are left alone.
+     * No longer destructive. Nothing is deleted: each picture is replaced only
+     * when its new one has actually landed, and a picture chosen by hand is
+     * skipped rather than overwritten. An earlier version deleted first and
+     * refilled afterwards, which lost images she had placed herself.
      */
     const ok = window.confirm(
-      'Grab every card picture again?\n\n'
-      + 'They will come back larger, and skipping black frames. It runs in the '
-      + 'background and pauses while anything is playing.\n\n'
-      + 'A picture you chose by hand before this update will be replaced too — '
-      + 'the app cannot tell those apart from captured frames. Anything you '
-      + 'choose from now on is kept.',
+      'Take every card picture again?\n\n'
+      + 'They come back larger, and skipping black frames. Each one is replaced '
+      + 'only when its new picture is ready, so nothing goes blank in the '
+      + 'meantime.\n\n'
+      + 'Pictures you chose by hand are left alone. It runs in the background '
+      + 'and pauses while something is playing, so give it a few minutes.',
     );
     if (!ok) return;
     const button = el('btnRebuildArt');
@@ -4346,11 +4361,17 @@ function wireEvents() {
      * is restarted. Clearing is not enough on its own either: what is on
      * screen now was drawn from the cache, so it has to be drawn again.
      */
+    /**
+     * The cache holds every picture shown this session, so it has to go or the
+     * new ones stay invisible until a restart. Re-rendering is deliberately
+     * NOT done here: the pictures on screen are still the current ones until
+     * their replacements land, and repainting now would only swap them for the
+     * low-resolution fallback for as long as the sweep takes.
+     */
     artworkCache.clear();
-    if (browseOpen()) renderBrowse();
-    toast(result.removed
-      ? `Rebuilding ${result.removed} card picture${result.removed === 1 ? '' : 's'} in the background.`
-      : 'Nothing to rebuild.');
+    toast(result.queued
+      ? `Taking ${result.queued} card picture${result.queued === 1 ? '' : 's'} again, in the background.`
+      : 'Nothing to take.');
   });
 
   // The checkbox governs rotation; the rest of the row means "I want this now".

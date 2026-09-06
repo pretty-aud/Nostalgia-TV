@@ -140,10 +140,34 @@ app.whenReady().then(async () => {
       typeof chosenUrl === 'string' && chosenUrl.startsWith('data:image/png'),
       chosenUrl ? chosenUrl.slice(0, 20) : 'null');
 
-    const { removed } = await artwork.rebuild();
-    check('the rebuild removed the capture', removed >= 1, `${removed} removed`);
-    check('the capture is gone', !(await artwork.has('episode', 'black-at-90.mp4')));
+    /**
+     * A FORCED SWEEP MUST NEVER DELETE, AND NEVER TOUCH HERS.
+     *
+     * The version this replaced deleted the whole store and refilled it, which
+     * destroyed images the user had placed by hand. So: run the sweep in force
+     * mode over both keys and assert that the hand-picked file is byte-for-byte
+     * untouched while the capture is replaced in place, never absent.
+     */
+    const chosenFile = path.join(artDir, `${artwork.keyFor('show', 'chosen-show')}.png`);
+    const beforeBytes = fs.readFileSync(chosenFile);
+    const beforeCapture = fs.existsSync(path.join(artDir, `${artwork.keyFor('episode', 'black-at-90.mp4')}.jpg`));
+    check('a capture exists before the forced sweep', beforeCapture);
+
+    const swept = await artwork.sweep([
+      { kind: 'episode', id: 'black-at-90.mp4', absPath: clip, at: 90 },
+      { kind: 'show', id: 'chosen-show', absPath: clip, at: 90 },
+    ], { force: true });
+
+    check('the forced sweep re-took the capture', swept.captured >= 1,
+      `captured ${swept.captured}, skipped ${swept.skipped}, failed ${swept.failed}`);
+    check('the capture is still there — never deleted', await artwork.has('episode', 'black-at-90.mp4'));
     check('the hand-picked image survived', await artwork.has('show', 'chosen-show'));
+    check('the hand-picked image is byte-for-byte untouched',
+      fs.existsSync(chosenFile) && Buffer.compare(beforeBytes, fs.readFileSync(chosenFile)) === 0);
+    check('no JPEG was written over the hand-picked key',
+      !fs.existsSync(path.join(artDir, `${artwork.keyFor('show', 'chosen-show')}.jpg`)));
+    check('hasChosen tells the two apart',
+      (await artwork.hasChosen('show', 'chosen-show')) && !(await artwork.hasChosen('episode', 'black-at-90.mp4')));
   }
 
   await fsp.rm(work, { recursive: true, force: true }).catch(() => {});

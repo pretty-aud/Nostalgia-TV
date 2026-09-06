@@ -218,33 +218,15 @@ async function storeImage(kind, id, image) {
 }
 
 /**
- * Throw away captured artwork so the sweep makes it again.
+ * Is there an image the user chose BY HAND at this key?
  *
- * Everything this store holds was written at 640px wide until now, and a
- * card is wider than that on any normal window — so without this she would
- * keep the soft images she already has and only ever see the improvement on
- * a library she has not scanned yet.
- *
- * Images she chose BY HAND are kept, but only where they can be recognised:
- * the record of them starts with this version, and anything picked before it
- * is byte-for-byte indistinguishable from a captured frame. The caller says
- * so plainly rather than pretending otherwise.
- *
- * Returns how many files went, so the caller can say what happened.
+ * The PNG path is hers and the JPEG path is ours, so the question is just
+ * "does the PNG exist". This is the ONLY thing a re-capture is allowed to
+ * refuse to overwrite, and it is checked at the last possible moment.
  */
-async function rebuild() {
-  if (!artDir) return { removed: 0 };
-  const keep = await readChosen();
-  let removed = 0;
-  let files = [];
-  try { files = await fsp.readdir(artDir); } catch { return { removed: 0 }; }
-  for (const name of files) {
-    const match = /^([0-9a-f]{40})\.(png|jpg)$/.exec(name);
-    if (!match) continue;                            // chosen.json, tmp files
-    if (keep.has(match[1])) continue;
-    try { await fsp.unlink(path.join(artDir, name)); removed += 1; } catch { /* gone already */ }
-  }
-  return { removed };
+async function hasChosen(kind, id) {
+  try { return (await fsp.stat(pathFor(kind, id))).size > 0; }
+  catch { return false; }
 }
 
 /**
@@ -355,8 +337,14 @@ async function capture(kind, id, absPath, atSeconds) {
    * Re-checked at the last moment: the user can choose an image by hand while
    * a capture is running, and the deliberate choice must win over the frame
    * grab that started before it existed.
+   *
+   * The question is specifically "is there a HAND-PICKED image", not "is
+   * there any image". A re-capture is meant to replace an older capture —
+   * that is the whole point of it — and asking the broader question would
+   * make a refresh impossible. Her own picture is the one thing it will not
+   * touch.
    */
-  if (await has(kind, id)) {
+  if (await hasChosen(kind, id)) {
     await fsp.unlink(tmp).catch(() => {});
     return false;
   }
@@ -379,6 +367,20 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function sweep(items, options = {}) {
   const token = ++sweepToken;
   const shouldPause = options.shouldPause || (() => false);
+  /**
+   * force: take the picture again even where one already exists, writing the
+   * new file over the old one when it lands.
+   *
+   * This replaced a rebuild() that DELETED first and let the sweep refill.
+   * That was wrong twice over. It destroyed images the user had placed by
+   * hand — which it warned about, and which is not good enough — and even
+   * where it was right it left every card falling back to the low-resolution
+   * thumbnail cache for as long as the sweep took, so the visible result of
+   * pressing the button was that the pictures got WORSE. Overwriting in
+   * place has neither failure: nothing is ever missing, and nothing of hers
+   * is ever removed.
+   */
+  const force = Boolean(options.force);
   let captured = 0;
   let skipped = 0;
   let failed = 0;
@@ -404,7 +406,9 @@ async function sweep(items, options = {}) {
     if (token !== sweepToken) return { cancelled: true, captured, skipped, failed };
 
     try {
-      if (await has(item.kind, item.id)) { skipped += 1; continue; }
+      // A hand-picked image is never re-taken, in either mode.
+      if (await hasChosen(item.kind, item.id)) { skipped += 1; continue; }
+      if (!force && await has(item.kind, item.id)) { skipped += 1; continue; }
 
       while (shouldPause()) {
         await sleep(5000);
@@ -464,6 +468,6 @@ async function stats(items) {
 }
 
 module.exports = {
-  init, read, has, stats, setFromImage, setFromBuffer, capture, sweep, cancelSweep, planFor, keyFor,
-  rebuild, measure, CAPTURE_WIDTH,
+  init, read, has, hasChosen, stats, setFromImage, setFromBuffer, capture, sweep, cancelSweep,
+  planFor, keyFor, measure, CAPTURE_WIDTH,
 };
