@@ -643,14 +643,30 @@ option {
 
 /* schedule preview */
 .schedule { list-style: none; padding-bottom: var(--u); }
+/**
+ * FOUR COLUMNS: position, title, code, and the bump control.
+ *
+ * The code used to trail the title inline, which put it under the SUBTITLE on
+ * a two-line name and left the codes ragged down the list. Its own column
+ * gives it one tab stop, and `align-items: baseline` sits it on the title's
+ * FIRST baseline — beside the series name, which is the line it identifies.
+ *
+ * The last column is a fixed width rather than auto even though only ONE row
+ * ever carries the bump button. Each row is its own grid, so an auto column
+ * would be 20px wide on that row and zero on the others — and every code
+ * below it would sit 20px further right than the first one. Reserving the
+ * space unconditionally is what keeps the tab stop straight.
+ */
 .sched {
   display: grid;
-  grid-template-columns: 22px 1fr auto;
+  grid-template-columns: 22px 1fr auto 20px;
   gap: calc(var(--u) * 1.5);
   padding: 7px var(--gutter);
   font-size: var(--t-body);
   align-items: baseline;
 }
+/* The movie row has no code and no bump: its body takes the rest of the row. */
+.sched--movie .sched__body { grid-column: 2 / -1; }
 .sched__n { font-family: var(--mono); font-size: var(--t-micro); color: var(--ink-faint); }
 .sched__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /**
@@ -669,7 +685,21 @@ option {
  * name in a flex .sched__body where the ellipsis genuinely works.
  */
 .sched__line .sched__name { white-space: normal; }
-.sched__code { font-family: var(--mono); font-size: var(--t-micro); color: var(--ink-mute); }
+/**
+ * 7ch, measured in the code's OWN monospace font, so the column is wide
+ * enough for the longest label the library can produce — S01E123, and she has
+ * a show with 112 episodes. Without a floor the column would size to each
+ * row's content and a three-digit episode would knock that row out of line
+ * with the rest. Right-aligned, so the numbers stack.
+ */
+.sched__code {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--ink-mute);
+  min-width: 7ch;
+  text-align: right;
+  white-space: nowrap;
+}
 .sched:first-child .sched__n,
 .sched:first-child .sched__code { color: var(--signal); }
 

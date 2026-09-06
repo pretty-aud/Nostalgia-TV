@@ -117,19 +117,43 @@ if (plain) {
   }
 }
 
-// The code must ride the LAST line, not start a third.
+/**
+ * The code sits on the title's FIRST line, in its own column.
+ *
+ * It used to trail the title inline, which put it under the subtitle on a
+ * two-line name. It is a grid cell now, and the row's baseline alignment
+ * places it beside the series name — the line it actually identifies.
+ */
 const titleRects = [...seamName.getClientRects()].filter((r) => r.width > 0);
-const lastLine = titleRects[titleRects.length - 1];
+const firstLine = titleRects[0];
 const codeBox = seamCode.getBoundingClientRect();
-if (Math.abs(codeBox.top - lastLine.top) > 4) {
-  throw new Error(`the episode code is not on the title's last line (${Math.round(codeBox.top)} vs ${Math.round(lastLine.top)})`);
+if (Math.abs(codeBox.top - firstLine.top) > 6) {
+  throw new Error(`the episode code is not on the title's first line (${Math.round(codeBox.top)} vs ${Math.round(firstLine.top)})`);
+}
+// It must not sit on top of the title either.
+for (const rect of titleRects) {
+  if (rect.right > codeBox.left + 1) {
+    throw new Error(`the title runs ${Math.round(rect.right - codeBox.left)}px into the code column`);
+  }
 }
 
-// And nothing may run past the column it was given.
-const column = seamRow.querySelector('.sched__line').getBoundingClientRect();
-for (const rect of titleRects) {
-  if (rect.right > column.right + 1) {
-    throw new Error(`a title line runs ${Math.round(rect.right - column.right)}px past its column`);
+/**
+ * AND THE CODES MUST SHARE ONE TAB STOP.
+ *
+ * Every row is its own grid, so nothing makes the columns line up by itself —
+ * it depends on the code column having a floor wide enough for the longest
+ * label and on the bump control's column being reserved on every row. Give
+ * one row a three-digit episode, which is the case that breaks it, and check
+ * that every code still starts at the same x.
+ */
+const codeCells = [...document.querySelectorAll('#scheduleList .sched .sched__code')];
+if (codeCells.length > 1) {
+  codeCells[codeCells.length - 1].textContent = 'S01E123';
+  await wait(200);
+  const lefts = codeCells.map((c) => Math.round(c.getBoundingClientRect().left));
+  const spread = Math.max(...lefts) - Math.min(...lefts);
+  if (spread > 1) {
+    throw new Error(`the episode codes are not on one tab stop: left edges ${lefts.join(', ')}`);
   }
 }
 

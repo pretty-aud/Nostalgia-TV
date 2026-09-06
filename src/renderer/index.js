@@ -778,10 +778,19 @@ function renderSchedule() {
     }
     const code = document.createElement('span');
     code.className = 'sched__code';
-    code.textContent = ` ${item.label}`;
-    wrap.append(name, code);
+    code.textContent = item.label;
+    wrap.append(name);
 
-    li.append(n, wrap);
+    /**
+     * The code is a COLUMN of the row, not the tail of the title.
+     *
+     * It used to trail the last line, so on a two-line title it sat under the
+     * subtitle and the codes did not line up with each other. As its own grid
+     * cell it holds one tab stop down the list, and the row's baseline
+     * alignment puts it on the title's FIRST line — beside the series name,
+     * which is the line it identifies.
+     */
+    li.append(n, wrap, code);
     // Offered on the first EPISODE, wherever it sits: the control bumps the
     // next queued show, and a movie is not in the queue to be bumped.
     if (!dropOffered) {
