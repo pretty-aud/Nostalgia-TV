@@ -5649,6 +5649,7 @@ boot();
 
 let browseItem = null;      // { kind: 'show'|'movie', show, episodeIndex, movie }
 let browseDetailShow = null;
+let browseDetailMovie = null;
 let browseQuery = '';
 /** Genres ticked in the filter menu. Empty means no genre filter at all. */
 let browseGenres = [];
@@ -6358,7 +6359,7 @@ function movieTile(movie) {
     thumbFrom: [{ absPath: movie.absPath, mediaUrl: movie.mediaUrl }],
     artKey: { kind: 'movie', id: movie.relPath },
     fraction: 0,
-    onOpen: () => playMovieFromLibrary(movie),
+    onOpen: () => openMovieDetail(movie),
   });
 }
 
@@ -6446,6 +6447,10 @@ function continueTile(row) {
 
 function openDetail(show) {
   browseDetailShow = show;
+  browseDetailMovie = null;
+  // The movie panel hides both of these; a show needs them back.
+  el('detailEpisodes').hidden = false;
+  el('btnDetailSettings').hidden = false;
   const watched = watchedCount(show, state);
   const point = resumePoint(show, state);
   const next = show.episodes[point.episodeIndex];
@@ -6466,7 +6471,7 @@ function openDetail(show) {
     : (watched > 0 ? `Play ${formatEpisodeLabel(next)}` : 'Play');
 
   renderEpisodes(show);
-  showMediaSummary(show, next);
+  showMediaSummary(`show:${show.id}`, next && next.absPath);
   el('browseDetail').hidden = false;
   play.focus();
 }
@@ -6489,26 +6494,35 @@ function openDetail(show) {
 const mediaSummaryCache = new Map();
 let mediaSummaryStamp = 0;
 
-async function showMediaSummary(show, episode) {
+/**
+ * What the panel currently has open, as one string.
+ *
+ * The staleness guard used to compare against browseDetailShow, which is null
+ * for a film — so every movie's summary would have been computed and then
+ * thrown away as stale. One key covers both kinds and cannot drift.
+ */
+let detailKey = null;
+
+async function showMediaSummary(key, absPath) {
   const row = el('detailMedia');
   const text = el('detailMediaText');
   const cc = el('detailCC');
   row.hidden = true;
   cc.hidden = true;
   text.textContent = '';
+  row.removeAttribute('title');
 
-  const absPath = episode && episode.absPath;
+  detailKey = key;
   if (!absPath || !window.tv.mediaSummary) return;
 
   const stamp = (mediaSummaryStamp += 1);
-  const key = show.id;
   let summary = mediaSummaryCache.get(key);
   if (summary === undefined) {
     summary = await window.tv.mediaSummary(absPath).catch(() => null);
     mediaSummaryCache.set(key, summary);
   }
   // She opened something else while this was in flight.
-  if (stamp !== mediaSummaryStamp || browseDetailShow !== show) return;
+  if (stamp !== mediaSummaryStamp || detailKey !== key) return;
   if (!summary) return;
 
   const line = summaryLine(summary);
@@ -6526,9 +6540,53 @@ async function showMediaSummary(show, episode) {
   row.hidden = false;
 }
 
+/**
+ * The same panel, for a film.
+ *
+ * A movie used to play the instant its tile was clicked, so there was nowhere
+ * to say what it is — and "what is this file" is exactly the question you ask
+ * BEFORE committing to a two hour watch. It reuses the show panel rather than
+ * growing a second one: same art, same title, same media line, same Play. The
+ * episode list has nothing to list and the show settings have nothing to
+ * settle, so both are hidden rather than shown empty.
+ */
+function openMovieDetail(movie) {
+  browseDetailShow = null;
+  browseDetailMovie = movie;
+
+  const point = movieResumePoint(movie, state);
+
+  el('detailTitle').textContent = movie.name;
+  el('detailMeta').textContent = movie.year ? `Movie · ${movie.year}` : 'Movie';
+
+  const art = el('detailArt');
+  art.textContent = '';
+  art.dataset.empty = 'true';
+  art.dataset.initials = initialsOf(movie.name);
+  paintArt(art, [{ absPath: movie.absPath, mediaUrl: movie.mediaUrl }], { kind: 'movie', id: movie.relPath });
+
+  const play = el('btnDetailPlay');
+  play.textContent = point.seekTo > 0 ? `Resume ${formatTime(point.seekTo)} in` : 'Play';
+
+  // A film has no episodes and no rotation settings.
+  el('detailEpisodes').textContent = '';
+  el('detailEpisodes').hidden = true;
+  el('btnDetailSettings').hidden = true;
+
+  showMediaSummary(`movie:${movie.relPath}`, movie.absPath);
+  el('browseDetail').hidden = false;
+  play.focus();
+}
+
 function closeDetail() {
   el('browseDetail').hidden = true;
   browseDetailShow = null;
+  browseDetailMovie = null;
+  detailKey = null;
+  // Put back what the movie panel hid, or the next SHOW opens with no
+  // episodes and no settings button.
+  el('detailEpisodes').hidden = false;
+  el('btnDetailSettings').hidden = false;
 }
 
 function detailOpen() {
@@ -6666,6 +6724,7 @@ function wireBrowse() {
   el('btnDetailClose').addEventListener('click', closeDetail);
   el('detailBackdrop').addEventListener('click', closeDetail);
   el('btnDetailPlay').addEventListener('click', () => {
+    if (browseDetailMovie) { playMovieFromLibrary(browseDetailMovie); return; }
     if (!browseDetailShow) return;
     const point = resumePoint(browseDetailShow, state);
     playFromLibrary(browseDetailShow, point.episodeIndex, point.seekTo);

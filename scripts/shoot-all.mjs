@@ -23,6 +23,7 @@ const SHOTS = [
   'sidebar-footer',
   'browse-rail',
   'detail-media',
+  'detail-movie',
   'browse-search',
   'art-picker',
   'art-picker-drag',
