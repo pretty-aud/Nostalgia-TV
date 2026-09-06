@@ -115,6 +115,22 @@ const USER32 =
   + 'public static extern System.IntPtr FindWindowEx(System.IntPtr parent, System.IntPtr after, string cls, string title); '
   + '[DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr h, System.IntPtr after, int x, int y, int w, int hh, uint flags);';
 
+/**
+ * ASYNCHRONOUS, and that is the whole point of it.
+ *
+ * This used spawnSync. Each call costs a hidden PowerShell that compiles C#
+ * with Add-Type before it can touch user32 — measured at 294-336ms, median
+ * 312ms — and spawnSync blocks the Electron MAIN process for every one of
+ * those milliseconds. `move` is one of the events wired to the raiser and it
+ * fires continuously while a window is being dragged, so with the raiser's
+ * 400ms throttle the main process spent roughly three quarters of any drag
+ * frozen. The window juddered while every other app on the machine moved
+ * cleanly, which is exactly how she described it.
+ *
+ * The call sites already looked asynchronous — `Promise.resolve().then(...)`
+ * with an `inFlight` flag — but a synchronous call inside a microtask still
+ * blocks the thread it runs on. It read as non-blocking and was not.
+ */
 function raiseOnce(parentHwnd) {
   const script = [
     `Add-Type -MemberDefinition '${USER32}' -Name U -Namespace NTV`,
@@ -124,16 +140,32 @@ function raiseOnce(parentHwnd) {
     '[NTV.U]::SetWindowPos($mpv, [System.IntPtr]::Zero, 0, 0, 0, 0, 0x13) | Out-Null',
     'Write-Output "RAISED"',
   ].join('\n');
-  const out = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
-    { encoding: 'utf8', windowsHide: true, timeout: 20000 });
-  return /RAISED/.test(out.stdout || '');
+  return new Promise((resolve) => {
+    let stdout = '';
+    let settled = false;
+    const done = (value) => { if (!settled) { settled = true; resolve(value); } };
+    let child;
+    try {
+      child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
+        { windowsHide: true });
+    } catch { done(false); return; }
+    // A raise that hangs must not hold the flag forever; the caller retries.
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } done(false); }, 20000);
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.on('error', () => { clearTimeout(timer); done(false); });
+    child.on('close', () => { clearTimeout(timer); done(/RAISED/.test(stdout)); });
+  });
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function raiseMpvChild(parentHwnd, { attempts = 25, intervalMs = 200 } = {}) {
   for (let i = 0; i < attempts; i += 1) {
-    if (raiseOnce(parentHwnd)) return true;
+    // AWAITED. raiseOnce returns a promise now, and a promise is always
+    // truthy — without this the first attempt would always "succeed" and the
+    // spawn-time retry loop, which exists because the child appears a beat
+    // after the process does, would never run.
+    if (await raiseOnce(parentHwnd)) return true;
     await sleep(intervalMs);
   }
   return false;
