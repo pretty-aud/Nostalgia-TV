@@ -4333,7 +4333,21 @@ function wireEvents() {
     button.disabled = true;
     const result = await window.tv.rebuildArtwork().catch(() => null);
     button.disabled = false;
-    if (!result || !result.ok) { toast('Could not rebuild the card pictures.'); return; }
+    if (!result || !result.ok) {
+      toast(result && result.error === 'no-plan'
+        ? 'Scan the library first, then rebuild.'
+        : 'Could not rebuild the card pictures.');
+      return;
+    }
+    /**
+     * The renderer holds every picture it has ever shown in artworkCache, so
+     * without this she presses the button, the files go, the sweep remakes
+     * them — and every card carries on showing the old soft one until the app
+     * is restarted. Clearing is not enough on its own either: what is on
+     * screen now was drawn from the cache, so it has to be drawn again.
+     */
+    artworkCache.clear();
+    if (browseOpen()) renderBrowse();
     toast(result.removed
       ? `Rebuilding ${result.removed} card picture${result.removed === 1 ? '' : 's'} in the background.`
       : 'Nothing to rebuild.');

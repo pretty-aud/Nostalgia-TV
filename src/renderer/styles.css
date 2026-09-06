@@ -3742,10 +3742,21 @@ input[type="range"]::-webkit-slider-thumb {
  * characters in the first place — without it the readout vanishes over a
  * bright frame. Zero blur, one font-pixel, eight directions: a CSS stroke is
  * centred on the outline and eats into the letterform instead of ringing it.
+ *
+ * THE DESCENDANTS HAVE TO BE NAMED. `:root[data-skin="vcr"] *` a long way up
+ * this file declares `text-shadow: none`, and a declaration on the element
+ * itself beats a value inherited from its parent — so outlining .osd or
+ * .nowplaying outlined nothing at all, because in both cases the text lives
+ * in a child span. This block had been inert for the two OSD corners since it
+ * was written; the tape counter joined them when it moved. Only .time and
+ * .upnext, which carry their own text, ever drew the ring.
  */
 :root[data-skin="vcr"] .osd,
+:root[data-skin="vcr"] .osd *,
 :root[data-skin="vcr"] .osd__count,
+:root[data-skin="vcr"] .osd__count *,
 :root[data-skin="vcr"] .nowplaying,
+:root[data-skin="vcr"] .nowplaying *,
 :root[data-skin="vcr"] .chrome .time,
 :root[data-skin="vcr"] .chrome .upnext {
   text-shadow:

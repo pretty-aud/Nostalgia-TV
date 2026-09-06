@@ -941,6 +941,17 @@ function registerIpc() {
    * them, and standing down entirely while anything is playing.
    */
   ipcMain.handle('artwork:rebuild', async () => {
+    /**
+     * REFUSE IF THERE IS NOTHING TO REFILL FROM.
+     *
+     * startArtworkSweep() with no arguments reuses lastSweepPlan, and that is
+     * null until a scan has run in THIS process — it does not survive a
+     * restart. Deleting first and discovering that second would throw the
+     * library's artwork away with nothing queued to make it again, and the
+     * next scan only captures what is missing, so it would come back slowly
+     * and only then. Check before deleting, never after.
+     */
+    if (!lastSweepPlan) return { ok: false, error: 'no-plan' };
     try {
       const result = await artwork.rebuild();
       startArtworkSweep();

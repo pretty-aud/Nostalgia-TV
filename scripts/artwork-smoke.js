@@ -80,12 +80,44 @@ app.whenReady().then(async () => {
     const seen = artwork.measure(file);
     check('it is not black', seen && seen.mean >= 16, seen ? `mean luma ${seen.mean.toFixed(1)}` : 'unreadable');
     check('it is not a flat colour card', seen && seen.spread >= 10, seen ? `spread ${seen.spread.toFixed(1)}` : '');
-    check('it is wide enough for a rail card', seen && seen.width >= artwork.CAPTURE_WIDTH,
+    // A LITERAL, deliberately. Comparing against artwork.CAPTURE_WIDTH would
+    // move with the constant under test: drop it back to 640 and the check
+    // would happily agree. 1200 is "wider than a rail card", which is the
+    // property that actually matters.
+    check('it is wide enough for a rail card', seen && seen.width >= 1200,
       seen ? `${seen.width}x${seen.height}` : '');
     // A 1280x720 PNG of a real frame runs past a megabyte; the whole point of
     // JPEG here is that a permanent, never-evicted store stays small.
-    check('the file is a sane size', fs.statSync(file).size < 600 * 1024,
-      `${Math.round(fs.statSync(file).size / 1024)}KB`);
+    const bytes = fs.statSync(file).size;
+    check('the file is a sane size', bytes < 600 * 1024, `${Math.round(bytes / 1024)}KB`);
+    // ...and it is actually a JPEG. The extension is chosen by this module, so
+    // read the magic bytes instead: FF D8 FF opens every JPEG.
+    const head = fs.readFileSync(file).subarray(0, 3);
+    check('the capture really is a JPEG', head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff,
+      [...head].map((b) => b.toString(16).padStart(2, '0')).join(' '));
+  }
+
+  /**
+   * A SMALL SOURCE MUST NOT BE STRETCHED. scale=1280 unconditionally turns a
+   * 640x480 file into 1280x960 — the same detail over four times the pixels
+   * and a bigger file for nothing. The hand-picked path has always clamped;
+   * this checks the capture path does too.
+   */
+  const small = path.join(work, 'small.mp4');
+  spawnSync(ffmpeg, [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', 'testsrc2=size=640x480:rate=10:duration=8',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', small,
+  ]);
+  if (fs.existsSync(small)) {
+    await artwork.capture('episode', 'small.mp4', small, 2);
+    const url = await artwork.read('episode', 'small.mp4');
+    const grabbed = fs.readdirSync(artDir).map((f) => path.join(artDir, f))
+      .filter((f) => /\.jpg$/.test(f) && artwork.measure(f))
+      .map((f) => artwork.measure(f))
+      .find((m) => m.width <= 640);
+    check('a 640-wide source is not upscaled', Boolean(url) && Boolean(grabbed),
+      grabbed ? `${grabbed.width}x${grabbed.height}` : 'no capture at or below 640 wide');
   }
 
   check('has() finds a capture', await artwork.has('episode', 'black-at-90.mp4'));
@@ -101,6 +133,13 @@ app.whenReady().then(async () => {
   if (stored.length === 1) {
     await artwork.setFromImage('show', 'chosen-show', source);
     check('a hand-picked image stores', await artwork.has('show', 'chosen-show'));
+    // Hand-picked stays PNG and read() must PREFER it, or a later capture at
+    // the same key would quietly shadow a deliberate choice.
+    const chosenUrl = await artwork.read('show', 'chosen-show');
+    check('a hand-picked image reads back as the PNG',
+      typeof chosenUrl === 'string' && chosenUrl.startsWith('data:image/png'),
+      chosenUrl ? chosenUrl.slice(0, 20) : 'null');
+
     const { removed } = await artwork.rebuild();
     check('the rebuild removed the capture', removed >= 1, `${removed} removed`);
     check('the capture is gone', !(await artwork.has('episode', 'black-at-90.mp4')));

@@ -106,14 +106,35 @@ if (chrome && chrome.scrollHeight > chrome.clientHeight + 1) {
  */
 const counter = document.querySelector('.osd__count');
 if (!counter) throw new Error('the tape counter is gone');
+if (!chrome) throw new Error('no .chrome__bottom to measure the counter against');
 const cr = counter.getBoundingClientRect();
 const chromeTop = chrome.getBoundingClientRect().top;
-if (cr.bottom > chromeTop + 1) {
+
+/**
+ * A GAP, not merely an absence of overlap.
+ *
+ * The first version of this asserted only `cr.bottom > chromeTop`, which is
+ * silent about three ways of being wrong: the counter sitting flush on the
+ * gradient (delete margin-bottom and it passes), the counter thrown off the
+ * top of the screen (which is exactly what the anchor() attempt did), and the
+ * counter not being drawn at all — getBoundingClientRect on a display:none
+ * element is all zeros, and zero is comfortably above the chrome.
+ */
+if (cr.height < 8 || cr.width < 8) {
+  throw new Error(`the tape counter has no box (${Math.round(cr.width)}x${Math.round(cr.height)}) — it is not being drawn`);
+}
+if (cr.top < 0 || cr.bottom > window.innerHeight) {
+  throw new Error(`the tape counter is off screen: ${Math.round(cr.top)}..${Math.round(cr.bottom)} in ${window.innerHeight}`);
+}
+const gap = Math.round(chromeTop - cr.bottom);
+if (gap < 0) {
   const scrubBox = document.querySelector('.scrub').getBoundingClientRect();
   const over = Math.round(Math.min(cr.bottom, scrubBox.bottom) - Math.max(cr.top, scrubBox.top));
   throw new Error(`the tape counter overlaps the timeline by ${over}px (counter bottom ${Math.round(cr.bottom)}, chrome top ${Math.round(chromeTop)})`);
 }
-if (cr.height < 8) throw new Error('the tape counter has no box — it is not being drawn');
+if (gap < 12 || gap > 24) {
+  throw new Error(`the tape counter clears the chrome by ${gap}px, expected about 16`);
+}
 
 return {
   x: box.x - 8,

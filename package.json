@@ -14,7 +14,9 @@
     "dist": "node scripts/vendor-ffmpeg.mjs --ensure && node scripts/vendor-mpv.mjs --ensure && npm run build && electron-builder",
     "deploy": "npm run dist && node scripts/install-local.mjs",
     "vendor:ffmpeg": "node scripts/vendor-ffmpeg.mjs",
-    "vendor:mpv": "node scripts/vendor-mpv.mjs"
+    "vendor:mpv": "node scripts/vendor-mpv.mjs",
+    "smoke:artwork": "electron scripts/artwork-smoke.js",
+    "smoke:mpv": "node scripts/mpv-smoke.mjs"
   },
   "build": {
     "appId": "co.petalstudios.shuffletv",

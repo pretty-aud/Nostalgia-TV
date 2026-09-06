@@ -43,6 +43,21 @@ if (document.querySelector('.osd__date')) throw new Error('the --/--/-- placehol
 if (!document.getElementById('osdClock')) throw new Error('the tape counter went with it');
 
 /**
+ * The OSD text is OUTLINED, because it sits over the picture.
+ *
+ * Read from the element that actually holds the text, not from its parent:
+ * `:root[data-skin="vcr"] *` declares `text-shadow: none`, and a declaration
+ * on the element beats a value inherited from its parent — so outlining the
+ * container outlines nothing, which is what this block did for years.
+ */
+for (const id of ['osdState', 'osdClock']) {
+  const shadow = getComputedStyle(document.getElementById(id)).textShadow;
+  if (!shadow || shadow === 'none') {
+    throw new Error(`#${id} has no outline over the picture: text-shadow ${shadow}`);
+  }
+}
+
+/**
  * The play and pause marks must be THE SAME SIZE IN THE SAME PLACE.
  *
  * This used to assert the ::after's font-size, which measured the wrong
@@ -160,6 +175,26 @@ for (const b of every.slice(0, 4)) {
   const m = labelMark(b);
   if (m.includes('\u25A0')) throw new Error(`the label still draws a second marker: ${m}`);
 }
+/**
+ * AND IT MUST VANISH WITH THE SKIN.
+ *
+ * The counter used to be hidden as a side effect of `.osd { display: none }`
+ * covering its whole subtree. Moving it into .chrome__bottom means one lone
+ * `.osd__count { display: none }` is now the only thing keeping it out of the
+ * other 34 themes — and the clock text is written on every timeupdate in
+ * every theme, so losing that rule would print a live counter over the
+ * picture everywhere, in the wrong face, with no outline.
+ */
+const themeSel = document.getElementById('themeSelect');
+themeSel.value = 'midnight';
+themeSel.dispatchEvent(new Event('change', { bubbles: true }));
+await wait(600);
+const strayCount = getComputedStyle(document.querySelector('.osd__count')).display;
+if (strayCount !== 'none') throw new Error(`the tape counter is drawn outside the skin: display ${strayCount}`);
+themeSel.value = 'vhs';
+themeSel.dispatchEvent(new Event('change', { bubbles: true }));
+await wait(600);
+
 const closeLocks = document.getElementById('locksClose') || document.querySelector('#locksModal .modal__close');
 if (closeLocks) closeLocks.click();
 await wait(300);

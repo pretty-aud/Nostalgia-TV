@@ -201,6 +201,12 @@ async function storeImage(kind, id, image) {
     : image;
 
   await fsp.mkdir(artDir, { recursive: true });
+  // Recorded BEFORE the file lands, not after: a rebuild running concurrently
+  // reads the record and then deletes what is not in it, so writing the image
+  // first leaves a window where the image exists and its protection does not.
+  // Recording early can at worst protect a key whose write then failed, which
+  // costs one stale entry; recording late can delete what she just chose.
+  await rememberChosen(kind, id);
   const target = pathFor(kind, id);
   const tmp = `${target}.tmp`;
   await fsp.writeFile(tmp, scaled.toPNG());
@@ -208,7 +214,6 @@ async function storeImage(kind, id, image) {
   // A capture may already exist at the same key. read() prefers the PNG, but
   // leaving the JPEG behind means a rebuild could later resurrect it.
   await fsp.unlink(capturePathFor(kind, id)).catch(() => {});
-  await rememberChosen(kind, id);
   return { ok: true, dataUrl: await read(kind, id) };
 }
 
@@ -264,7 +269,10 @@ function captureOnce(ffmpeg, absPath, outPath, atSeconds) {
        * landing on a shot. -q:v 3 is high-quality JPEG; the default is
        * noticeably soft on exactly the flat areas this look is full of.
        */
-      '-vf', `thumbnail=40,scale=${CAPTURE_WIDTH}:-2`,
+      // min(), so a standard-definition source is never STRETCHED to 1280 —
+      // that is not more detail, it is the same detail over more pixels and a
+      // bigger file. The hand-picked path clamps the same way.
+      '-vf', `thumbnail=40,scale='min(${CAPTURE_WIDTH},iw)':-2`,
       '-q:v', '3',
       '-y', outPath,
     ], { windowsHide: true });
@@ -306,8 +314,17 @@ async function capture(kind, id, absPath, atSeconds) {
   const offsets = [...new Set([atSeconds, atSeconds * 2, Math.round(atSeconds / 2), atSeconds * 3, 10])]
     .filter((s) => s >= 0);
 
+  /**
+   * A usable frame beats an unusable one OUTRIGHT, and only then does spread
+   * decide. Ranking on spread alone had two holes, both of which kept the
+   * wrong picture: a dark frame with busy edges outscored a well-lit one, and
+   * a later frame that was usable but calmer got broken on without ever being
+   * promoted — so the file left on disk was the unusable one.
+   */
+  const rank = (m) => (m.usable ? 1e6 : 0) + m.spread;
+
   let got = false;
-  let best = null;                                   // { file, spread }
+  let best = null;                                   // { rank, usable }
   for (const at of offsets) {
     const into = best ? spare : tmp;
     if (!await captureOnce(ffmpeg, absPath, into, at)) continue;
@@ -318,12 +335,14 @@ async function capture(kind, id, absPath, atSeconds) {
      */
     const seen = measure(into);
     if (!seen) continue;
-    if (!best || seen.spread > best.spread) {
-      if (best && into === spare) await fsp.rename(spare, tmp).catch(() => {});
-      best = { spread: seen.spread };
+    const score = rank(seen);
+    if (!best || score > best.rank) {
+      if (into === spare) await fsp.rename(spare, tmp).catch(() => {});
+      best = { rank: score, usable: seen.usable };
       got = true;
     }
-    if (seen.usable) break;                          // good enough; stop reading
+    // Stop only once the frame actually being KEPT is good enough.
+    if (best.usable) break;
   }
   await fsp.unlink(spare).catch(() => {});
 
@@ -368,7 +387,9 @@ async function sweep(items, options = {}) {
   // permanent store; sweep start is the natural broom.
   try {
     for (const name of await fsp.readdir(artDir)) {
-      if (!name.endsWith('.tmp.png')) continue;
+      // .tmp.jpg and .alt.jpg are what captures write now; .tmp.png is what
+      // they wrote before, and a leftover from then is still dead weight.
+      if (!/\.(tmp|alt)\.(png|jpg)$/.test(name)) continue;
       const full = path.join(artDir, name);
       try {
         // Only genuinely abandoned tmps: an ingest capture (or an old sweep's
