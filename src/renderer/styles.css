@@ -596,6 +596,30 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   font-size: var(--t-body);
   transition: border-color var(--fast), color var(--fast);
 }
+
+/**
+ * THE OPEN LIST IS DRAWN BY THE OPERATING SYSTEM, NOT BY THIS SHEET.
+ *
+ * A select's popup is a native window. It paints its own background — white,
+ * under the default light colour-scheme — and then draws the options in
+ * whatever colour they inherit. Every dark theme here hands it a near-white
+ * ink and no background of its own, so the list came out white on white:
+ * measured across all 35 themes, 26 of them landed between 1.00:1 and 1.28:1
+ * against that white. The closed control looks perfect the whole time, which
+ * is why this survived so long — and no screenshot of the page can show it,
+ * because the popup is not part of the page.
+ *
+ * Both halves have to be set, and they have to be set on the OPTION: giving
+ * the select a background does not reach the popup.
+ *
+ * This is deliberately NOT scoped to a theme or a skin. It was first fixed
+ * for the VHS skin alone, on the assumption that the skin had caused it. The
+ * skin only made it obvious.
+ */
+option {
+  background-color: var(--paper);
+  color: var(--ink);
+}
 .select:hover { border-color: var(--ink-faint); }
 .select:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
 .select:disabled { color: var(--ink-faint); }
@@ -3275,25 +3299,8 @@ input[type="range"]::-webkit-slider-thumb {
   background: transparent;
   color: var(--ink);
 }
-/**
- * THE DROPDOWN LIST WAS WHITE ON WHITE.
- *
- * A select's popup is drawn by the operating system, not by the page, and it
- * paints its own light background behind whatever colour the options carry.
- * The options inherited the skin's ink — measured, `rgb(255,255,255)` on
- * `rgba(0,0,0,0)` — so every unselected row was white text on the OS's white,
- * and only the highlighted row, which gets the OS's own colours, could be
- * read at all.
- *
- * Both halves have to be stated on the option itself; setting them on the
- * select does not reach the popup. Chromium honours option background-color
- * and color on Windows, which is what this is. The closed control keeps the
- * skin's own transparent-on-paper look from the rule below.
- */
-:root[data-skin="vcr"] option {
-  background-color: var(--paper);
-  color: var(--ink);
-}
+/* The dropdown list is handled for EVERY theme by the `option` rule near
+   .select — the skin was not the cause, only the place it was noticed. */
 
 /* Selected reads as INVERSE VIDEO, the era's own highlight. */
 :root[data-skin="vcr"] .mode[aria-pressed="true"],

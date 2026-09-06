@@ -33,6 +33,7 @@ const SHOTS = [
   'key-library',
   'themes-new',
   'theme-menu',
+  'theme-dropdowns',
   'schedule-greying',
   'vhs-font-spike',
   'vhs-transport',
