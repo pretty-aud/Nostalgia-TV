@@ -1024,6 +1024,25 @@ input[type="range"]::-webkit-slider-thumb {
 
 .upnext { font-size: var(--t-meta); color: var(--ink-faint); margin-right: 6px; }
 
+/**
+ * IN LIBRARY MODE THE PLAYER ANNOUNCES NOTHING.
+ *
+ * "Next: <show> <episode>" is the CHANNEL saying what it will play when this
+ * finishes. Watching something picked from the library, that sentence is
+ * about a queue she is not in — it named a programme from the rotation while
+ * a completely different series was on screen. The sidebar still shows the
+ * channel's queue, which is where that belongs.
+ *
+ * Hidden in CSS rather than blanked in the renderer on purpose: opening and
+ * leaving the library changes this attribute without redrawing the header, so
+ * a JS gate would leave the old sentence sitting there until the next episode.
+ */
+.app[data-browsing="true"] .chrome .upnext { display: none; }
+
+/* A film has no previous or next episode to step to. */
+.app[data-library="movie"] #btnPrev,
+.app[data-library="movie"] #btnNext { display: none; }
+
 /* ── stage: the bumper ────────────────────────────────────────────────── */
 
 /* The up-next card crossfades rather than cutting.

@@ -244,6 +244,11 @@
           </p>
           <div class="detail__actions">
             <button class="btn btn--signal" id="btnDetailPlay" type="button">Play</button>
+            <!-- Only when there is a position to abandon. Offering "Start
+                 over" on something never started is a control that does
+                 nothing, and the film panel was otherwise a dead end: it
+                 could only ever offer to resume. -->
+            <button class="btn btn--quiet" id="btnDetailRestart" type="button" hidden>Start over</button>
             <button class="btn btn--quiet" id="btnDetailSettings" type="button"
                     aria-haspopup="dialog">Show settings</button>
             <button class="btn btn--quiet" id="btnDetailClose" type="button">Close</button>

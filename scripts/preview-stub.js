@@ -84,6 +84,17 @@
          * shot of the feature would be a picture of an empty column and a
          * hidden dropdown, and nothing would fail to tell anyone why.
          */
+        /**
+         * One film with a saved position, so the detail panel's Resume and
+         * Start over can be exercised at all. The preview has no playable
+         * media, so nothing ever RECORDS a position here — without a seeded
+         * one the button that only appears mid-film could never be tested.
+         */
+        library: {
+          seeded: true,
+          shows: {},
+          movies: { 'MOVIES/Blade Runner.mkv': { position: 1636, duration: 6900, at: 1 } },
+        },
         tags: {
           shows: {
             'scavengers-reign': ['Animation', 'Drama', 'Sci-Fi'],

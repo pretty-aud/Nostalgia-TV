@@ -3,13 +3,14 @@
  *
  * Clicking a movie used to play it outright, so there was nowhere to say what
  * the file is — which is the question you ask before committing to two hours.
- * It now opens the same panel a series does, minus the two things a film has
- * nothing to put in: the episode list and the show's rotation settings.
+ * It now opens the same panel a series does, minus the one thing a film has
+ * nothing to put in: the episode list. Its settings button stays and is
+ * pointed at the film.
  *
  * The regression this guards is the one that would be worst to ship: the
- * panel hides those two for a film, so if they are not restored the NEXT
- * series opens with no episodes and no settings button. Both kinds are opened
- * here, in that order, for exactly that reason.
+ * panel hides the list and relabels the button for a film, so if neither is
+ * restored the NEXT series opens with no episodes and a button labelled for a
+ * film. Both kinds are opened here, in that order, for exactly that reason.
  *
  * Bare statements; throws so shoot-all gates on it.
  *
@@ -48,12 +49,18 @@ await wait(900);
 if (panel.hidden) throw new Error('a film did not open the panel');
 if (app.dataset.view === 'playing') throw new Error('a film started playing instead of opening the panel');
 
-// What a film has nothing to say with.
+// A film has no episodes to list. It DOES have languages and a card image,
+// so the settings button stays — this asserted the opposite when the panel
+// was first built, which was right then and became wrong the moment films
+// were given settings of their own. A probe that pins a superseded decision
+// is worse than none: it argues for the old behaviour with a red build.
 if (!document.getElementById('detailEpisodes').hidden) {
   throw new Error('the film panel is showing an episode list');
 }
-if (!document.getElementById('btnDetailSettings').hidden) {
-  throw new Error('the film panel is offering rotation settings');
+const filmSettings = document.getElementById('btnDetailSettings');
+if (filmSettings.hidden) throw new Error('the film panel hides its settings button');
+if (!/movie/i.test(filmSettings.textContent)) {
+  throw new Error(`the film's settings button reads "${filmSettings.textContent}"`);
 }
 const title = document.getElementById('detailTitle').textContent.trim();
 if (!title) throw new Error('the film panel has no title');
@@ -88,8 +95,8 @@ if (panel.hidden) throw new Error('a series did not open the panel after a film'
 if (document.getElementById('detailEpisodes').hidden) {
   throw new Error('a series opened with its episode list still hidden');
 }
-if (document.getElementById('btnDetailSettings').hidden) {
-  throw new Error('a series opened with its settings button still hidden');
+if (!/show/i.test(document.getElementById('btnDetailSettings').textContent)) {
+  throw new Error('a series opened with the film panel settings label');
 }
 if (!document.querySelector('#detailEpisodes .ep')) {
   throw new Error('the series panel listed no episodes');

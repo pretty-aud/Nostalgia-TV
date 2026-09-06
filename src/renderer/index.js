@@ -1330,6 +1330,32 @@ async function loadAndPlay(item, seekTo = 0) {
 }
 
 /**
+ * In library mode the transport walks the SHOW, not the channel.
+ *
+ * Watching a series from the library and pressing Previous used to step back
+ * through the channel's history — so it played the last thing the channel had
+ * shown, which is a different programme entirely. Whatever was picked in the
+ * library is what these buttons should move through.
+ *
+ * Returns true when it handled the press, so the channel's own behaviour
+ * stays exactly as it was for everything else. A film has nothing to step to
+ * and its buttons are hidden; this refuses it rather than relying on that.
+ */
+function stepLibraryEpisode(delta) {
+  if (!browsing() || !browseItem || browseItem.kind !== 'show') return false;
+  const { show, episodeIndex } = browseItem;
+  if (!show || !Array.isArray(show.episodes)) return false;
+
+  const target = episodeIndex + delta;
+  if (!show.episodes[target]) {
+    toast(delta < 0 ? 'This is the first episode.' : 'This is the last episode.', 2200);
+    return true;
+  }
+  playFromLibrary(show, target, 0);
+  return true;
+}
+
+/**
  * Ask what "skip" should mean here, then do it.
  *
  * Three genuinely different answers and none of them is a safe default:
@@ -1405,7 +1431,7 @@ function playNext() {
   // has to end here as well as at its own button: the sidebar's Resume also
   // lands here, and leaving the flag set would send the end of a CHANNEL
   // episode into the library's next-episode handler.
-  if (browsing()) { app.dataset.browsing = 'false'; browseItem = null; }
+  if (browsing()) { app.dataset.browsing = 'false'; delete app.dataset.library; browseItem = null; }
 
   const result = advance(shows, state, {});
   state = result.state;
@@ -3933,7 +3959,15 @@ function renderMediaTable() {
 // ---------------------------------------------------------------------------
 
 /** The show whose settings dialog is on screen. */
-let showSetShow = null;
+/**
+ * What the settings sheet is editing: { key, title, kind, show, movie }.
+ *
+ * It used to hold a show. A film needs the same audio and subtitle
+ * preferences and the same card image, and the only thing that genuinely
+ * differs is the key those preferences hang on — so the sheet works on a
+ * target and the two openers build one.
+ */
+let showSetTarget = null;
 
 /**
  * This show's saved playback preferences, or an empty object.
@@ -3955,11 +3989,41 @@ function prefFor(showId) {
   return (state.settings.showPrefs || {})[showId] || {};
 }
 
+/**
+ * Which preference a playing item should read.
+ *
+ * Every movie carries the same showId — '__movie__' — because the scheduler
+ * treats films as one pseudo-show for blocks and cursors. That is right for
+ * the rotation and wrong for a language preference: setting Japanese audio on
+ * one film would set it on every film. So a movie keys on its own path.
+ */
+function prefKeyFor(item) {
+  if (!item) return '';
+  return item.isMovie ? `movie:${item.relPath}` : item.showId;
+}
+
 function openShowSettings(show) {
   if (!show) return;
-  showSetShow = show;
-  const pref = prefFor(show.id);
-  el('showSetTitle').textContent = show.name;
+  openMediaSettings({ key: show.id, title: show.name, kind: 'show', show });
+}
+
+/**
+ * The same sheet for a film: same languages, same card image. "Forget the
+ * watch history" is hidden, because a film's history is one position and the
+ * detail panel's Start over is the direct way to clear it.
+ */
+function openMovieSettings(movie) {
+  if (!movie) return;
+  openMediaSettings({
+    key: `movie:${movie.relPath}`, title: movie.name, kind: 'movie', movie,
+  });
+}
+
+function openMediaSettings(target) {
+  showSetTarget = target;
+  const pref = prefFor(target.key);
+  el('btnShowSetForget').hidden = target.kind === 'movie';
+  el('showSetTitle').textContent = target.title;
   el('showSetAudio').value = pref.audio || '';
   el('showSetSubs').value = pref.subs || '';
   el('showSetNote').textContent =
@@ -3970,7 +4034,8 @@ function openShowSettings(show) {
 
 function closeShowSettings() {
   el('showSetModal').hidden = true;
-  showSetShow = null;
+  showSetTarget = null;
+  el('btnShowSetForget').hidden = false;
 }
 
 function showSetOpen() {
@@ -4095,13 +4160,13 @@ async function artFromFile(file) {
  * which reads exactly like the setting not working.
  */
 function saveShowPref(patch) {
-  if (!showSetShow) return;
-  const show = showSetShow;
-  const prior = prefFor(show.id);
+  if (!showSetTarget) return;
+  const { key } = showSetTarget;
+  const prior = prefFor(key);
   const next = { ...prior, ...patch };
 
   state = applySettings(shows, state, {
-    showPrefs: { ...(state.settings.showPrefs || {}), [show.id]: next },
+    showPrefs: { ...(state.settings.showPrefs || {}), [key]: next },
   }, {});
   persist();
 
@@ -4207,7 +4272,7 @@ async function applyTrackPrefs(item) {
   const list = await window.tv.mpvTrackList().catch(() => null);
   if (!list || current !== item) return;
 
-  const pref = prefFor(item.showId);
+  const pref = prefFor(prefKeyFor(item));
   const aid = pickAudioTrackId(list, { preferLanguage: pref.audio || 'eng' });
   if (aid !== null) await window.tv.mpvSetAudioTrack(aid).catch(() => {});
 
@@ -4671,7 +4736,10 @@ function wireEvents() {
   window.addEventListener('dragover', (event) => event.preventDefault());
   window.addEventListener('drop', (event) => event.preventDefault());
 
-  el('btnDetailSettings').addEventListener('click', () => openShowSettings(browseDetailShow));
+  el('btnDetailSettings').addEventListener('click', () => {
+    if (browseDetailMovie) { openMovieSettings(browseDetailMovie); return; }
+    openShowSettings(browseDetailShow);
+  });
   el('btnCloseShowSet').addEventListener('click', closeShowSettings);
   el('showSetBackdrop').addEventListener('click', closeShowSettings);
 
@@ -4688,22 +4756,29 @@ function wireEvents() {
   });
 
   el('btnShowSetImage').addEventListener('click', () => {
-    if (!showSetShow) return;
-    const show = showSetShow;
-    openArtPicker('show', show.id, show.name, () => {
-      if (browseDetailShow && browseDetailShow.id === show.id) {
+    if (!showSetTarget) return;
+    const target = showSetTarget;
+    // A film's card is keyed by its path, a show's by its id — the same
+    // picker, told which kind it is setting.
+    const artKind = target.kind === 'movie' ? 'movie' : 'show';
+    const artId = target.kind === 'movie' ? target.movie.relPath : target.show.id;
+    openArtPicker(artKind, artId, target.title, () => {
+      const openHere = target.kind === 'movie'
+        ? (browseDetailMovie && browseDetailMovie.relPath === artId)
+        : (browseDetailShow && browseDetailShow.id === artId);
+      if (openHere) {
         const art = el('detailArt');
         art.textContent = '';
         art.dataset.empty = 'true';
-        paintArt(art, [], { kind: 'show', id: show.id });
+        paintArt(art, [], { kind: artKind, id: artId });
       }
       if (browseOpen()) renderBrowse();
     });
   });
 
   el('btnShowSetForget').addEventListener('click', () => {
-    if (!showSetShow) return;
-    const show = showSetShow;
+    if (!showSetTarget || showSetTarget.kind !== 'show') return;
+    const show = showSetTarget.show;
     if (!window.confirm(`Forget the library's watch history for ${show.name}?
 
 The channel keeps its own place.`)) return;
@@ -5108,9 +5183,13 @@ The channel keeps its own place.`)) return;
   el('btnFwd').addEventListener('click', () => { player.currentTime += 30; });
   // "Next" means play the episode that was promised next — NOT skip past it.
   // advance() already consumed the one on screen, so playNext() is the whole job.
-  el('btnNext').addEventListener('click', askSkip);
+  el('btnNext').addEventListener('click', () => {
+    if (stepLibraryEpisode(1)) return;
+    askSkip();
+  });
 
   el('btnPrev').addEventListener('click', () => {
+    if (stepLibraryEpisode(-1)) return;
     // history[0] is the episode ON SCREEN — advance() recorded it the moment it
     // started — so stepping back to the one before it means undoing two: the
     // current episode, and the one that actually preceded it.
@@ -6448,9 +6527,10 @@ function continueTile(row) {
 function openDetail(show) {
   browseDetailShow = show;
   browseDetailMovie = null;
-  // The movie panel hides both of these; a show needs them back.
+  // The film panel changes both of these; a series needs them back.
   el('detailEpisodes').hidden = false;
-  el('btnDetailSettings').hidden = false;
+  el('btnDetailSettings').textContent = 'Show settings';
+  el('btnDetailRestart').hidden = true;
   const watched = watchedCount(show, state);
   const point = resumePoint(show, state);
   const next = show.episodes[point.episodeIndex];
@@ -6568,10 +6648,12 @@ function openMovieDetail(movie) {
   const play = el('btnDetailPlay');
   play.textContent = point.seekTo > 0 ? `Resume ${formatTime(point.seekTo)} in` : 'Play';
 
-  // A film has no episodes and no rotation settings.
+  // A film has no episodes to list, but it does have languages and a card
+  // image — so the settings button stays, pointed at the film.
   el('detailEpisodes').textContent = '';
   el('detailEpisodes').hidden = true;
-  el('btnDetailSettings').hidden = true;
+  el('btnDetailSettings').textContent = 'Movie settings';
+  el('btnDetailRestart').hidden = !(point.seekTo > 0);
 
   showMediaSummary(`movie:${movie.relPath}`, movie.absPath);
   el('browseDetail').hidden = false;
@@ -6583,10 +6665,11 @@ function closeDetail() {
   browseDetailShow = null;
   browseDetailMovie = null;
   detailKey = null;
-  // Put back what the movie panel hid, or the next SHOW opens with no
-  // episodes and no settings button.
+  // Put back what the film panel changed, or the next SERIES opens with no
+  // episode list and a button labelled for a film.
   el('detailEpisodes').hidden = false;
-  el('btnDetailSettings').hidden = false;
+  el('btnDetailSettings').textContent = 'Show settings';
+  el('btnDetailRestart').hidden = true;
 }
 
 function detailOpen() {
@@ -6655,15 +6738,25 @@ function playFromLibrary(show, episodeIndex, seekTo) {
 
   browseItem = { kind: 'show', show, episodeIndex };
   app.dataset.browsing = 'true';
+  app.dataset.library = 'show';
   closeBrowse();
   loadAndPlay(item, point);
 }
 
-function playMovieFromLibrary(movie) {
+function playMovieFromLibrary(movie, seekTo) {
   browseItem = { kind: 'movie', movie };
   app.dataset.browsing = 'true';
+  // The transport hides Previous and Next for a film: there is nothing to
+  // step to, and leaving them wired to the channel is how Previous played
+  // something else entirely.
+  app.dataset.library = 'movie';
   closeBrowse();
-  loadAndPlay(movieItem(movie), movieResumePoint(movie, state).seekTo);
+  loadAndPlay(
+    movieItem(movie),
+    // An explicit 0 means START OVER, so it must beat the saved position
+    // rather than be treated as "nothing passed, use the saved one".
+    Number.isFinite(seekTo) ? seekTo : movieResumePoint(movie, state).seekTo,
+  );
 }
 
 /**
@@ -6679,8 +6772,7 @@ function browseEpisodeEnded() {
   if (kind === 'movie') {
     state = markMovie(state, movie, player.duration || 0, player.duration, Date.now());
     persist();
-    browseItem = null;
-    openBrowse();
+    rollIntoChannel();
     return;
   }
 
@@ -6696,6 +6788,27 @@ function browseEpisodeEnded() {
   browseItem = null;
   openBrowse();
   openDetail(show);
+}
+
+/**
+ * A film ends and the channel takes over, with the seam it deserves.
+ *
+ * It used to drop back to the library grid, which ends the evening — you
+ * finish a film and the app hands you a menu. The channel is what this app
+ * IS, so a film rejoins it: the ident, whatever promo is due, then the next
+ * programme. The same chain the channel plays between its own episodes, so
+ * the join sounds like the channel rather than like an app changing mode.
+ *
+ * The up-next CARD is deliberately not shown. That card is the channel
+ * announcing what it is about to play, and after a film she asked for the
+ * hand-back to be seamless rather than narrated — the same reason the
+ * player's up-next line stays hidden all through library mode.
+ */
+function rollIntoChannel() {
+  app.dataset.browsing = 'false';
+  delete app.dataset.library;
+  browseItem = null;
+  playBumperClip(() => playPromoClip(() => playNext()));
 }
 
 /** Where library mode writes its position, in place of state.resume. */
@@ -6723,6 +6836,11 @@ function wireBrowse() {
 
   el('btnDetailClose').addEventListener('click', closeDetail);
   el('detailBackdrop').addEventListener('click', closeDetail);
+  el('btnDetailRestart').addEventListener('click', () => {
+    if (browseDetailMovie) { playMovieFromLibrary(browseDetailMovie, 0); return; }
+    if (browseDetailShow) playFromLibrary(browseDetailShow, 0, 0);
+  });
+
   el('btnDetailPlay').addEventListener('click', () => {
     if (browseDetailMovie) { playMovieFromLibrary(browseDetailMovie); return; }
     if (!browseDetailShow) return;

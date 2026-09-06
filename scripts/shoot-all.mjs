@@ -24,6 +24,7 @@ const SHOTS = [
   'browse-rail',
   'detail-media',
   'detail-movie',
+  'library-transport',
   'browse-search',
   'art-picker',
   'art-picker-drag',
