@@ -32,9 +32,108 @@ if (!meta) throw new Error('a show card has no meta line');
 // four-digit count, in caps.
 meta.textContent = 'Next S01E123 · 7 watched of 1000';
 await wait(300);
-const lineHeight = parseFloat(getComputedStyle(meta).lineHeight);
-const lines = Math.round(meta.scrollHeight / lineHeight);
-if (!Number.isFinite(lineHeight) || lineHeight <= 0) throw new Error('could not read the meta line-height');
-if (lines > 1) {
-  throw new Error(`the show meta wrapped to ${lines} lines — ${meta.scrollWidth}px of text in ${meta.clientWidth}px`);
+const metaLine = parseFloat(getComputedStyle(meta).lineHeight);
+if (!Number.isFinite(metaLine) || metaLine <= 0) throw new Error('could not read the meta line-height');
+const metaLines = Math.round(meta.scrollHeight / metaLine);
+if (metaLines > 1) {
+  throw new Error(`the show meta wrapped to ${metaLines} lines — ${meta.scrollWidth}px of text in ${meta.clientWidth}px`);
 }
+
+/**
+ * UP NEXT BREAKS A TITLE AT ITS OWN SEAM.
+ *
+ * "Ghost in the Shell - Stand Alone Complex" has to set as two lines with the
+ * episode code trailing the SECOND one. Before this the line broke wherever
+ * the narrow column ran out, which orphaned the code onto a line by itself
+ * and read as the title falling out of the row.
+ *
+ * Counted by HEIGHT against the line-height, not by getClientRects(): an
+ * inline span containing a <br> reports a rect per line fragment plus one for
+ * the break itself, so that count reads 3 for a two-line title and would make
+ * this assertion nonsense. Measured that on the way in.
+ *
+ * Failing control, run: drop the titleLines() call in renderSchedule and
+ * render item.showName as a single text node — the row stays one line tall
+ * and this throws "set 1 line(s)".
+ */
+/**
+ * READ WHAT THE RENDERER PRODUCED. Do not build it here.
+ *
+ * The first version of this set the two text nodes and the <br> itself and
+ * then measured them, so it proved that CSS honours a line break — which was
+ * never in doubt — and passed happily with the renderer emitting one flat
+ * string. Verified: with titleLines() removed from renderSchedule it still
+ * went green. The fixture now carries a seamed title so the real path runs.
+ */
+/**
+ * Put the seamed show in the queue DELIBERATELY rather than hoping.
+ *
+ * Up next draws the rotation, which serves two-episode blocks and starts
+ * wherever the saved state left it — so across runs the fixture's seamed
+ * title was simply absent from the four rows about half the time. A marathon
+ * pins the queue to one show, which is the app's own way of saying "only this
+ * one", and makes the assertion below deterministic.
+ */
+const seamCard = [...document.querySelectorAll('.show')]
+  .find((c) => /\s[-–—]\s/.test((c.querySelector('.show__name') || {}).textContent || ''));
+if (!seamCard) throw new Error('the fixture has no show with a seamed title to test');
+const marathonBtn = seamCard.querySelector('.showctl[data-act="marathon"]');
+if (!marathonBtn) throw new Error('no marathon control on the seamed show');
+marathonBtn.click();
+await wait(700);
+
+const rows = [...document.querySelectorAll('#scheduleList .sched')];
+if (!rows.length) throw new Error('no Up next rows to check');
+const seamRow = rows.find((r) => {
+  const n = r.querySelector('.sched__name');
+  return n && /\s[-–—]\s/.test(n.textContent);
+}) || rows.find((r) => r.querySelector('.sched__name br'));
+if (!seamRow) {
+  throw new Error(`the seamed show is not in Up next even under a marathon. Rows: ${rows.map((r) => (r.querySelector('.sched__name') || {}).textContent).join(' | ')}`);
+}
+const seamName = seamRow.querySelector('.sched__name');
+const seamCode = seamRow.querySelector('.sched__code');
+if (!seamCode) throw new Error('the seamed Up next row has no episode code');
+
+// The renderer must have BROKEN it, not merely printed it.
+if (!seamName.querySelector('br')) {
+  throw new Error(`the renderer set "${seamName.textContent}" as one run — no break at the seam`);
+}
+const titleLine = parseFloat(getComputedStyle(seamName).lineHeight);
+if (!Number.isFinite(titleLine) || titleLine <= 0) throw new Error('could not read the title line-height');
+
+// ...and it must actually occupy two line boxes, which a <br> inside a
+// display:none or zero-height element would not.
+const plain = rows.find((r) => {
+  const n = r.querySelector('.sched__name');
+  return n && !n.querySelector('br');
+});
+if (plain) {
+  const oneLine = plain.getBoundingClientRect().height;
+  const twoLine = seamRow.getBoundingClientRect().height;
+  const grew = Math.round((twoLine - oneLine) / titleLine);
+  if (grew !== 1) {
+    throw new Error(`a seamed title set ${grew + 1} line(s): ${oneLine}px vs ${twoLine}px with a ${titleLine}px line`);
+  }
+}
+
+// The code must ride the LAST line, not start a third.
+const titleRects = [...seamName.getClientRects()].filter((r) => r.width > 0);
+const lastLine = titleRects[titleRects.length - 1];
+const codeBox = seamCode.getBoundingClientRect();
+if (Math.abs(codeBox.top - lastLine.top) > 4) {
+  throw new Error(`the episode code is not on the title's last line (${Math.round(codeBox.top)} vs ${Math.round(lastLine.top)})`);
+}
+
+// And nothing may run past the column it was given.
+const column = seamRow.querySelector('.sched__line').getBoundingClientRect();
+for (const rect of titleRects) {
+  if (rect.right > column.right + 1) {
+    throw new Error(`a title line runs ${Math.round(rect.right - column.right)}px past its column`);
+  }
+}
+
+// Leave the marathon off, so the screenshot this probe takes is the sidebar
+// in its ordinary state rather than pinned to one show.
+marathonBtn.click();
+await wait(500);

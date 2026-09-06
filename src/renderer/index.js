@@ -58,6 +58,7 @@ import { createMpvFacade } from './mpvBridge.js';
 import { pickAudioTrackId, pickSubtitleTrackId, audioMenuFrom, subtitleMenuFrom } from '../shared/mpvTracks.js';
 import { subStyleProperties } from '../shared/mpvSubStyle.js';
 import { cropSpecFor } from '../shared/mpvCrop.js';
+import { titleLines } from '../shared/titleLines.js';
 import { FONT_CHOICES, DEFAULT_FONTS, fontStackFor } from '../shared/fonts.js';
 import {
   tagsFor, withTags, allTags, tagsInUse, matchesGenres, narrowTags, offersCreate,
@@ -760,7 +761,21 @@ function renderSchedule() {
     wrap.className = 'sched__line';
     const name = document.createElement('span');
     name.className = 'sched__name';
-    name.textContent = item.showName;
+    /**
+     * A title breaks where its own punctuation says it should.
+     *
+     * This column is narrow and the library is full of names that do not fit
+     * in it. Left to itself the line broke wherever the column ran out, which
+     * orphaned the episode code onto a line of its own — the title looked
+     * like it was falling out of the row rather than reading as a series and
+     * its subtitle. A spaced dash is never part of a word, so it is the seam
+     * a person would break at, and the code then trails the SECOND line
+     * where it belongs. See src/shared/titleLines.js.
+     */
+    for (const [index, line] of titleLines(item.showName).entries()) {
+      if (index) name.append(document.createElement('br'));
+      name.append(document.createTextNode(line));
+    }
     const code = document.createElement('span');
     code.className = 'sched__code';
     code.textContent = ` ${item.label}`;

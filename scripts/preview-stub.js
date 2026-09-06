@@ -2,6 +2,11 @@
 (() => {
   window.__tvCalls = { saveState: 0, saveStatus: 0 };
   const shows = [
+    // First on purpose: it is the one with a seam in its title, and the Up
+    // next list draws the queue in order, so this puts the two-line case in
+    // row 01 where a probe can find it. A fixture of short tidy names cannot
+    // exercise the titles this library is actually full of.
+    { name: 'Ghost in the Shell - Stand Alone Complex', count: 26 },
     { name: 'Scavengers Reign', count: 12 },
     { name: 'Men in Black', count: 26 },
     { name: 'SamuraiX', count: 24 },

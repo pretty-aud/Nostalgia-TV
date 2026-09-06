@@ -653,6 +653,22 @@ option {
 }
 .sched__n { font-family: var(--mono); font-size: var(--t-micro); color: var(--ink-faint); }
 .sched__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/**
+ * ...but in the Up next LIST the title is allowed to wrap.
+ *
+ * The renderer breaks a title at its own seam — "Ghost in the Shell" over
+ * "Stand Alone Complex" — with a real <br>, which lands regardless of
+ * white-space. This is for the leftover case: a single part still too wide
+ * for the column. nowrap would push it out of the row, and the ellipsis it
+ * sits beside cannot catch it either, because overflow and text-overflow do
+ * nothing on a non-replaced INLINE element and that is what this is here.
+ * Wrapping is the honest fallback, and it is what she asked for over text
+ * pressed against the border.
+ *
+ * Scoped to .sched__line so the movie row is untouched: that one puts the
+ * name in a flex .sched__body where the ellipsis genuinely works.
+ */
+.sched__line .sched__name { white-space: normal; }
 .sched__code { font-family: var(--mono); font-size: var(--t-micro); color: var(--ink-mute); }
 .sched:first-child .sched__n,
 .sched:first-child .sched__code { color: var(--signal); }
