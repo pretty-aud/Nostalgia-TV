@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('tv', {
   getArtwork: (kind, id) => ipcRenderer.invoke('artwork:get', kind, id),
   chooseArtwork: (kind, id) => ipcRenderer.invoke('artwork:choose', kind, id),
   setArtworkFromData: (kind, id, bytes) => ipcRenderer.invoke('artwork:setFromData', kind, id, bytes),
+  rebuildArtwork: () => ipcRenderer.invoke('artwork:rebuild'),
   getThumb: (absPath) => ipcRenderer.invoke('thumb:get', absPath),
   putThumb: (absPath, dataUrl) => ipcRenderer.invoke('thumb:put', absPath, dataUrl),
 

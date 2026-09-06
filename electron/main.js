@@ -927,6 +927,29 @@ function registerIpc() {
     try { return await artwork.stats(Array.isArray(items) ? items : []); } catch { return []; }
   });
 
+  /**
+   * Throw the captured artwork away and let the sweep make it again.
+   *
+   * Everything captured before this version was 640px wide — narrower than a
+   * card on any normal window — and grabbed from one fixed point in the file,
+   * which sometimes landed on a fade. Those two fixes only reach pictures
+   * that get taken again, and the sweep skips anything that already exists,
+   * so the old ones have to go first.
+   *
+   * The refill is the ordinary background sweep with no arguments, which
+   * reuses the plan from the last scan: one file at a time, a pause between
+   * them, and standing down entirely while anything is playing.
+   */
+  ipcMain.handle('artwork:rebuild', async () => {
+    try {
+      const result = await artwork.rebuild();
+      startArtworkSweep();
+      return { ok: true, ...result };
+    } catch (error) {
+      return { ok: false, error: String((error && error.message) || error) };
+    }
+  });
+
   /** Permanent artwork, keyed by show id / relPath — see electron/artwork.js. */
   ipcMain.handle('artwork:get', async (_event, kind, id) => {
     if (typeof kind !== 'string' || typeof id !== 'string') return null;

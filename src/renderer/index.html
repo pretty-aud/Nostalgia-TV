@@ -439,6 +439,19 @@
                the status of that work, not a prompt to start it. -->
           <p class="modes__note" id="ingestNote">Checking for new titles…</p>
 
+          <h4 class="setsub">Card pictures</h4>
+          <!-- A button for work the app cannot decide on its own: every card
+               captured before this version was grabbed at 640px wide, which
+               is narrower than a card, and from a fixed point in the file
+               that sometimes landed on black. New captures fix both, but the
+               ones already stored have to be thrown away to be redone — and
+               a picture chosen by hand before this version cannot be told
+               apart from a captured one, so the wording says so. -->
+          <p class="modes__note">Grabs every card picture again, larger and skipping black frames. Runs quietly in the background and stands down while something is playing.</p>
+          <div class="setrow">
+            <button class="btn" id="btnRebuildArt" type="button">Rebuild the card pictures</button>
+          </div>
+
           <h4 class="setsub">The library table</h4>
           <p class="modes__note">Every show and movie — what has artwork, and where to set a movie's card image.</p>
           <div class="setrow">

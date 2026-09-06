@@ -4313,6 +4313,32 @@ function wireEvents() {
     if (state.rootPath) loadLibrary(state.rootPath);
   });
 
+  el('btnRebuildArt').addEventListener('click', async () => {
+    /**
+     * Destructive in one specific way, and it says which: a picture chosen by
+     * hand BEFORE this version is byte-for-byte indistinguishable on disk
+     * from a captured frame, so the rebuild cannot spare it. Choices made
+     * from now on are recorded and are left alone.
+     */
+    const ok = window.confirm(
+      'Grab every card picture again?\n\n'
+      + 'They will come back larger, and skipping black frames. It runs in the '
+      + 'background and pauses while anything is playing.\n\n'
+      + 'A picture you chose by hand before this update will be replaced too — '
+      + 'the app cannot tell those apart from captured frames. Anything you '
+      + 'choose from now on is kept.',
+    );
+    if (!ok) return;
+    const button = el('btnRebuildArt');
+    button.disabled = true;
+    const result = await window.tv.rebuildArtwork().catch(() => null);
+    button.disabled = false;
+    if (!result || !result.ok) { toast('Could not rebuild the card pictures.'); return; }
+    toast(result.removed
+      ? `Rebuilding ${result.removed} card picture${result.removed === 1 ? '' : 's'} in the background.`
+      : 'Nothing to rebuild.');
+  });
+
   // The checkbox governs rotation; the rest of the row means "I want this now".
   // Fitts: the common action gets the whole row, the rarer one gets the box.
   el('showList').addEventListener('click', (event) => {
