@@ -49,6 +49,16 @@ const has = (needle) => files.some((f) => f.endsWith(needle));
 
 const bundle = read('src', 'renderer', 'bundle.js');
 const css = read('src', 'renderer', 'styles.css');
+/**
+ * COMMENTS STRIPPED, for any check that asks whether a rule is ABSENT.
+ *
+ * The first run of the settings checks below reported the divider exception
+ * still using :first-of-type. It was not: the only occurrence left in the file
+ * was the comment explaining why that selector had been replaced. A check that
+ * reads the argument instead of the rule reports the opposite of the truth,
+ * and it does it in the direction that looks like a failed deploy.
+ */
+const rules = css ? css.replace(/\/\*[\s\S]*?\*\//g, '') : null;
 const styles = read('src', 'shared', 'bumperStyles.js');
 const music = read('electron', 'bumperMusic.js');
 const clipper = read('electron', 'bumperClip.js');
@@ -144,6 +154,55 @@ const checks = [
   ['the opening schedule is applied through applySettings, after the library',
     Boolean(bundle) && /applyOpeningSchedule/.test(bundle)
       && /openingScheduleId/.test(bundle)],
+
+  // ── the settings polish pass ──────────────────────────────────────────
+  /**
+   * Every one of these guards a rule that some OTHER rule silently outranked
+   * at some point in this pass. None of them threw; each showed only as the
+   * screen disagreeing with the stylesheet. That is exactly the class of thing
+   * a package-contents check is for — the code shipping is not the question,
+   * the code winning is.
+   */
+  ['sub-headings carry a rule, a tick and full ink',
+    Boolean(rules) && /\.setsub \{[^}]*border-top: 1px solid var\(--hair-soft\)/.test(rules)
+      && /\.setsub \{[^}]*color: var\(--ink\)/.test(rules)
+      && /\.setsub::before \{[^}]*background: var\(--signal\)/.test(rules)],
+
+  ['the divider exception is adjacency, not :first-of-type',
+    // :first-of-type resolves against the parent, so #promoGroup made Promos
+    // look like a section opener; .setgroup > … then missed two more.
+    Boolean(rules) && /\.setgroup__head \+ \.setsub \{/.test(rules)
+      && !/\.setsub:first-of-type/.test(rules)],
+
+  ['the switch ships, at the radius every other box in the sheet uses',
+    Boolean(rules) && /\.check input\[type="checkbox"\] \{[^}]*border-radius: var\(--r-sm\)/.test(rules)
+      && /\.check input\[type="checkbox"\] \{[^}]*border: 1px solid var\(--ink-mute\)/.test(rules)],
+
+  ['it transitions the colour, not the background shorthand',
+    // `transition: background` animates background-position too, which the VCR
+    // skin uses to centre the cross it draws on this very input.
+    Boolean(rules) && /transition: background-color var\(--fast\), border-color var\(--fast\)/.test(rules)
+      && !/\.check input\[type="checkbox"\] \{[^}]*transition: background var\(/.test(rules)],
+
+  ['a theme can still move the on colour, now that accent-color is inert',
+    Boolean(rules) && /background: var\(--switch-on, var\(--signal\)\)/.test(rules)
+      && /:root\[data-theme="01"\] \{ --switch-on:/.test(rules)],
+
+  ['the VCR skin keeps its tick box and loses the knob',
+    Boolean(rules) && /:root\[data-skin="vcr"\] \.check input\[type="checkbox"\]::after \{ content: none; \}/.test(rules)],
+
+  ['the high-contrast fallback is placed where it can actually win',
+    // A media query carries no specificity: beside the component it was (0,2,1)
+    // against the skin's (0,3,1), so it was dead in the one skin it was for.
+    Boolean(rules)
+      && rules.indexOf('@media (forced-colors: active)') > rules.indexOf(':root[data-skin="vcr"] .check input,')
+      && /@media \(forced-colors: active\)[\s\S]{0,400}:root\[data-skin="vcr"\] \.check input\[type="checkbox"\]/.test(rules)],
+
+  ['the eight booleans announce as switches',
+    Boolean(html) && (html.match(/role="switch"/g) || []).length === 8],
+
+  ['the accent stopped doubling as a text colour for slider readouts',
+    Boolean(rules) && /\.field__control output \{[^}]*color: var\(--ink\)/.test(rules)],
 
   ['the baked cue ships beside the asar, as a real file',
     // resources/audio/box-office.mp3 — extraResources copies INTO resources,
