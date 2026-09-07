@@ -95,9 +95,18 @@ describe('the sub-section dividers', () => {
 });
 
 describe('the switches', () => {
+  /**
+   * EVERY checkbox in the app, not only the settings sheet's — which is what
+   * this list has always actually enumerated, and what gives the count below
+   * its teeth. schedMovieOrder is the schedule editor's "play them in this
+   * order", added with the Movies tab; it is a switch like the rest, and
+   * listing it here is what keeps "no checkbox is left drawn as a tick box"
+   * true across the whole app rather than in one sheet.
+   */
   const ROWS = [
     'cueBackground', 'loopToggle', 'rememberScheduleToggle', 'presentationToggle',
     'bumperClipToggle', 'autoCropToggle', 'promoToggle', 'promoBetweenToggle',
+    'schedMovieOrder',
   ];
 
   /**

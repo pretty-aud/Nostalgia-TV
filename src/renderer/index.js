@@ -31,6 +31,12 @@ import {
   activeBumperStyleId,
   openingScheduleId,
   showsInSchedule,
+  MOVIE_BLOCK,
+  isMovieBlock,
+  hasMovieBlocks,
+  normaliseSchedule,
+  moviesForSchedule,
+  nextScheduledMovie,
 } from '../shared/scheduler.js';
 import {
   BUILTIN_STYLES,
@@ -2067,7 +2073,7 @@ function askSkip() {
   (inBlock > 1 ? el('skipEpisode') : el('skipCount')).focus();
 }
 
-function playNext() {
+function playNext(depth = 0) {
   // Anything that comes through advance() is the channel playing. Library mode
   // has to end here as well as at its own button: the sidebar's Resume also
   // lands here, and leaving the flag set would send the end of a CHANNEL
@@ -2076,6 +2082,35 @@ function playNext() {
 
   const result = advance(shows, state, {});
   state = result.state;
+
+  /**
+   * A PLACED FILM REACHED HERE, which means it did not come through the
+   * transition — Skip, Resume and Play now all land in advance() without the
+   * announce step that normally promotes a marker and spends it.
+   *
+   * `depth` is a real bound, not decoration: a schedule made only of films,
+   * with no film its list can play, would otherwise call this in a loop for
+   * ever. Five is enough to step over a run of unplayable blocks and small
+   * enough to stop.
+   */
+  if (result.item && result.item.movieBlock) {
+    const picked = nextScheduledMovie(movieFiles, state, activeSchedule(state.settings), {});
+    state = picked.state;
+    if (picked.movie) {
+      state = { ...state, pendingMovie: picked.movie, movieLeadBlocks: 0 };
+      startMovie();
+      return;
+    }
+    if (depth >= 5) {
+      toast('This schedule places films, but none of the ones it lists are in the library.');
+      setView('ready');
+      renderReady();
+      renderSidebar();
+      return;
+    }
+    playNext(depth + 1);
+    return;
+  }
   // An episode starting is the main way progress moves, so it is the main way
   // a prerequisite gets satisfied.
   refreshLocks();
@@ -2337,14 +2372,71 @@ function onEpisodeEnded() {
   // Spend one block of the movie's lead, if this is a boundary.
   state = tickMovieLead(state, { finishedShowId, nextShowId });
 
-  // Choose the NEXT movie as soon as the clock says one is owed, rather than at
-  // the transition it plays on. That is what puts it in the sidebar schedule
-  // and gives the conversion a few blocks of head start instead of a few
-  // seconds of up-next card.
-  if (!state.pendingMovie && shouldPlayMovie(state, movieFiles, {})) {
+  /**
+   * A SCHEDULE THAT PLACES ITS OWN FILMS TURNS THE CLOCK OFF.
+   *
+   * Her ruling, and the only one that makes a placed block mean anything: with
+   * both systems live the channel would play the film she put at block four
+   * AND whatever the every-N-hours clock decided, which is two films close
+   * together and no way to predict either.
+   *
+   * The pending slot is cleared as well as the clock silenced, because a film
+   * the clock had already chosen survives a schedule switch — applySettings
+   * reshapes the queue and the deck and does not touch pendingMovie — so
+   * without this, changing to a schedule with placed films would fire one last
+   * clock movie on top of the first placed one.
+   *
+   * Safe to clear unconditionally because of the ORDER of the two blocks below:
+   * a film promoted from a placed marker is consumed by startMovie during the
+   * very transition that promotes it, and markMoviePlayed empties the slot. So
+   * anything still pending by the time this line runs came from the clock.
+   */
+  const placesOwnFilms = hasMovieBlocks(activeSchedule(state.settings));
+  if (placesOwnFilms && state.pendingMovie) {
+    state = clearPendingMovie(state);
+  }
+
+  if (!placesOwnFilms && !state.pendingMovie && shouldPlayMovie(state, movieFiles, {})) {
+    // Choose the NEXT movie as soon as the clock says one is owed, rather than
+    // at the transition it plays on. That is what puts it in the sidebar
+    // schedule and gives the conversion a few blocks of head start instead of a
+    // few seconds of up-next card.
     const picked = scheduleMovie(movieFiles, state, {});
     state = picked.state;
     if (picked.movie) renderSidebar();
+  }
+
+  /**
+   * A PLACED FILM IS PROMOTED WHEN IT REACHES THE FRONT — and the marker is
+   * spent in the same breath.
+   *
+   * Promoting means filling pendingMovie, which makes movieIsDue true, which is
+   * what the transition below already reads to announce a film on the up-next
+   * card and then roll the presentation and the feature. Every one of those
+   * steps is the clock's machinery, reused exactly.
+   *
+   * The marker MUST leave the queue here. Once pendingMovie is set the
+   * transition calls startMovie() instead of playNext(), and startMovie does
+   * not touch the queue — so a marker left at the front would sit there for
+   * ever, promoting itself again at every transition and turning the schedule
+   * into nothing but films.
+   */
+  if (placesOwnFilms && !state.pendingMovie) {
+    const head = (state.queue || [])[0];
+    if (head && head.movieBlock) {
+      const picked = nextScheduledMovie(movieFiles, state, activeSchedule(state.settings), {});
+      state = picked.movie
+        ? {
+          ...picked.state,
+          queue: picked.state.queue.slice(1),
+          pendingMovie: picked.movie,
+          movieLeadBlocks: 0,
+        }
+        // No film this schedule may play — spend the block rather than stalling
+        // on it. The channel carries on with the next programme.
+        : { ...picked.state, queue: picked.state.queue.slice(1) };
+      renderSidebar();
+    }
   }
 
   /**
@@ -3716,14 +3808,27 @@ function blankSchedule() {
     // before this field existed behave identically — both inherit — and saying
     // so here means the shape a reader sees is the shape that gets written.
     bumperStyle: null,
+    // null, not []. Both mean "every film"; null is the one normaliseSchedule
+    // settles on, so a new schedule and a normalised old one are identical.
+    movies: null,
+    movieOrder: 'shuffle',
   };
 }
 
 /** Load one saved schedule into the editor, or start a fresh blank one. */
 function loadDraft(id) {
   const found = savedSchedules().find((sc) => sc.id === id);
+  /**
+   * NORMALISED ON THE WAY IN, so the editor never has to ask whether a field
+   * exists. Settings are merged one level deep at boot and `schedules` is an
+   * array of objects two levels down, so a schedule saved before this version
+   * arrives with none of the newer fields — and normaliseSchedule is the one
+   * place that is dealt with. Both arrays are copied, not shared: the editor
+   * mutates its draft, and the contract is that nothing reaches the running
+   * schedule until Save.
+   */
   draft = found
-    ? { ...found, items: [...(found.items || [])] }   // a copy: the editor mutates
+    ? { ...normaliseSchedule(found), items: [...(found.items || [])], movies: found.movies ? [...found.movies] : null }
     : blankSchedule();
   editingId = draft.id;
 }
@@ -3742,7 +3847,14 @@ function commitDraft({ activate = false } = {}) {
   draft.blockSize = Math.min(12, Math.max(1, Number(el('schedBlock').value) || 1));
 
   const rest = savedSchedules().filter((sc) => sc.id !== draft.id);
-  const schedules = [...rest, { ...draft, items: [...draft.items] }]
+  // The film list is copied too. Sharing the array with the running schedule
+  // would let a later edit of the draft change what is playing before Save,
+  // which is exactly the contract loadDraft's copy exists to keep.
+  const schedules = [...rest, {
+    ...draft,
+    items: [...draft.items],
+    movies: draft.movies && draft.movies.length ? [...draft.movies] : null,
+  }]
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const patch = { schedules };
@@ -3832,6 +3944,7 @@ function renderScheduleEditor() {
 
   renderSchedOrder();
   renderSchedPool();
+  renderSchedFilms();
 
   const running = activeSchedule(state.settings);
   el('schedStatus').textContent = running
@@ -3867,7 +3980,14 @@ function scheduleCard(show, source, index) {
      * the running order and its id in the saved schedule; only its label is
      * honest about the situation.
      */
-    if (show.missing) {
+    if (show.movieBlock) {
+      li.dataset.movieBlock = 'true';
+      // Not "1 ep". A film is one block whatever the schedule's block size is,
+      // and saying "1 ep" for a feature would be the control lying about what
+      // it does.
+      eps.textContent = 'one film';
+      li.title = 'A film plays here. Which one is decided in the Movies tab.';
+    } else if (show.missing) {
       li.dataset.missing = 'true';
       li.draggable = true;      // still movable and still removable by hand
       eps.textContent = 'not in the library';
@@ -3941,22 +4061,167 @@ function renderSchedOrder() {
    * at the price of her data.
    */
   draft.items.forEach((id, index) => {
-    const show = byId.get(id) || { id, name: id, missing: true };
-    list.append(scheduleCard(show, 'order', index));
+    // A placed film names no show and is not missing — it is a slot, and which
+    // film fills it is the Movies tab's business.
+    const entry = isMovieBlock(id)
+      ? { id, name: 'Movie', movieBlock: true }
+      : (byId.get(id) || { id, name: id, missing: true });
+    list.append(scheduleCard(entry, 'order', index));
   });
 
   el('schedEmpty').hidden = draft.items.length > 0;
+  /**
+   * A FILM IS A BLOCK BUT NOT A RUN OF EPISODES.
+   *
+   * The count multiplied every block by the block size, so a running order with
+   * two films in it claimed episodes that were never going to play. The blocks
+   * are counted together — they are all blocks — and the two kinds are then
+   * described separately, because that is the only honest way to say what a
+   * mixed order contains.
+   */
+  const films = draft.items.filter(isMovieBlock).length;
+  const showBlocks = draft.items.length - films;
   const blocks = draft.items.length;
-  el('schedCount').textContent = blocks
-    ? `${blocks} block${blocks === 1 ? '' : 's'} · ${blocks * draft.blockSize} episodes`
-    : '';
+  const parts = [`${blocks} block${blocks === 1 ? '' : 's'}`];
+  if (showBlocks) parts.push(`${showBlocks * draft.blockSize} episodes`);
+  if (films) parts.push(`${films} film${films === 1 ? '' : 's'}`);
+  el('schedCount').textContent = blocks ? parts.join(' · ') : '';
 }
 
 function renderSchedPool() {
   const list = el('schedPool');
   list.textContent = '';
+
+  /**
+   * THE FILM BLOCK LIVES AT THE TOP OF THE POOL, not in a menu.
+   *
+   * It is the same gesture as adding a show — drag it across, or click it —
+   * because it is the same kind of thing: one block in the running order. A
+   * button somewhere else labelled "add a movie block" would be a second way
+   * to do a thing there is already a way to do, and the pool is where she is
+   * already looking when she is building an order.
+   *
+   * It names no film. WHICH film plays is the Movies tab's business, decided
+   * when the block comes up, so a placed block is a slot rather than a booking.
+   */
+  const filmBlock = scheduleCard(
+    { id: MOVIE_BLOCK, name: 'Movie', movieBlock: true }, 'pool',
+  );
+  filmBlock.dataset.movieBlock = 'true';
+  list.append(filmBlock);
+
   for (const show of shows) list.append(scheduleCard(show, 'pool'));
   el('schedPoolCount').textContent = shows.length ? String(shows.length) : '';
+}
+
+/**
+ * The films this schedule may play, and everything to choose from.
+ *
+ * The left list is HER order — with the shuffle switched off it is the running
+ * order of the films — so it is never sorted here. The right list is the
+ * library's order, so finding a film by eye works the same way as everywhere
+ * else in the app.
+ */
+function renderSchedFilms() {
+  const chosen = Array.isArray(draft.movies) ? draft.movies : [];
+  const byPath = new Map(movieFiles.map((movie) => [movie.relPath, movie]));
+
+  const list = el('schedFilms');
+  list.textContent = '';
+  chosen.forEach((relPath, index) => {
+    // A film that has been renamed keeps its place rather than being deleted —
+    // the same rule the running order follows for a missing show, and for the
+    // same reason: absent from a scan is not the same as gone.
+    const movie = byPath.get(relPath) || { relPath, name: relPath, missing: true };
+    list.append(filmCard(movie, 'chosen', index));
+  });
+
+  el('schedFilmsEmpty').hidden = chosen.length > 0;
+  el('schedFilmCount').textContent = chosen.length
+    ? `${chosen.length} of ${movieFiles.length}`
+    : 'every film';
+  // On the tab itself, so the closed pane still says whether a list exists.
+  // Blank rather than "0" when there is none — an empty list is not a count of
+  // nothing, it is the absence of a restriction.
+  el('schedTabFilmCount').textContent = chosen.length ? String(chosen.length) : '';
+
+  const pool = el('schedFilmPool');
+  pool.textContent = '';
+  for (const movie of movieFiles) pool.append(filmCard(movie, 'filmpool'));
+  el('schedFilmPoolCount').textContent = movieFiles.length ? String(movieFiles.length) : '';
+
+  const inOrder = draft.movieOrder === 'inorder';
+  el('schedMovieOrder').checked = inOrder;
+  el('schedMovieOrderNote').textContent = inOrder
+    ? 'top to bottom, carrying on where it left off'
+    : 'shuffled, none repeating until all have played';
+}
+
+/** One film, in either of the Movies tab's two lists. */
+function filmCard(movie, source, index) {
+  const li = document.createElement('li');
+  li.className = 'setsched__card';
+  li.draggable = true;
+  li.tabIndex = 0;
+
+  if (source === 'chosen') {
+    const pos = document.createElement('span');
+    pos.className = 'setsched__pos';
+    pos.textContent = String(index + 1).padStart(2, '0');
+    li.append(pos);
+  }
+
+  const name = document.createElement('span');
+  name.className = 'setsched__name';
+  name.textContent = movie.name;
+  li.append(name);
+
+  if (movie.missing) {
+    li.dataset.missing = 'true';
+    const note = document.createElement('span');
+    note.className = 'setsched__eps';
+    note.textContent = 'not in the library';
+    li.append(note);
+    li.title = `This schedule lists "${movie.relPath}", which the library cannot see right now.`;
+  } else if (movie.year) {
+    const year = document.createElement('span');
+    year.className = 'setsched__eps';
+    year.textContent = String(movie.year);
+    li.append(year);
+  }
+
+  if (source === 'chosen') {
+    const drop = document.createElement('button');
+    drop.className = 'setsched__drop';
+    drop.type = 'button';
+    drop.textContent = '✕';
+    drop.setAttribute('aria-label', `Remove ${movie.name} from this schedule's films`);
+    drop.addEventListener('click', (event) => {
+      event.stopPropagation();
+      draft.movies = (draft.movies || []).filter((_, i) => i !== index);
+      renderSchedFilms();
+    });
+    li.append(drop);
+  } else {
+    // Click adds, exactly as it does in the Shows pool. A film may only be
+    // listed once — repeating it would mean nothing, since the block decides
+    // when a film plays and this list only decides which are allowed.
+    const add = () => {
+      const list = draft.movies || [];
+      if (list.includes(movie.relPath)) return;
+      draft.movies = [...list, movie.relPath];
+      renderSchedFilms();
+    };
+    li.addEventListener('click', add);
+    li.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      add();
+    });
+  }
+
+  wireFilmDrag(li, source, index, movie.relPath);
+  return li;
 }
 
 /**
@@ -4061,6 +4326,105 @@ function wireCardDrag(li, source, index, showId) {
     dragGeom = null;
     delete el('schedOrder').dataset.over;
     delete el('schedPool').dataset.over;
+  });
+}
+
+/**
+ * The Movies tab's drags, built on the same geometry as the running order's.
+ *
+ * Kept as its own pair of handlers rather than parameterising the ones below,
+ * because the two universes must not cross: a show dragged into the film list
+ * would be a show id in a list of paths, and a film dragged into the running
+ * order would be a path where a show id belongs. Separate handlers reading
+ * separate state make that impossible rather than merely guarded — `dragFrom`
+ * and `filmDragFrom` are never both set, so a handler that finds the wrong one
+ * simply returns.
+ */
+let filmDragFrom = null;
+
+function wireFilmDrag(li, source, index, relPath) {
+  li.addEventListener('dragstart', (event) => {
+    filmDragFrom = { source, index, relPath };
+    li.dataset.dragging = 'true';
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', relPath);
+    dragGeom = captureDragGeometry(el('schedFilms'), li.getBoundingClientRect().height);
+  });
+  li.addEventListener('dragend', () => {
+    delete li.dataset.dragging;
+    filmDragFrom = null;
+    clearDragGap();
+    dragGeom = null;
+    delete el('schedFilms').dataset.over;
+    delete el('schedFilmPool').dataset.over;
+  });
+}
+
+function wireFilmColumnDrops() {
+  const chosen = el('schedFilms');
+
+  chosen.addEventListener('dragover', (event) => {
+    if (!filmDragFrom) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    chosen.dataset.over = 'true';
+    autoScroll(chosen, event.clientY);
+    showDragGap(insertionIndexAt(event.clientY));
+  });
+  chosen.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget && chosen.contains(event.relatedTarget)) return;
+    delete chosen.dataset.over;
+    clearDragGap();
+  });
+  chosen.addEventListener('drop', (event) => {
+    if (!filmDragFrom) return;
+    event.preventDefault();
+    delete chosen.dataset.over;
+    let target = insertionIndexAt(event.clientY);
+    clearDragGap();
+    const list = [...(draft.movies || [])];
+    if (filmDragFrom.source === 'chosen') {
+      // Remove first, then correct the target — the same arithmetic the running
+      // order uses, and wrong in the same way if the correction is left out.
+      const [moved] = list.splice(filmDragFrom.index, 1);
+      if (filmDragFrom.index < target) target -= 1;
+      list.splice(target, 0, moved);
+    } else {
+      // A film may appear once. Dragging one that is already listed MOVES it
+      // rather than duplicating it, which is what the gesture looks like.
+      const already = list.indexOf(filmDragFrom.relPath);
+      if (already !== -1) {
+        list.splice(already, 1);
+        if (already < target) target -= 1;
+      }
+      list.splice(target, 0, filmDragFrom.relPath);
+    }
+    draft.movies = list;
+    filmDragFrom = null;
+    dragGeom = null;
+    renderSchedFilms();
+  });
+
+  const pool = el('schedFilmPool');
+  pool.addEventListener('dragover', (event) => {
+    if (!filmDragFrom || filmDragFrom.source !== 'chosen') return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    pool.dataset.over = 'true';
+    clearDragGap();
+  });
+  pool.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget && pool.contains(event.relatedTarget)) return;
+    delete pool.dataset.over;
+  });
+  pool.addEventListener('drop', (event) => {
+    delete pool.dataset.over;
+    if (!filmDragFrom || filmDragFrom.source !== 'chosen') return;
+    event.preventDefault();
+    draft.movies = (draft.movies || []).filter((_, i) => i !== filmDragFrom.index);
+    filmDragFrom = null;
+    dragGeom = null;
+    renderSchedFilms();
   });
 }
 
@@ -5367,6 +5731,7 @@ function wireEvents() {
   el('btnCloseSchedule').addEventListener('click', closeSchedule);
   el('scheduleBackdrop').addEventListener('click', closeSchedule);
   wireColumnDrops();
+  wireFilmColumnDrops();
 
   el('schedPick').addEventListener('change', (event) => {
     // Switching schedules keeps unsaved work out of the way rather than
@@ -5384,6 +5749,28 @@ function wireEvents() {
     draft.blockSize = Math.min(12, Math.max(1, Number(el('schedBlock').value) || 1));
     el('schedBlock').value = String(draft.blockSize);
     renderScheduleEditor();      // the per-card "N eps" labels follow it
+  });
+
+  /**
+   * The tabs. aria-pressed drives both the look and the answer to "which pane",
+   * so there is no second piece of state that can disagree with the buttons —
+   * the same rule the rest of the app's .modes groups follow.
+   */
+  el('schedTabs').addEventListener('click', (event) => {
+    const button = event.target.closest('.setsched__tab');
+    if (!button) return;
+    const wanted = button.dataset.pane;
+    for (const tab of el('schedTabs').querySelectorAll('.setsched__tab')) {
+      tab.setAttribute('aria-pressed', String(tab.dataset.pane === wanted));
+    }
+    el('schedPaneOrder').hidden = wanted !== 'order';
+    el('schedPaneMovies').hidden = wanted !== 'movies';
+  });
+
+  el('schedMovieOrder').addEventListener('change', (event) => {
+    if (!draft) return;
+    draft.movieOrder = event.target.checked ? 'inorder' : 'shuffle';
+    renderSchedFilms();          // the note under the switch follows it
   });
 
   el('schedStyle').addEventListener('change', (event) => {

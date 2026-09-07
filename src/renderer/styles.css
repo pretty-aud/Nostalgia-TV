@@ -4844,6 +4844,92 @@ input[type="range"]::-webkit-slider-thumb {
 .setsched__card[data-missing="true"] .setsched__name { color: var(--ink-mute); font-style: italic; }
 .setsched__card[data-missing="true"] .setsched__eps { color: var(--ink-faint); }
 
+/* A placed film. Marked with the accent rather than with a colour of its own —
+   the panel's ink count does not go up for this — and with the same 3px tick
+   the settings sheet uses for a sub-heading, so "this row is a different KIND
+   of thing" reads the same way in both sheets. */
+.setsched__card[data-movie-block="true"] {
+  border-style: dashed;
+  border-color: var(--signal-soft);
+}
+.setsched__card[data-movie-block="true"] .setsched__name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  font-size: var(--t-micro);
+  font-weight: 600;
+}
+.setsched__card[data-movie-block="true"] .setsched__name::before {
+  content: '';
+  flex: none;
+  width: 3px;
+  height: 10px;
+  background: var(--signal);
+}
+.setsched__card[data-movie-block="true"] .setsched__eps { color: var(--signal-soft); }
+
+/* ── the editor's tabs ────────────────────────────────────────────────────
+
+   A TAB IS NOT A BUTTON, and the difference is the rule.
+
+   These were built from .modes--inline, the app's segmented control, which
+   fills the selected one with amber. That control means "one setting, these
+   values" — a rotation mode, a subtitle position — and it looks like a pair of
+   buttons because that is what it is. These two are not a setting; they are two
+   views of the same sheet, and nothing about a filled pill says the panel below
+   belongs to the word above it.
+
+   What says it is the rule. A hairline runs the full width beneath the row, the
+   pane opens under it, and the active tab breaks that line with a short length
+   of accent — the tab and its contents are one surface, and the other tab is on
+   the far side of an edge. No fill, no box, no rounded corner: the only marks
+   are a line and a weight of ink, which is how the rest of this sheet works.
+
+   The active tab's own border sits ON the container's, not below it, via the
+   negative margin — a 2px mark floating 1px under a 1px rule reads as two
+   lines that failed to meet. */
+.setsched__tabs {
+  display: flex;
+  gap: calc(var(--u) * 3);
+  margin: 0 calc(var(--u) * 3);
+  padding: 0;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--hair);
+}
+.setsched__tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: calc(var(--u) * 1.25) 0;
+  font-family: var(--grotesque);
+  font-size: var(--t-body);
+  font-weight: 500;
+  letter-spacing: var(--tr-none);
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: color var(--fast), border-color var(--fast);
+}
+.setsched__tab:hover { color: var(--ink); }
+.setsched__tab[aria-pressed="true"] {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--signal);
+}
+.setsched__tab:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+/* The count of films this schedule allows, beside the tab that holds them —
+   so "Movies" says whether anything has been chosen without being opened. */
+.setsched__tab .mono {
+  margin-left: 8px;
+  font-size: var(--t-micro);
+  color: var(--ink-faint);
+}
+.setsched__tab[aria-pressed="true"] .mono { color: var(--signal-soft); }
+
 /* Where the card would land. A line rather than a gap: a gap moves everything
    below it and the list appears to jump while you are still deciding. */
 /* THE SPACE OPENS. A 2px line drawn on the card above or below the insertion

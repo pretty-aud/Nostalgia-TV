@@ -30,6 +30,8 @@ const SHOTS = [
   'sched-drag',
   'sched-gap',
   'sched-editor',
+  'sched-movies',
+  'sched-movieblock',
   'cewr-standby',
   'cewr-card',
   'cewr-signoff',
@@ -103,6 +105,8 @@ const THEMES = {
   // would re-test the case where the dead zones were smallest.
   'sched-drag': ['midnight', 'vhs'],
   'sched-gap': ['midnight', 'vhs'],
+  'sched-movies': ['midnight', 'vhs'],
+  'sched-movieblock': ['midnight', 'vhs'],
 };
 
 let failed = 0;

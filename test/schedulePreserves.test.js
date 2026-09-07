@@ -71,7 +71,17 @@ describe('opening the schedule editor', () => {
  * between them fell through to a container that appended to the end.
  */
 describe('where a dragged block lands', () => {
-  const wireCard = JS.slice(JS.indexOf('function wireCardDrag('), JS.indexOf('function wireColumnDrops('));
+  /**
+   * SLICED TO THE END OF ITS OWN FUNCTION, not to the next named landmark.
+   *
+   * The first version ran from wireCardDrag to wireColumnDrops, which was the
+   * same span right up until the Movies tab's handlers were written between
+   * them — at which point this started reading a different function's listeners
+   * and failed on code that was correct. A test anchored on what happens to sit
+   * next to its subject reports on the neighbourhood, not the subject.
+   */
+  const start = JS.indexOf('function wireCardDrag(');
+  const wireCard = JS.slice(start, JS.indexOf('\nfunction ', start + 10));
 
   it('gives no card a drop or dragover handler of its own', () => {
     // 8px of list padding, an 8px gap between every pair of cards and a 220px

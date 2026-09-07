@@ -1202,7 +1202,33 @@
       </div>
     </div>
 
-    <div class="modal__body setsched__body">
+    <!--
+      TWO PAIRS OF COLUMNS, ONE AT A TIME.
+
+      The running order and the film list are two independent drag universes —
+      a show is never dragged into the film box and a film is never dragged
+      into the running order — so putting them side by side would be four
+      columns of ~270px, which leaves about fourteen characters of a show's
+      name before the ellipsis. Tabs cost the running order nothing: it keeps
+      the full width it has today, and the pairing that is not in use is not
+      competing for space with the one that is.
+
+      NOT .modes. That is the app's segmented control — a filled amber pill for
+      the pressed one — and it says "these are two settings of one control",
+      which is what a rotation mode or a subtitle position is. These are two
+      VIEWS of one sheet, and a filled pill made them read as buttons. Tabs sit
+      on the rule that opens the pane below them, which is the thing that says
+      "what follows is behind this word".
+    -->
+    <div class="setsched__tabs" id="schedTabs" role="tablist"
+         aria-label="What this schedule contains">
+      <button class="setsched__tab" type="button" role="tab" data-pane="order" aria-pressed="true">Running order</button>
+      <button class="setsched__tab" type="button" role="tab" data-pane="movies" aria-pressed="false">
+        Movies<span class="mono" id="schedTabFilmCount"></span>
+      </button>
+    </div>
+
+    <div class="modal__body setsched__body" id="schedPaneOrder">
       <section class="setsched__col" aria-labelledby="schedOrderHead">
         <h3 class="setsched__head" id="schedOrderHead">
           <span>Running order</span>
@@ -1232,6 +1258,48 @@
         </h3>
         <p class="setsched__hint">Drag onto the running order. Add a show more than once to give it several blocks.</p>
         <ul class="setsched__list" id="schedPool" aria-label="Shows to choose from"></ul>
+      </section>
+    </div>
+
+    <!--
+      THE FILM LIST FOR THIS SCHEDULE.
+
+      Empty means EVERY film, which is the opposite of how the running order
+      reads an empty list — and deliberately so: the running order IS the
+      schedule, while this is a filter on it. Opening the box and putting
+      nothing in it is not a decision to play nothing, so the heading says what
+      the empty state actually does rather than leaving her to find out.
+    -->
+    <div class="modal__body setsched__body" id="schedPaneMovies" hidden>
+      <section class="setsched__col" aria-labelledby="schedFilmsHead">
+        <h3 class="setsched__head" id="schedFilmsHead">
+          <span>This schedule's films</span>
+          <span class="mono setsched__n" id="schedFilmCount"></span>
+        </h3>
+        <p class="setsched__hint">Drag films here to limit this schedule to them. Leave it empty to allow every film.</p>
+        <div class="setsched__area">
+          <ul class="setsched__list" id="schedFilms" aria-label="Films this schedule may play"></ul>
+          <p class="setsched__empty" id="schedFilmsEmpty">Every film may play. Drag some here to choose.</p>
+        </div>
+
+        <!--
+          The order switch belongs BESIDE the list it describes, not up in the
+          tools bar with the schedule's name — it is a fact about this list and
+          means nothing without it. Same .check switch as the settings sheet.
+        -->
+        <label class="check">
+          <input type="checkbox" role="switch" id="schedMovieOrder" />
+          <span>Play them in this order <span class="mono" id="schedMovieOrderNote"></span></span>
+        </label>
+      </section>
+
+      <section class="setsched__col" aria-labelledby="schedFilmPoolHead">
+        <h3 class="setsched__head" id="schedFilmPoolHead">
+          <span>All films</span>
+          <span class="mono setsched__n" id="schedFilmPoolCount"></span>
+        </h3>
+        <p class="setsched__hint">Drag onto the left, or click to add. Drag one back here to remove it.</p>
+        <ul class="setsched__list" id="schedFilmPool" aria-label="Films to choose from"></ul>
       </section>
     </div>
 
