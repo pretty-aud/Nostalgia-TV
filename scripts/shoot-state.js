@@ -65,7 +65,44 @@ app.whenReady().then(async () => {
   const other = screen.getAllDisplays().find((d) => d.id !== primary.id);
   if (other) win.setPosition(other.workArea.x + 60, other.workArea.y + 60);
 
+  /**
+   * THE SIZE ARGUMENTS WERE 1.5× OUT ON THIS MACHINE, and silently.
+   *
+   * BrowserWindow's width and height are device-independent pixels, and on a
+   * 150% display those are not CSS pixels: asking for 1280x880 produced a
+   * viewport of 1930x1325. Every probe in this folder has therefore been
+   * running half again as large as it asked for — and the one shot that exists
+   * SPECIFICALLY to see the app at a width where the layout breaks,
+   * vhs-transport-narrow at 980x720, has been running at 1480x1085 and has
+   * never once been narrow. Its own comment says the wrapping transport labels
+   * "were reported by a person, at a size no probe was looking at". That is
+   * still true, and this is why.
+   *
+   * setContentSize is the fix, and it is NOT a matter of dividing by the scale
+   * factor — the first attempt did that and came out 1.5× too small in the
+   * other direction, which the check further down caught on its first run.
+   * The constructor's width/height and setContentSize simply do not agree on
+   * this machine; the one that matches the viewport is this one, so the size
+   * is set here and then read back rather than reasoned about.
+   */
+  win.setContentSize(Number(w), Number(h));
+
   win.showInactive();
+
+  // Verified, not assumed. A shot taken at the wrong size reviews a layout the
+  // app never has, and reports success while doing it.
+  const viewport = await win.webContents
+    .executeJavaScript('[innerWidth, innerHeight]').catch(() => null);
+  if (viewport) {
+    const [vw, vh] = viewport;
+    if (Math.abs(vw - Number(w)) > 4 || Math.abs(vh - Number(h)) > 4) {
+      log(`SIZE MISMATCH: asked ${w}x${h}, got ${vw}x${vh}`);
+      console.error(`SIZE MISMATCH: asked ${w}x${h}, got ${vw}x${vh}`);
+      app.exit(5);
+      return;
+    }
+  }
+
   await win.webContents.executeJavaScript('document.fonts.ready.then(() => true)').catch(() => {});
   await new Promise((resolve) => setTimeout(resolve, 900));
 

@@ -3927,7 +3927,7 @@ function renderScheduleEditor() {
   if (!styleMenu.options.length) {
     const inherit = document.createElement('option');
     inherit.value = '';
-    inherit.textContent = 'Use the app setting';
+    inherit.textContent = 'Default';
     styleMenu.append(inherit);
     for (const style of BUILTIN_STYLES) {
       const option = document.createElement('option');

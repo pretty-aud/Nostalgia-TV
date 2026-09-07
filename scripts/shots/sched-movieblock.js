@@ -50,10 +50,48 @@ if (placed.dataset.missing === 'true') {
   throw new Error('the film block rendered as a MISSING SHOW — renderSchedOrder does not know the token');
 }
 
+/**
+ * NOTHING SCROLLS BUT THE LISTS.
+ *
+ * The sheet is a locked frame: the tools bar, the tabs, the column heads and
+ * the footer are fixed points you navigate BY, and a fixed point that scrolls
+ * away is not one. It also meant Save could be off screen while editing.
+ *
+ * Measured rather than looked at, because a crop that happens to fit hides
+ * exactly this. Failing control: drop `min-height: 0` from the pane and it
+ * refuses to shrink below its content, so the body reports
+ * scrollHeight > clientHeight and this throws.
+ */
+const panel = document.querySelector('#scheduleModal .modal__panel');
+const pane = document.querySelector('#scheduleModal .modal__body:not([hidden])');
+const slack = 2;   // sub-pixel rounding at fractional device ratios
+for (const [what, node] of [['the panel', panel], ['the pane', pane]]) {
+  if (node.scrollHeight > node.clientHeight + slack) {
+    throw new Error(
+      `${what} scrolls — ${node.scrollHeight}px of content in ${node.clientHeight}px. `
+      + 'Only the lists may scroll.',
+    );
+  }
+}
+
+// And the lists must be the ones that CAN, or the frame simply clips them.
+const scrollers = [...document.querySelectorAll('#scheduleModal .setsched__list')]
+  .filter((list) => getComputedStyle(list).overflowY === 'auto');
+if (scrollers.length < 2) {
+  throw new Error(`only ${scrollers.length} list can scroll — the frame is clipping instead`);
+}
+
+const foot = document.querySelector('#scheduleModal .setsched__foot').getBoundingClientRect();
+if (!foot.height) throw new Error('the footer is not laid out — Save is unreachable');
+const frame = panel.getBoundingClientRect();
+if (foot.bottom > frame.bottom + slack) {
+  throw new Error(`the footer is ${Math.round(foot.bottom - frame.bottom)}px below the frame — Save is off screen`);
+}
+
 const box = document.querySelector('#scheduleModal .modal__panel').getBoundingClientRect();
 return {
   x: Math.max(0, box.x),
   y: Math.max(0, box.y),
   width: Math.min(1120, box.width),
-  height: Math.min(760, box.height),
+  height: Math.min(900, box.height),
 };

@@ -1757,6 +1757,54 @@ input[type="range"]::-webkit-slider-thumb {
    ellipsis. */
 .modal__panel--wide { width: min(1080px, 100%); max-height: min(860px, 92vh); }
 
+/* ── the schedule sheet is a LOCKED FRAME ─────────────────────────────────
+
+   Nothing in this window scrolls except the four lists. That is not a
+   preference; it is what makes the sheet legible. Everything else in it — the
+   tools bar, the tabs, the column heads, the footer — is a fixed point you
+   navigate BY, and a fixed point that scrolls away is not one. Scrolling the
+   whole sheet also meant the Save button could be off screen while you were
+   editing, which is the worst possible thing to hide.
+
+   It was scrolling because .modal__body carries overflow-y: auto and, as a
+   flex child, min-height: auto — so it refused to shrink below its content,
+   grew to fit, and took the scroll that should have belonged to the lists.
+   The lists meanwhile were capped at 46vh and simply stopped growing. The
+   scrollbar it produced was also why the tab rule appeared to overshoot the
+   right-hand column: the bar stole width from inside the body while the tabs,
+   sitting outside it, kept the full inset. Two symptoms, one cause.
+
+   `height`, not `max-height`, so the frame is the same size whatever is in it
+   — a sheet that changes shape as you add blocks is a sheet you have to
+   re-learn on every visit. */
+#scheduleModal .modal__panel {
+  height: min(860px, 88vh);
+}
+
+/* min-height: 0 at EVERY level, or the chain breaks at the first one that
+   forgets. A flex or grid child defaults to min-height: auto, which means "at
+   least as tall as my content" — one of these missing and the overflow simply
+   reappears one level further out. */
+#scheduleModal .setsched__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;          /* not auto: the lists own the scrolling */
+  align-items: stretch;      /* the columns fill the frame rather than hugging */
+}
+#scheduleModal .setsched__col { min-height: 0; }
+#scheduleModal .setsched__area { flex: 1 1 auto; min-height: 0; }
+#scheduleModal .setsched__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;          /* the frame decides the height now, not 46vh */
+}
+/* The tools bar, the tabs and the footer are the fixed points. Said out loud
+   because `flex: 0 0 auto` is the default and a later edit that sets `flex: 1`
+   on any of them would quietly hand it the scroll again. */
+#scheduleModal .setsched__tools,
+#scheduleModal .setsched__tabs,
+#scheduleModal .setsched__foot { flex: 0 0 auto; }
+
 .locks__tools {
   display: flex;
   align-items: center;
@@ -4747,18 +4795,74 @@ input[type="range"]::-webkit-slider-thumb {
 
 .modal__panel--small { width: min(420px, 100%); }
 
-.setsched__tools {
-  display: flex;
-  align-items: flex-end;
-  gap: calc(var(--u) * 2);
-  padding: calc(var(--u) * 2) calc(var(--u) * 3);
-  border-bottom: 1px solid var(--hair);
-  flex-wrap: wrap;
-}
-.setsched__tools .field--tight:first-child { min-width: 200px; }
-.setsched__tools .field--tight:nth-child(2) { flex: 1 1 200px; }
+/* ── the tools bar ────────────────────────────────────────────────────────
 
+   A GRID, because alignment here has to be structural rather than emergent.
+
+   It was a wrapping flex row whose two width rules were POSITIONAL —
+   `.field--tight:first-child` and `:nth-child(2)`. That worked for exactly as
+   long as there were two fields. Adding "Up next" left the third and fourth
+   with no width at all, so they sized to their content while Name took every
+   spare pixel, and `margin-left: auto` on the buttons then had nowhere to go
+   and wrapped them onto a second row. Positional CSS describes an arrangement,
+   not a rule, and it fails silently the moment the arrangement changes.
+
+   Named columns instead, sized to what each field actually holds: a schedule
+   name is the long one, a block count is two digits, and the two menus need
+   room for their longest option.
+
+   LABELS SHARE ROW 1 AND CONTROLS SHARE ROW 2, which is what makes them line
+   up. align-items: end would have aligned the controls and left the labels
+   ragged the moment one of them wrapped to two lines; `display: contents` on
+   the field hands its label and control straight to this grid, so they land in
+   the same rows as every other field's by construction. The labels are nowrap
+   as well, so the row can never gain a second line.
+
+   Law of Proximity: the four fields are one group — what this schedule IS —
+   and the three buttons are another, since they act on the schedule as an
+   object rather than describing it. A hairline and a wider gap separate them,
+   which is cheaper than a box and says the same thing. */
+.setsched__tools {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 0.9fr)      /* Schedule  */
+    minmax(190px, 1.7fr)      /* Name      */
+    minmax(132px, auto)       /* Episodes per block */
+    minmax(180px, 1.1fr)      /* Up next   */
+    auto;                     /* the actions */
+  align-items: end;
+  column-gap: calc(var(--u) * 2.5);
+  row-gap: calc(var(--u) * 0.75);
+  padding: calc(var(--u) * 2.5) calc(var(--u) * 3);
+  border-bottom: 1px solid var(--hair);
+}
+.setsched__tools .field--tight { display: contents; }
+.setsched__tools .field__label {
+  grid-row: 1;
+  white-space: nowrap;
+  margin-bottom: 0;
+}
+.setsched__tools .field__control { grid-row: 2; }
+
+/* Two digits and a stepper. Left to fill its column it became a wide box
+   holding a very small number, which reads as a field expecting more. */
+.setsched__tools .input--num { width: 100%; max-width: 88px; }
+
+/* THE FOOTER USES THIS CLASS TOO. The grid placement below is scoped to the
+   tools bar for that reason — written unscoped, it put grid-column: 5 and a
+   left-hand rule on the footer's Clear/Save pair, which is not in a grid, and
+   quietly dragged them out of the right-hand corner into the middle of the
+   bar. A class shared by two contexts cannot carry one context's layout. */
 .setsched__acts { display: flex; gap: var(--u); margin-left: auto; }
+
+.setsched__tools .setsched__acts {
+  grid-row: 1 / span 2;
+  grid-column: 5;
+  align-self: end;
+  margin-left: 0;
+  padding-left: calc(var(--u) * 2.5);
+  border-left: 1px solid var(--hair-soft);
+}
 
 /* Two columns of equal weight: the job is comparing what IS scheduled against
    what could be, and a narrow pool makes the second half of that unreadable. */
@@ -4904,22 +5008,40 @@ input[type="range"]::-webkit-slider-thumb {
   border: 0;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  padding: calc(var(--u) * 1.25) 0;
+  /* Horizontal padding does two things at once: it gives the underline a
+     length beyond the word, which is what a tab looks like, and it gives the
+     focus ring a shape. Hugging the glyphs, that ring was a tight amber box —
+     the exact button look the fill was removed to avoid. */
+  padding: calc(var(--u) * 1.25) calc(var(--u) * 1.5);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
   font-family: var(--grotesque);
   font-size: var(--t-body);
   font-weight: 500;
   letter-spacing: var(--tr-none);
   color: var(--ink-mute);
   cursor: pointer;
-  transition: color var(--fast), border-color var(--fast);
+  transition: color var(--fast), border-color var(--fast), background var(--fast);
 }
-.setsched__tab:hover { color: var(--ink); }
+.setsched__tab:hover { color: var(--ink); background: var(--lift); }
 .setsched__tab[aria-pressed="true"] {
   color: var(--ink);
   font-weight: 600;
   border-bottom-color: var(--signal);
 }
-.setsched__tab:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+/* SELECTION AND FOCUS ARE DIFFERENT THINGS and must look different: the
+   underline says which pane is open, the ring says where the keyboard is.
+   Drawn inside the tab's own box so it follows the tab's shape rather than
+   floating around it as a separate rectangle. */
+.setsched__tab:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+/* The row of tabs sits flush with the columns beneath it. The padding above
+   is inside each tab, so the first one would otherwise start a gutter's width
+   in and the rule below would no longer line up with the first list. */
+.setsched__tabs { padding-left: 0; }
+.setsched__tab:first-child { margin-left: calc(var(--u) * -1.5); }
 
 /* The count of films this schedule allows, beside the tab that holds them —
    so "Movies" says whether anything has been chosen without being opened. */

@@ -81,6 +81,17 @@ const SHOTS = [
  */
 const SIZES = {
   'vhs-transport-narrow': ['980', '720'],
+  /**
+   * A SHORT window, which is the only size the schedule sheet's locked frame
+   * can be wrong at. At 880 tall it fits whatever you do to it; the scrolling
+   * she reported only appears when the frame has to shrink. Run at 880 as well
+   * (below) so both the roomy and the tight case are covered.
+   *
+   * Worth knowing: until shoot-state was fixed, every size in this map was
+   * 1.5× larger than it said on this machine, so "narrow" above was 1480px and
+   * had never once been narrow.
+   */
+  'sched-movieblock': ['1120', '620'],
 };
 
 /**
