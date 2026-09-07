@@ -976,6 +976,37 @@ function renderSettings() {
 
   el('loopToggle').checked = Boolean(state.settings.loopWhenExhausted);
 
+  /**
+   * The schedule menu is BUILT from settings.schedules, never written in the
+   * markup — the rule the style picker follows, and for the same reason: two
+   * lists that look like one drift apart, and this one changes every time she
+   * saves or deletes a schedule.
+   */
+  const remember = state.settings.rememberLastSchedule !== false;
+  el('rememberScheduleToggle').checked = remember;
+  el('rememberScheduleNote').textContent = remember
+    ? 'Whatever is playing when you close is what starts next time.'
+    : 'Every launch starts on the schedule chosen below.';
+
+  const defaultPick = el('defaultScheduleSelect');
+  defaultPick.textContent = '';
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = 'No schedule — shuffle';
+  defaultPick.append(none);
+  for (const sched of state.settings.schedules || []) {
+    const option = document.createElement('option');
+    option.value = sched.id;
+    option.textContent = sched.name || 'Untitled';
+    defaultPick.append(option);
+  }
+  defaultPick.value = state.settings.defaultScheduleId || '';
+  // Dimmed rather than hidden while the last-used schedule wins: it still says
+  // what WOULD happen, which a control that vanishes cannot.
+  // data-muted, not a name of my own: the block-size field already dims this
+  // way and the stylesheet only knows that one attribute.
+  el('defaultScheduleField').dataset.muted = String(remember);
+
   const blockSize = Math.max(2, Number(state.settings.blockSize) || 2);
   el('blockSizeRange').value = String(blockSize);
   el('blockSizeOut').textContent = `${blockSize} episodes`;
@@ -5527,6 +5558,16 @@ The channel keeps its own place.`)) return;
     persist();
   });
 
+  el('rememberScheduleToggle').addEventListener('change', (event) => {
+    setSetting({ rememberLastSchedule: event.target.checked });
+  });
+
+  el('defaultScheduleSelect').addEventListener('change', (event) => {
+    // Empty string is the no-schedule entry; stored as null so it matches the
+    // shape activeScheduleId already uses for shuffle.
+    setSetting({ defaultScheduleId: event.target.value || null });
+  });
+
   el('loopToggle').addEventListener('change', (event) => {
     state = applySettings(shows, state, { loopWhenExhausted: event.target.checked }, {});
     renderSidebar();
@@ -6344,6 +6385,29 @@ async function boot() {
   // actually play is the switch's job.
   if (!MOVIE_INTERVALS.includes(Number(state.settings.movieEvery))) {
     state.settings = { ...state.settings, movieEvery: 24 };
+  }
+
+  /**
+   * WHICH SCHEDULE THE CHANNEL OPENS ON.
+   *
+   * activeScheduleId is written every time she changes it, so doing nothing
+   * here means "carry on with the last one" — which is what the app has always
+   * done and what rememberLastSchedule leaves alone. Only the OFF case does
+   * any work: it puts the default back, whatever was in force at closing.
+   *
+   * A saved id can outlive the schedule it names, so the default is checked
+   * against the list rather than trusted. An id that no longer exists lands on
+   * null, which is the plain shuffle — the same place resolveStyle sends an
+   * unknown style, and for the same reason: a settings value from another
+   * build must never leave the channel with nothing to play.
+   *
+   * Before the queue is built, deliberately. Changing it afterwards would mean
+   * reshaping a queue that had just been committed from the wrong order.
+   */
+  if (!state.settings.rememberLastSchedule) {
+    const wanted = state.settings.defaultScheduleId;
+    const exists = (state.settings.schedules || []).some((s) => s.id === wanted);
+    state.settings = { ...state.settings, activeScheduleId: exists ? wanted : null };
   }
 
   applyTheme();

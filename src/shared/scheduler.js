@@ -78,6 +78,29 @@ const DEFAULT_SETTINGS = {
   activeScheduleId: null,   // when set, the running order is fixed, not shuffled
 
   /**
+   * Which schedule the channel opens on, and whether opening overrides it.
+   *
+   * activeScheduleId above is what is in force RIGHT NOW and is written every
+   * time she changes it. These two decide what happens to it at launch:
+   *
+   *   rememberLastSchedule true   leave activeScheduleId alone — carry on with
+   *                               whatever was playing last time.
+   *   rememberLastSchedule false  set activeScheduleId to defaultScheduleId on
+   *                               boot, whatever was in force when she closed.
+   *
+   * TRUE by default, because that is what the app already did: activeScheduleId
+   * persisted and was simply used. A default of false would silently change the
+   * behaviour of every existing install on the first launch after this ships,
+   * which is not a thing a new setting should do.
+   *
+   * defaultScheduleId of null means no schedule — the plain shuffle — and is
+   * also where a deleted schedule lands, since a saved id can outlive the thing
+   * it names.
+   */
+  rememberLastSchedule: true,
+  defaultScheduleId: null,
+
+  /**
    * Per-show playback preferences, keyed by show id.
    * { [showId]: { audio: 'jpn'|'spa'|null, subs: 'eng'|'spa'|null } }
    *

@@ -776,12 +776,6 @@
           </div>
           <p class="modes__note" id="modeNote"></p>
 
-          <!-- The same window the sidebar button opens. A feature reachable
-               only from one small icon is a feature most people never find. -->
-          <div class="setrow">
-            <button class="btn btn--opens" id="btnOpenSchedule" type="button" aria-haspopup="dialog">Open set schedules</button>
-          </div>
-
           <!-- Shown always, not just while Blocks is selected: a control that
                appears only once you have already chosen the mode is one most
                people never discover. It dims instead. -->
@@ -796,6 +790,47 @@
           <label class="check">
             <input type="checkbox" id="loopToggle" />
             <span>Restart a show when it finishes</span>
+          </label>
+        </section>
+
+        <!--
+          SCHEDULES, on their own.
+
+          The editor button used to be a row inside Rotation, which put a whole
+          feature behind a heading about something else. A saved running order
+          is not a mode — it REPLACES the mode — so it gets its own place, and
+          the two settings about which one is in force on opening belong beside
+          the editor rather than nowhere.
+        -->
+        <section class="setgroup">
+          <h3 class="setgroup__head mono">Schedules</h3>
+
+          <!-- The same window the sidebar button opens. A feature reachable
+               only from one small icon is a feature most people never find. -->
+          <div class="setrow">
+            <button class="btn btn--opens" id="btnOpenSchedule" type="button" aria-haspopup="dialog">Open set schedules</button>
+          </div>
+
+          <!--
+            The checkbox comes FIRST because it decides whether the dropdown
+            below it means anything. Put the other way round, the default is
+            read as the answer and the checkbox as a footnote that quietly
+            overrides it.
+          -->
+          <label class="check">
+            <input type="checkbox" id="rememberScheduleToggle" />
+            <span>Carry on with the schedule I was last using</span>
+          </label>
+          <p class="modes__note" id="rememberScheduleNote"></p>
+
+          <label class="field" id="defaultScheduleField">
+            <span class="field__label mono">On opening</span>
+            <span class="field__control">
+              <!-- Built from settings.schedules at render time, never written
+                   here — the same rule the style picker follows, and for the
+                   same reason: two lists that look like one drift apart. -->
+              <select class="select" id="defaultScheduleSelect"></select>
+            </span>
           </label>
         </section>
 
@@ -834,8 +869,22 @@
           written here. The theme menu below is 35 hand-written options beside
           a separate array, and five palettes shipped that nobody could select.
         -->
+        <!--
+          ONE SECTION for everything that plays between programmes.
+
+          Up next, Bumpers and Promos were three sections in the rail, and they
+          are one subject: what the channel does in the gap. Splitting them
+          meant deciding which of three places a setting lived in, and the
+          honest answer was usually "any of them" — the interstitial zoom
+          applies to bumpers AND promos, and the up-next card is itself a
+          bumper. They are sub-headings inside one group now, which the nail
+          rail ignores (it reads .setgroup__head only), so the rail gets one
+          entry and the scroll position still lands where you expect.
+        -->
         <section class="setgroup">
-          <h3 class="setgroup__head mono">Up next</h3>
+          <h3 class="setgroup__head mono">Bumpers</h3>
+
+          <h4 class="setsub">Up next</h4>
 
           <label class="field">
             <span class="field__label mono">Style</span>
@@ -877,7 +926,7 @@
           <label class="field" id="bumperBgField" hidden>
             <span class="field__label mono">Backdrop</span>
             <span class="field__control">
-              <select id="bumperBgSelect">
+              <select class="select" id="bumperBgSelect">
                 <option value="still">A frame from what is next</option>
                 <option value="video">A moving clip from what is next</option>
                 <option value="none">Gradient only</option>
@@ -886,8 +935,7 @@
           </label>
         </section>
 
-        <section class="setgroup">
-          <h3 class="setgroup__head mono">Bumpers</h3>
+          <h4 class="setsub">Between episodes</h4>
 
           <label class="check" id="bumperClipRow" hidden>
             <input type="checkbox" id="bumperClipToggle" />
@@ -908,13 +956,15 @@
             </span>
           </label>
           <p class="modes__note">Crops black edges baked into bumpers and promos. Episodes are never zoomed.</p>
-        </section>
 
-        <!-- Promos are their own decision, not a sub-setting of bumpers: how
-             often they appear is a separate question from whether a card shows
-             between episodes. Hidden entirely without a PROMOS folder. -->
-        <section class="setgroup" id="promoGroup" hidden>
-          <h3 class="setgroup__head">Promos</h3>
+          <!--
+            A DIV now, not a section — but it keeps the id, because the code
+            that hides promos without a PROMOS folder still points at it. What
+            changes is that hiding it now removes a sub-heading from inside a
+            group rather than a whole entry from the settings rail.
+          -->
+          <div id="promoGroup" hidden>
+            <h4 class="setsub">Promos</h4>
 
           <label class="check">
             <input type="checkbox" id="promoToggle" />
@@ -934,6 +984,7 @@
               <output class="mono" id="promoEveryOut"></output>
             </span>
           </label>
+          </div>
         </section>
 
         </div>
