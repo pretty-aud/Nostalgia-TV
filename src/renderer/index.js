@@ -1383,6 +1383,7 @@ async function showBoxOffice(onDone, leadOverride) {
    * fresh clone genuinely has none until scripts/vendor-audio.mjs runs.
    */
   const backdrop = state.settings.bumperBackground || 'still';
+  if (window.tv.bumperCue) window.tv.bumperCue(`diag-${backdrop}.mp3`).catch(() => {});
   const leadPath = lead.episode && lead.episode.absPath;
   const [cuePath, stillUrl, clipUrl] = await Promise.all([
     window.tv.bumperCue ? window.tv.bumperCue(BOX_OFFICE_CUE).catch(() => null) : null,
@@ -1402,17 +1403,26 @@ async function showBoxOffice(onDone, leadOverride) {
 
   if (bumperCleanup) bumperCleanup();
 
+  /**
+   * The lead gets its own element and the rest get the list, because they are
+   * labelled differently now: "Up next" belongs to the first and "Followed by"
+   * to the others. One list with a big first row could not carry a heading
+   * between its items.
+   */
+  el('boxofficeLead').textContent = rows[0] || '';
   const list = el('boxofficeList');
   list.textContent = '';
-  rows.forEach((name, index) => {
+  for (const name of rows.slice(1)) {
     const row = document.createElement('li');
-    row.className = `boxoffice__row boxoffice__row--${index === 0 ? 'lead' : 'then'}`;
+    row.className = 'boxoffice__row';
     row.textContent = name;
     list.append(row);
-  });
+  }
+  // Nothing after the lead: the heading would be introducing an empty list.
+  el('boxofficeBadge').parentElement
+    .querySelector('.boxoffice__thenlabel').hidden = rows.length < 2;
 
-  el('boxofficeMark').innerHTML = markSvg({ size: 64, title: null });
-  el('boxofficeSign').innerHTML = markSvg({ size: 190, title: null });
+  el('boxofficeMark').innerHTML = markSvg({ size: 58, title: null });
 
   /**
    * The clip if it is ready, the still if it is not, and the gradient alone if
@@ -1448,9 +1458,27 @@ async function showBoxOffice(onDone, leadOverride) {
     }
   }
 
-  el('boxofficeSign').hidden = true;
   card.dataset.beat = 'in';
   card.hidden = false;
+
+  /**
+   * MEASURE THE TRAVEL, once the card is laid out and before it animates.
+   *
+   * The badge opens in the middle of the screen and carries down to its
+   * resting place at lower left. CSS cannot express that offset: where the
+   * badge rests depends on its own size and on the block beneath it, so the
+   * distance to the centre is only knowable after layout. So it is measured
+   * here and handed to the stylesheet as two custom properties, and every
+   * beat that wants the badge centred just reads them.
+   *
+   * Read AFTER card.hidden = false — a hidden element measures zero, and the
+   * badge would open exactly where it ends, which is the version she saw and
+   * called not very dynamic.
+   */
+  const badge = el('boxofficeBadge');
+  const at = badge.getBoundingClientRect();
+  card.style.setProperty('--travel-x', `${Math.round((window.innerWidth / 2) - (at.x + at.width / 2))}px`);
+  card.style.setProperty('--travel-y', `${Math.round((window.innerHeight / 2) - (at.y + at.height / 2))}px`);
   app.dataset.bumperStyle = 'boxoffice';
   app.dataset.view = 'bumper';
   playingBumperClip = true;
@@ -1465,10 +1493,26 @@ async function showBoxOffice(onDone, leadOverride) {
    * research note's timing table puts every resolve in this package at 600ms
    * and up, against the other card's hard cuts.
    */
+  /**
+   * The beats, read off the reference at four frames a second.
+   *
+   *   0.0  black
+   *   0.3  the mark wipes out from behind the word, centred      (open)
+   *   1.5  the picture opens as a band; the lockup travels down  (titles)
+   *   2.3  the titles rise in beneath it                         (hold)
+   *   8.2  titles out, picture collapses, lockup returns         (close)
+   *   9.3  the mark wipes back in; black                         (out)
+   *
+   * The reference runs 10.08s and so does the cue, so the exit has to START
+   * around 8 — leaving it to the last moment would cut the collapse off
+   * mid-move when the card ends.
+   */
   const BEATS = [
-    [500, () => { card.dataset.beat = 'next'; }],
-    [2100, () => { card.dataset.beat = 'titles'; }],
-    [7600, () => { card.dataset.beat = 'sign'; el('boxofficeSign').hidden = false; }],
+    [300, () => { card.dataset.beat = 'open'; }],
+    [1500, () => { card.dataset.beat = 'titles'; }],
+    [2300, () => { card.dataset.beat = 'hold'; }],
+    [8200, () => { card.dataset.beat = 'close'; }],
+    [9300, () => { card.dataset.beat = 'out'; }],
   ];
 
   const timers = BEATS.map(([at, run]) => setTimeout(run, at));

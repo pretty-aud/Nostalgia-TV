@@ -351,15 +351,27 @@
       </div>
       <div class="boxoffice__wash" aria-hidden="true"></div>
 
-      <div class="boxoffice__plate">
-        <p class="boxoffice__next">
+      <!--
+        ONE BLOCK at lower left, and the badge inside it TRAVELS.
+        The reference opens with the lockup centred on black, then carries it
+        down to where it will sit for the rest of the card. Two separate
+        elements fading in two places would read as two things appearing; one
+        element moving reads as the same thing arriving.
+      -->
+      <div class="boxoffice__block">
+        <p class="boxoffice__badge" id="boxofficeBadge">
+          <!-- The mark is REVEALED from behind the word, not faded: a mask
+               that opens outward, which is the entrance the reference uses. -->
           <span class="boxoffice__mark" id="boxofficeMark" aria-hidden="true"></span>
-          <span class="boxoffice__word">Next</span>
+          <span class="boxoffice__word">Up next</span>
         </p>
-        <ol class="boxoffice__list" id="boxofficeList"></ol>
-      </div>
 
-      <div class="boxoffice__sign" id="boxofficeSign" hidden></div>
+        <div class="boxoffice__plate">
+          <h2 class="boxoffice__lead" id="boxofficeLead"></h2>
+          <p class="boxoffice__thenlabel">Followed by</p>
+          <ol class="boxoffice__list" id="boxofficeList"></ol>
+        </div>
+      </div>
     </section>
 
     <!-- Waiting on a conversion.

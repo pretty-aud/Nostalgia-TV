@@ -1052,7 +1052,7 @@ function registerIpc() {
     (async () => {
       try {
         const probe = await prepare.inspect(absPath);
-        await bumperClip.clipFor(absPath, probe && probe.durationMs ? probe.durationMs / 1000 : 0, seconds);
+        const made = await bumperClip.clipFor(absPath, probe && probe.durationMs ? probe.durationMs / 1000 : 0, seconds);
       } catch (error) {
         console.error('[bumper] backdrop clip failed for', path.basename(absPath), error.message);
       }
