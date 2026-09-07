@@ -3824,7 +3824,21 @@ function scheduleCard(show, source, index) {
   if (source === 'order') {
     const eps = document.createElement('span');
     eps.className = 'setsched__eps';
-    eps.textContent = `${draft.blockSize} ep${draft.blockSize === 1 ? '' : 's'}`;
+    /**
+     * A block the library cannot resolve says so, rather than claiming a
+     * confident "1 ep" for something that is not there. It keeps its place in
+     * the running order and its id in the saved schedule; only its label is
+     * honest about the situation.
+     */
+    if (show.missing) {
+      li.dataset.missing = 'true';
+      li.draggable = true;      // still movable and still removable by hand
+      eps.textContent = 'not in the library';
+      li.title = `This schedule names "${show.id}", which the library cannot see right now. `
+        + 'It is kept so the schedule repairs itself when the folder comes back.';
+    } else {
+      eps.textContent = `${draft.blockSize} ep${draft.blockSize === 1 ? '' : 's'}`;
+    }
     li.append(eps);
 
     const drop = document.createElement('button');
@@ -3868,12 +3882,30 @@ function renderSchedOrder() {
   list.textContent = '';
   const byId = new Map(shows.map((s) => [s.id, s]));
 
-  // A show can leave the folder while a schedule still names it. Drop those
-  // rather than rendering a card with no title behind it.
-  draft.items = draft.items.filter((id) => byId.has(id));
-
+  /**
+   * A SHOW CAN BE ABSENT WITHOUT BEING GONE, and this used to delete it.
+   *
+   * The line here was `draft.items = draft.items.filter(id => byId.has(id))` —
+   * a prune, run on every render, mutating the draft in place, and commitDraft
+   * persists exactly that array. So a show the library could not see at that
+   * moment was struck out of her saved schedule the instant the editor drew
+   * itself, and Save made it permanent. The library not seeing a show is not
+   * the same as the show being deleted: an external drive that has not spun up,
+   * a scan still running, a folder renamed and about to be renamed back. She
+   * would open the editor to look at a schedule and it would quietly be
+   * shorter, with nothing said.
+   *
+   * It is the shape that destroyed her hand-placed card pictures: delete first,
+   * re-derive after. So nothing is deleted. A block whose show is missing draws
+   * as a placeholder that keeps its id, which means saving preserves it and the
+   * schedule repairs itself the moment the drive comes back. refillQueue
+   * already skips an item it cannot resolve, so an absent show cannot reach the
+   * player either way — the only thing the prune was buying was a tidier list,
+   * at the price of her data.
+   */
   draft.items.forEach((id, index) => {
-    list.append(scheduleCard(byId.get(id), 'order', index));
+    const show = byId.get(id) || { id, name: id, missing: true };
+    list.append(scheduleCard(show, 'order', index));
   });
 
   el('schedEmpty').hidden = draft.items.length > 0;

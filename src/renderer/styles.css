@@ -4832,6 +4832,18 @@ input[type="range"]::-webkit-slider-thumb {
 .setsched__card:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
 .setsched__card[data-dragging="true"] { opacity: 0.4; cursor: grabbing; }
 
+/* A block naming a show the library cannot see. Dimmed and dashed rather than
+   red: nothing is wrong, the folder is simply not there this minute, and the
+   block is being KEPT on purpose so the schedule repairs itself when it comes
+   back. An error colour would be asking her to fix something that will fix
+   itself. */
+.setsched__card[data-missing="true"] {
+  border-style: dashed;
+  background: transparent;
+}
+.setsched__card[data-missing="true"] .setsched__name { color: var(--ink-mute); font-style: italic; }
+.setsched__card[data-missing="true"] .setsched__eps { color: var(--ink-faint); }
+
 /* Where the card would land. A line rather than a gap: a gap moves everything
    below it and the list appears to jump while you are still deciding. */
 /* THE SPACE OPENS. A 2px line drawn on the card above or below the insertion
