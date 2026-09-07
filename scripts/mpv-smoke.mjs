@@ -246,6 +246,29 @@ async function makeLibrary() {
 }
 
 /** Pre-seed the profile: root chosen, bumper card short, saves verifiable. */
+/** Where the fixture music lives. Made before boot — see makeMusic. */
+const musicDir = path.join(work, 'music');
+const tonePath = path.join(musicDir, 'loud-in-the-middle.mp3');
+
+/**
+ * A track with a KNOWN shape: sixty seconds, quiet except from 20s to 40s.
+ *
+ * Synthetic on purpose. Against a real song the only assertion available is
+ * "some number came back"; against this one the right answer is arithmetic —
+ * the clip is fifteen seconds, so the only window fitting entirely inside the
+ * loud stretch starts between 20 and 25.
+ */
+async function makeMusic() {
+  await fsp.rm(musicDir, { recursive: true, force: true });
+  await fsp.mkdir(musicDir, { recursive: true });
+  spawnSync(FFMPEG, [
+    '-y', '-hide_banner', '-loglevel', 'error',
+    '-f', 'lavfi',
+    '-i', "aevalsrc='0.5*sin(2*PI*440*t)*(0.05+0.95*between(t,20,40))':d=60",
+    '-b:a', '96k', tonePath,
+  ], { windowsHide: true, timeout: 60000 });
+}
+
 async function seedProfile() {
   await fsp.rm(profile, { recursive: true, force: true });
   await fsp.mkdir(profile, { recursive: true });
@@ -257,7 +280,25 @@ async function seedProfile() {
     queue: [],
     // MUTED and at zero, always. This runs on somebody's desk: a test that
     // makes noise during a call is a real cost, and it made one.
-    settings: { mode: 'deck', bumperSeconds: 2, bumperEnabled: true, muted: true, volume: 0 },
+    settings: {
+      mode: 'deck',
+      bumperSeconds: 2,
+      bumperEnabled: true,
+      muted: true,
+      volume: 0,
+      /**
+       * WRITTEN INTO THE SAVED FILE, not handed over IPC later — because that
+       * is the only route besides the folder dialog, and the dialog cannot be
+       * opened from a script. So this exercises the boot restore, which is
+       * the path a restart takes and the one whose absence would leave the
+       * music working for exactly one session.
+       *
+       * Found by doing it the other way first: creating the folder after boot
+       * and passing the path in returned null from every deal, which is the
+       * allowedRoots gate behaving exactly as designed.
+       */
+      bumperMusicDir: musicDir,
+    },
   }));
 }
 
@@ -322,6 +363,8 @@ async function until(ws, label, expression, timeoutMs = 30000) {
 
 async function main() {
   await makeLibrary();
+  // Before seedProfile, because the profile has to name a folder that exists.
+  await makeMusic();
   await seedProfile();
 
   // NTV_SMOKE_BINARY runs the smoke against a PACKAGED build (the portable's
@@ -512,6 +555,109 @@ async function main() {
     const mpvLog = await fsp.stat(path.join(profile, 'mpv.log')).catch(() => null);
     verdict('mpv genuinely ran (its log has substance)',
       Boolean(mpvLog && mpvLog.size > 1000), mpvLog ? `${mpvLog.size} bytes` : 'missing');
+
+    /**
+     * ── BUMPER MUSIC: does a track actually PLAY, at the chosen point? ─────
+     *
+     * Everything up to here about the music had been proven on paper. The
+     * hook picker was measured against real songs, and the card was proven to
+     * call mpvOpen with a finite offset — but by a probe that had REPLACED
+     * mpvOpen with a recorder, so no audio ever left the machine and the
+     * chain from that call to a sound had never run once.
+     *
+     * Four links, each of which can fail silently:
+     *   1. the analysis returns an offset for a file it has never seen
+     *   2. allowedRoots lets an mp3 outside the library through at all
+     *   3. mpv accepts start= and lands there rather than at zero
+     *   4. it decodes audio rather than opening a file with nothing in it
+     *
+     * The fixture is a SYNTHETIC track with a known shape — sixty seconds,
+     * quiet except for a loud stretch from 20s to 40s — so the expected
+     * answer is arithmetic rather than taste. Against a real song the only
+     * available assertion is "some number came back".
+     *
+     * Muted throughout, like the rest of this file. Muting does not stop mpv
+     * decoding, advancing time-pos, or reporting its tracks, so every link
+     * above is still proven; what is not proven is that sound reaches the
+     * speakers, and that is hers to confirm.
+     */
+    const madeTone = fs.existsSync(tonePath);
+    verdict('a fixture track with a known loud section was made', madeTone,
+      madeTone ? `${Math.round(fs.statSync(tonePath).size / 1024)}kb` : 'ffmpeg produced nothing');
+
+    if (madeTone) {
+      const dirJson = JSON.stringify(musicDir);
+      await evaluate(ws, `window.__M = 'pending';
+        window.tv.nextBumperMusic(${dirJson}, null).then(
+          (m) => { window.__M = m ? JSON.stringify(m) : 'null'; },
+          (e) => { window.__M = 'ERR ' + e.message; });
+        true`);
+      await until(ws, 'the music pick', "window.__M !== 'pending' ? window.__M : ''", 30000);
+      const pickRaw = await evaluate(ws, 'window.__M');
+      let pick = null;
+      try { pick = JSON.parse(pickRaw); } catch { /* left null: reported below */ }
+
+      verdict('a track is dealt from the folder with a start offset',
+        Boolean(pick && pick.absPath && Number.isFinite(pick.startSeconds)),
+        pick ? `${path.basename(pick.absPath)} @ ${pick.startSeconds}s` : pickRaw);
+
+      // The loud stretch runs 20s to 40s and the clip is 15s, so the only
+      // window that fits entirely inside it starts between 20 and 25.
+      verdict('the hook lands in the loud part of the track, not the intro',
+        Boolean(pick && pick.startSeconds >= 18 && pick.startSeconds <= 26),
+        pick ? `chose ${pick.startSeconds}s (loud from 20s to 40s)` : 'no pick');
+
+      if (pick && pick.absPath) {
+        /**
+         * time-pos through onMpvProp — a verb the renderer already uses, so
+         * this needs no test-only surface. It is also the only way to see
+         * WHERE mpv started: a file that opened at zero and one that opened
+         * at the chosen offset are identical from every other angle.
+         */
+        await evaluate(ws, `window.__POS = [];
+          window.tv.onMpvProp((name, value) => {
+            if (name === 'time-pos' && typeof value === 'number') window.__POS.push(value);
+          });
+          window.tv.mpvOpen(${JSON.stringify(pick.absPath)}, { startSeconds: ${pick.startSeconds} })
+            .then(() => { window.__OPEN = 'ok'; }, (e) => { window.__OPEN = 'ERR ' + e.message; });
+          true`);
+        await until(ws, 'the open to settle', "window.__OPEN || ''", 20000);
+        const opened = await evaluate(ws, 'window.__OPEN');
+
+        // 'Forbidden' here means allowedRoots refused it — the failure a
+        // restart would have caused if the boot restore were missing.
+        verdict('mpv accepted the track (allowedRoots let it through)',
+          opened === 'ok', opened);
+
+        await sleep(3000);
+        const positions = JSON.parse(await evaluate(ws, 'JSON.stringify(window.__POS.slice(0, 40))'));
+        const first = positions.length ? Math.min(...positions) : null;
+        verdict('playback STARTED at the chosen point, not at the beginning',
+          first !== null && Math.abs(first - pick.startSeconds) < 3,
+          first === null ? 'mpv reported no time-pos at all'
+            : `first time-pos ${first.toFixed(2)}s vs chosen ${pick.startSeconds}s`);
+
+        const last = positions.length ? Math.max(...positions) : null;
+        verdict('the music is RUNNING, not parked on one frame',
+          first !== null && last - first > 0.5,
+          first === null ? 'no time-pos' : `advanced ${(last - first).toFixed(2)}s in 3s`);
+
+        await evaluate(ws, `window.__AT = 'pending';
+          window.tv.mpvTrackList().then(
+            (l) => { window.__AT = JSON.stringify((l || []).map((t) => t.type)); },
+            (e) => { window.__AT = 'ERR ' + e.message; });
+          true`);
+        await until(ws, 'the track list', "window.__AT !== 'pending' ? window.__AT : ''", 20000);
+        const kinds = await evaluate(ws, 'window.__AT');
+        // An audio track and no video: an mp3 with cover art would report a
+        // video stream too, which is the thing that would put a still image
+        // on screen under the card instead of black.
+        verdict('it is decoding AUDIO, with no video stream to show',
+          /"audio"/.test(kinds) && !/"video"/.test(kinds), `tracks: ${kinds}`);
+
+        await evaluate(ws, 'window.tv.mpvStop() && true').catch(() => {});
+      }
+    }
   } finally {
     try { if (ws) await evaluate(ws, 'window.tv.closeWindow() && true').catch(() => {}); } catch { /* going down */ }
     await Promise.race([childGone, sleep(5000)]);
