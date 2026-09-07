@@ -32,7 +32,7 @@ import {
 } from '../shared/scheduler.js';
 import {
   BUILTIN_STYLES,
-  VIDEO_SECONDS,
+  secondsFor,
   resolveStyle,
   fieldsFor,
   allFieldElements,
@@ -1308,7 +1308,7 @@ async function showAdultSwimBumper(onDone, leadOverride) {
   // The fifteen seconds every video style is cut to — the same constant the
   // registry uses to decide a style has no duration setting, so the card and
   // the settings panel cannot disagree about how long this runs.
-  endTimer = setTimeout(finish, VIDEO_SECONDS * 1000);
+  endTimer = setTimeout(finish, secondsFor('cewr') * 1000);
 }
 
 /**

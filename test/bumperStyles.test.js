@@ -9,6 +9,8 @@ import {
   allFieldElements,
   isFixedLength,
   unknownFields,
+  secondsFor,
+  VIDEO_SECONDS,
 } from '../src/shared/bumperStyles.js';
 
 /**
@@ -123,5 +125,52 @@ describe('the settings key', () => {
   it('is flat in the defaults, not nested under an object', () => {
     const scheduler = readFileSync(new URL('../src/shared/scheduler.js', import.meta.url), 'utf8');
     expect(scheduler).toMatch(/^\s*bumperStyle: 'still',$/m);
+  });
+});
+
+/**
+ * A style's running time is its OWN.
+ *
+ * It was one constant while the only video style was fifteen seconds. The box
+ * office broke that on contact — its cue is a real HBO recording, 10.08s — and
+ * forcing fifteen would have meant dead air, an audible loop seam, or a fade
+ * covering silence. It matters beyond that one card: an imported template
+ * brings its own audio and its own animation, and a template system that
+ * dictates the running time can only import templates that already agree
+ * with it.
+ */
+describe('how long a style runs', () => {
+  const FAKE = [
+    { id: 'still', label: 'Still', kind: 'still', fields: ['duration'] },
+    { id: 'short', label: 'Short', kind: 'video', fields: [], seconds: 10 },
+    { id: 'unstated', label: 'Unstated', kind: 'video', fields: [] },
+  ];
+
+  it('gives a style the length it declares', () => {
+    expect(secondsFor('short', FAKE)).toBe(10);
+  });
+
+  it('falls back to the house length when a style states none', () => {
+    expect(secondsFor('unstated', FAKE)).toBe(VIDEO_SECONDS);
+  });
+
+  it('answers for an unknown id rather than returning nothing', () => {
+    // Same contract as resolveStyle: a settings file from a later build must
+    // not leave the card with a duration of undefined, which reaches
+    // setTimeout as NaN and fires immediately.
+    expect(secondsFor('a-style-that-was-deleted', FAKE)).toBe(VIDEO_SECONDS);
+  });
+
+  it('ignores a nonsense length instead of scheduling on it', () => {
+    const bad = [{ id: 'x', label: 'X', kind: 'video', fields: [], seconds: -3 }];
+    expect(secondsFor('x', bad)).toBe(VIDEO_SECONDS);
+  });
+
+  it('has every shipping video style state its own length', () => {
+    // Not the default by accident: a style that never says how long it runs is
+    // one whose length nobody decided.
+    for (const style of BUILTIN_STYLES.filter((s) => s.kind === 'video')) {
+      expect(Number.isFinite(style.seconds), `${style.id} states no length`).toBe(true);
+    }
   });
 });

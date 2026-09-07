@@ -86,13 +86,36 @@ const BUILTIN_STYLES = [
     label: 'Child exclusive water recreation',
     kind: 'video',
     fields: ['musicDir'],
+    seconds: 15,
     note: 'A schedule card on black, under a different piece of music every time. '
       + 'Fifteen seconds, cut from wherever in the track sounds best.',
   },
 ];
 
-/** The fixed running time every video style is cut to, in seconds. */
+/**
+ * How long a video style runs, in seconds — its OWN length, not a house one.
+ *
+ * It started as a single constant, because the rule was that every video
+ * bumper is fifteen seconds. The box office broke that on contact: its cue is
+ * a real HBO recording and it is 10.08 seconds long, so fifteen would have
+ * meant five seconds of dead air, an audible loop seam, or a fade covering
+ * silence — three ways of making a card worse to protect a number.
+ *
+ * It also has to be per-style for the thing this registry is FOR. An imported
+ * template arrives with its own audio and its own animation; a template system
+ * that dictates the running time can only import templates that happen to
+ * agree with it.
+ *
+ * A style may omit it and get the default.
+ */
 const VIDEO_SECONDS = 15;
+
+function secondsFor(id, styles = BUILTIN_STYLES) {
+  const style = resolveStyle(id, styles);
+  return Number.isFinite(style.seconds) && style.seconds > 0
+    ? style.seconds
+    : VIDEO_SECONDS;
+}
 
 /** The style anything falling back to defaults lands on. */
 const DEFAULT_STYLE_ID = 'still';
@@ -155,6 +178,7 @@ module.exports = {
   BUILTIN_STYLES,
   FIELD_ELEMENTS,
   VIDEO_SECONDS,
+  secondsFor,
   DEFAULT_STYLE_ID,
   resolveStyle,
   fieldsFor,

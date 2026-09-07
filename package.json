@@ -61,6 +61,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "vendor/audio",
+        "to": "audio",
+        "filter": [
+          "**/*"
+        ]
       }
     ]
   },
