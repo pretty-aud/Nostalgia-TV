@@ -73,6 +73,42 @@
   font-style: normal;
   font-display: block;
 }
+/**
+ * The two condensed faces the up-next styles are built on.
+ *
+ * They exist because nothing already here can be condensed. Measured by
+ * reading the axis tags out of each bundled woff2: Inter carries wght+opsz,
+ * Space Grotesk wght, JetBrains Mono wght+ital — no `wdth` in any of them, and
+ * each @font-face declares only a weight range, so `font-stretch: condensed`
+ * has nothing to map onto. Chromium does not synthesize condensed widths, so
+ * that declaration is a silent no-op that leaves the type at normal width.
+ *
+ * Roboto Condensed Bold stands in for Helvetica Neue Condensed Bold, which is
+ * what [adult swim] moved to in 2003. Oswald stands in for Compacta, named in
+ * the archive record for HBO's sub-line copy. Both substitutes are SIL OFL,
+ * which is why they can ship at all; the originals cannot.
+ *
+ * NOT added to FONT_CHOICES. These are style furniture, not faces to set the
+ * interface in — a condensed bold is unreadable as body copy at 13px.
+ *
+ * Fetched by scripts/vendor-fonts.mjs and committed. A data: URI would be
+ * blocked: the CSP declares no font-src, so it falls back to default-src 'self'.
+ */
+@font-face {
+  font-family: "Roboto Condensed";
+  src: url("fonts/roboto-condensed-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;      /* block, like the rest: a reflow reads as a glitch */
+}
+@font-face {
+  font-family: "Oswald";
+  src: url("fonts/oswald-semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: block;
+}
+
 /* A third family, used in exactly ONE place: the wordmark. That is the
    justification — an identity mark is not body copy, and Inter set in caps was
    doing nothing to earn the name. Space Grotesk has real character in the G, R

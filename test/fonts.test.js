@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync, existsSync } from 'node:fs';
 import { FONT_CHOICES, DEFAULT_FONTS, fontStackFor } from '../src/shared/fonts.js';
 
 /**
@@ -67,5 +68,41 @@ describe('resolving a saved id', () => {
     const stack = fontStackFor('nope', 'also-nope');
     expect(stack).toBeTruthy();
     expect(stack).toBe(FONT_CHOICES[0].stack);
+  });
+});
+
+/**
+ * Every face the stylesheet declares must be a file that is actually there.
+ *
+ * A wrong filename in an @font-face is completely silent: the rule parses, the
+ * fetch 404s, the browser falls back, and the type just comes out wrong in a
+ * screenshot nobody is diffing. scripts/shots/upnext-fonts.js catches it in
+ * the real engine, but that needs Electron and a preview server — this catches
+ * the typo in the unit suite, where it is a two-second answer.
+ */
+describe('the bundled font files', () => {
+  const css = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+  const referenced = [...css.matchAll(/url\("(fonts\/[^"]+)"\)/g)].map((m) => m[1]);
+
+  it('finds the @font-face sources at all', () => {
+    // The control: a regex that quietly matched nothing would make the
+    // assertion below pass over a stylesheet it never read.
+    expect(referenced.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('has a real file behind every url()', () => {
+    for (const rel of referenced) {
+      const full = new URL(`../src/renderer/${rel}`, import.meta.url);
+      expect(existsSync(full), `@font-face points at a missing file: ${rel}`).toBe(true);
+    }
+  });
+
+  /**
+   * electron-builder packages only what package.json build.files lists, and
+   * src/renderer/fonts is one of the few directories on it. A face put
+   * anywhere else works in `npm start` and is silently absent once installed.
+   */
+  it('keeps every face inside the one directory that ships', () => {
+    for (const rel of referenced) expect(rel.startsWith('fonts/')).toBe(true);
   });
 });

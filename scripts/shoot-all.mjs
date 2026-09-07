@@ -22,6 +22,7 @@ const SHOTS = [
   'transport-volume-muted',
   'sidebar-footer',
   'upnext-settings',
+  'upnext-fonts',
   'browse-rail',
   'rail-autoplay',
   'detail-media',
