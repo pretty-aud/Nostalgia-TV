@@ -246,9 +246,27 @@ async function makeLibrary() {
 }
 
 /** Pre-seed the profile: root chosen, bumper card short, saves verifiable. */
-/** Where the fixture music lives. Made before boot — see makeMusic. */
-const musicDir = path.join(work, 'music');
+/**
+ * Where the fixture music lives. Made before boot — see makeMusic.
+ *
+ * NTV_SMOKE_MUSIC points it at a real folder instead. The synthetic tone is
+ * what makes the assertions arithmetic, so pointing this elsewhere gives up
+ * the "did it choose the loud part" check — it is for LISTENING, paired with
+ * NTV_SMOKE_AUDIBLE, when the question is how a real bumper sounds rather
+ * than whether the machinery works.
+ */
+const realMusic = process.env.NTV_SMOKE_MUSIC || '';
+const musicDir = realMusic || path.join(work, 'music');
 const tonePath = path.join(musicDir, 'loud-in-the-middle.mp3');
+
+/**
+ * SILENT BY DEFAULT, and that is deliberate — see the note in seedProfile.
+ * NTV_SMOKE_AUDIBLE=1 turns the sound on for a run where somebody is sitting
+ * there on purpose to hear it, which is the only way to prove the last inch:
+ * everything else here proves mpv decoded the file and landed on the right
+ * second, and none of it proves sound reached a speaker.
+ */
+const audible = process.env.NTV_SMOKE_AUDIBLE === '1';
 
 /**
  * A track with a KNOWN shape: sixty seconds, quiet except from 20s to 40s.
@@ -259,6 +277,8 @@ const tonePath = path.join(musicDir, 'loud-in-the-middle.mp3');
  * loud stretch starts between 20 and 25.
  */
 async function makeMusic() {
+  // A real folder is HERS. Never delete it, never write a tone into it.
+  if (realMusic) return;
   await fsp.rm(musicDir, { recursive: true, force: true });
   await fsp.mkdir(musicDir, { recursive: true });
   spawnSync(FFMPEG, [
@@ -284,8 +304,8 @@ async function seedProfile() {
       mode: 'deck',
       bumperSeconds: 2,
       bumperEnabled: true,
-      muted: true,
-      volume: 0,
+      muted: !audible,
+      volume: audible ? 70 : 0,
       /**
        * WRITTEN INTO THE SAVED FILE, not handed over IPC later — because that
        * is the only route besides the folder dialog, and the dialog cannot be
@@ -542,6 +562,103 @@ async function main() {
       30000);
     verdict('the channel advanced to a DIFFERENT programme unattended', Boolean(advanced), advanced);
 
+    /**
+     * ── THE CARD ITSELF, driven by the channel ────────────────────────────
+     *
+     * Everything below this in the music block tests the four links in
+     * isolation, by calling mpvOpen directly. That is not the same as the
+     * card doing it: it proves the plumbing works when something pulls it,
+     * and says nothing about whether the bumper actually pulls it.
+     *
+     * So the style is changed THROUGH THE SETTINGS UI, the way she would,
+     * and then the next episode is allowed to end on its own. What follows
+     * has to be the whole thing — card up, music running from the chosen
+     * point, three beats in order, and the channel carrying on afterwards.
+     */
+    await evaluate(ws, `document.getElementById('btnSettings').click();
+      const sel = document.getElementById('bumperStyleSelect');
+      sel.value = 'cewr';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      document.getElementById('btnCloseSettings').click();
+      true`);
+    const styleSet = await evaluate(ws,
+      "JSON.parse(document.getElementById('app').dataset.bumperStyle || 'null') , "
+      + "document.getElementById('bumperStyleSelect').value");
+    verdict('the style can be changed to it from the settings panel',
+      styleSet === 'cewr', `select reads "${styleSet}"`);
+
+    // Watch mpv AND the beats from the moment the style changes, so nothing
+    // has to be timed from outside.
+    await evaluate(ws, `window.__CEWR = { pos: [], beats: [] };
+      window.tv.onMpvProp((name, value) => {
+        if (name === 'time-pos' && typeof value === 'number') window.__CEWR.pos.push(value);
+      });
+      window.__CEWR.timer = setInterval(() => {
+        const at = (id) => !document.getElementById(id).hidden;
+        const shape = [at('asbumpStandby'), at('asbumpSched'), at('asbumpSign')].join(',');
+        const seen = window.__CEWR.beats;
+        if (seen[seen.length - 1] !== shape) seen.push(shape);
+      }, 120);
+      true`);
+
+    // The 6-second episode runs out and the card takes over.
+    const cardUp = await until(ws, 'the schedule card',
+      "(!document.getElementById('asbump').hidden) ? 'up' : ''", 40000);
+    verdict('the channel raised the schedule card by itself', cardUp === 'up');
+
+    verdict('the still card is not showing underneath it',
+      await evaluate(ws, "document.getElementById('bumper').getBoundingClientRect().height === 0"));
+
+    /**
+     * The music the CARD started, not the one this script started. The tone
+     * is loud only from 20s to 40s and the picker chooses inside that, so any
+     * position below 18 means the card opened the file at the top — or opened
+     * something else entirely.
+     *
+     * THE BUFFER IS CLEARED FIRST, and that is not tidiness. Sampling the
+     * tail of everything collected since the style changed reported 2.80s and
+     * called the card broken — those were the OUTGOING EPISODE's positions,
+     * still arriving as the card came up, and a six-second fixture episode
+     * reaching 2.8s looks exactly like an mp3 that ignored its start offset.
+     * Clearing on the card's appearance is what makes the next reading
+     * unambiguously the music's.
+     */
+    await evaluate(ws, 'window.__CEWR.pos.length = 0, true');
+    await sleep(1500);
+    const duringCard = JSON.parse(await evaluate(ws,
+      'JSON.stringify(window.__CEWR.pos.slice(-12))'));
+    const lowest = duringCard.length ? Math.min(...duringCard) : null;
+    if (!realMusic) verdict('the card is playing music from the chosen point',
+      lowest !== null && lowest >= 18,
+      lowest === null ? 'mpv reported no position during the card'
+        : `time-pos ${lowest.toFixed(2)}s (the loud stretch is 20s to 40s)`);
+
+    // Let it run to the mark, then off.
+    const signUp = await until(ws, 'the sign-off',
+      "(!document.getElementById('asbumpSign').hidden) ? 'up' : ''", 20000);
+    verdict('it reaches the sign-off mark', signUp === 'up');
+
+    const beats = JSON.parse(await evaluate(ws,
+      'clearInterval(window.__CEWR.timer), JSON.stringify(window.__CEWR.beats)'));
+    /**
+     * Each beat alone, in order, with nothing doubled up. "true,true,false"
+     * anywhere means two beats were on screen at once, which is the failure
+     * that looks like the card being broken rather than being late.
+     */
+    const wanted = ['true,false,false', 'false,true,false', 'false,false,true'];
+    const ordered = wanted.every((shape, i) => beats.indexOf(shape) > -1
+      && (i === 0 || beats.indexOf(shape) > beats.indexOf(wanted[i - 1])));
+    const doubled = beats.some((shape) => shape.split(',').filter((v) => v === 'true').length > 1);
+    verdict('the three beats ran in order, one at a time',
+      ordered && !doubled, beats.join(' → '));
+
+    const afterCard = await until(ws, 'the channel carrying on',
+      `(document.getElementById('app').dataset.view === 'playing'
+        && document.getElementById('asbump').hidden)
+        ? document.getElementById('npShow').textContent : ''`, 25000);
+    verdict('the channel carries on into the next programme afterwards',
+      Boolean(afterCard), afterCard || 'the card never handed back');
+
     // The save path: immediate writes mean the state file in the SCRATCH
     // profile has moved past the seed, with a queue and history.
     const stateRaw = await fsp.readFile(path.join(profile, 'channel-state.json'), 'utf8');
@@ -581,9 +698,13 @@ async function main() {
      * above is still proven; what is not proven is that sound reaches the
      * speakers, and that is hers to confirm.
      */
-    const madeTone = fs.existsSync(tonePath);
-    verdict('a fixture track with a known loud section was made', madeTone,
-      madeTone ? `${Math.round(fs.statSync(tonePath).size / 1024)}kb` : 'ffmpeg produced nothing');
+    const madeTone = realMusic ? true : fs.existsSync(tonePath);
+    if (realMusic) {
+      console.log(`      her own folder, so the known-shape checks are skipped: ${realMusic}`);
+    } else {
+      verdict('a fixture track with a known loud section was made', madeTone,
+        madeTone ? `${Math.round(fs.statSync(tonePath).size / 1024)}kb` : 'ffmpeg produced nothing');
+    }
 
     if (madeTone) {
       const dirJson = JSON.stringify(musicDir);
@@ -603,7 +724,7 @@ async function main() {
 
       // The loud stretch runs 20s to 40s and the clip is 15s, so the only
       // window that fits entirely inside it starts between 20 and 25.
-      verdict('the hook lands in the loud part of the track, not the intro',
+      if (!realMusic) verdict('the hook lands in the loud part of the track, not the intro',
         Boolean(pick && pick.startSeconds >= 18 && pick.startSeconds <= 26),
         pick ? `chose ${pick.startSeconds}s (loud from 20s to 40s)` : 'no pick');
 
