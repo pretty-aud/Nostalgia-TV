@@ -1174,6 +1174,27 @@
         </span>
       </label>
 
+      <!--
+        THE CARD THIS SCHEDULE ANNOUNCES ITSELF WITH.
+
+        Saturday mornings can use the schedule card and a late-night block the
+        box office, because the up-next card is part of a schedule's character
+        rather than a global preference.
+
+        The first option is INHERIT, and it is the default for every schedule
+        that already exists: a saved schedule predates this field, reads
+        undefined, and falls through to Settings. Its options are built from
+        BUILTIN_STYLES at render time, never written here — the theme menu is
+        35 hand-written options beside a separate array and five palettes
+        shipped that nobody could select.
+      -->
+      <label class="field field--tight">
+        <span class="field__label mono">Up next</span>
+        <span class="field__control">
+          <select class="select" id="schedStyle" aria-label="Up-next card for this schedule"></select>
+        </span>
+      </label>
+
       <div class="setsched__acts">
         <button class="btn btn--quiet" id="schedNew" type="button">New</button>
         <button class="btn btn--quiet" id="schedDuplicate" type="button">Duplicate</button>

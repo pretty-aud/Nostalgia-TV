@@ -28,6 +28,7 @@ import {
   applySettings,
   formatEpisodeLabel,
   activeSchedule,
+  activeBumperStyleId,
   openingScheduleId,
   showsInSchedule,
 } from '../shared/scheduler.js';
@@ -1361,7 +1362,11 @@ const BOX_OFFICE_CUE = 'box-office.mp3';
  * every time an episode ends.
  */
 function prepareBoxOfficeBackdrop() {
-  if (state.settings.bumperStyle !== 'boxoffice') return;
+  // The SCHEDULE's style, falling back to the global one. Reading the global
+  // directly here would cut the backdrop for a schedule that had chosen the
+  // box office, and the card would play on gradient alone with nothing to say
+  // why — the failure would look like the clip pipeline, not like this line.
+  if (activeBumperStyleId(state.settings) !== 'boxoffice') return;
   if (state.settings.bumperBackground !== 'video') return;
   if (!window.tv.prepareBumperClip) return;   // the preview harness has none
 
@@ -2385,7 +2390,7 @@ function onEpisodeEnded() {
        * reading bumperSeconds to decide whether to show it would let a slider
        * she cannot even see switch it off.
        */
-      const style = resolveStyle(state.settings.bumperStyle);
+      const style = resolveStyle(activeBumperStyleId(state.settings));
       if (style.id === 'boxoffice') {
         showBoxOffice(after, leadOverride);
       } else if (isFixedLength(style.id)) {
@@ -3707,6 +3712,10 @@ function blankSchedule() {
     name: `Schedule ${savedSchedules().length + 1}`,
     blockSize: Math.max(1, Number(state.settings.blockSize) || 2),
     items: [],
+    // Explicitly null rather than absent. A new schedule and a schedule saved
+    // before this field existed behave identically — both inherit — and saying
+    // so here means the shape a reader sees is the shape that gets written.
+    bumperStyle: null,
   };
 }
 
@@ -3792,6 +3801,34 @@ function renderScheduleEditor() {
   el('schedName').value = draft.name;
   el('schedBlock').value = String(draft.blockSize);
   el('schedDelete').disabled = !savedSchedules().some((sc) => sc.id === draft.id);
+
+  /**
+   * The style menu, built from BUILTIN_STYLES and led by INHERIT.
+   *
+   * Built once and then only re-valued, like the settings sheet's own style
+   * picker — rebuilding on every render throws away an open dropdown mid-click.
+   * The inherit option carries the EMPTY STRING rather than a word, so the
+   * value written to the draft is falsy and activeBumperStyleId falls through
+   * to the global without needing to know a sentinel.
+   */
+  const styleMenu = el('schedStyle');
+  if (!styleMenu.options.length) {
+    const inherit = document.createElement('option');
+    inherit.value = '';
+    inherit.textContent = 'Use the app setting';
+    styleMenu.append(inherit);
+    for (const style of BUILTIN_STYLES) {
+      const option = document.createElement('option');
+      option.value = style.id;
+      option.textContent = style.label;
+      styleMenu.append(option);
+    }
+  }
+  // An id the build no longer ships must not silently read as inherit — it
+  // would look like a deliberate choice she never made. Anything unrecognised
+  // is shown as inherit, which is what it will actually do.
+  const own = draft.bumperStyle || '';
+  styleMenu.value = BUILTIN_STYLES.some((s) => s.id === own) ? own : '';
 
   renderSchedOrder();
   renderSchedPool();
@@ -5347,6 +5384,14 @@ function wireEvents() {
     draft.blockSize = Math.min(12, Math.max(1, Number(el('schedBlock').value) || 1));
     el('schedBlock').value = String(draft.blockSize);
     renderScheduleEditor();      // the per-card "N eps" labels follow it
+  });
+
+  el('schedStyle').addEventListener('change', (event) => {
+    if (!draft) return;
+    // NULL for inherit, not '' — the draft is JSON that goes to disk, and null
+    // survives a round trip meaning exactly one thing. An empty string would
+    // too, but null is the value activeBumperStyleId documents.
+    draft.bumperStyle = event.target.value || null;
   });
 
   el('schedNew').addEventListener('click', () => {

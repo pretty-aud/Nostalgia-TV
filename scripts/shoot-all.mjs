@@ -29,6 +29,7 @@ const SHOTS = [
   'settings-whole',
   'sched-drag',
   'sched-gap',
+  'sched-editor',
   'cewr-standby',
   'cewr-card',
   'cewr-signoff',

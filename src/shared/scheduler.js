@@ -432,6 +432,29 @@ function showsInSchedule(shows, schedule) {
   return all.filter((show) => show && wanted.has(show.id));
 }
 
+/**
+ * WHICH UP-NEXT STYLE IS IN FORCE, schedule first.
+ *
+ * A schedule may name its own card style — Saturday mornings can announce
+ * itself over the schedule card while a late-night block uses the box office —
+ * and when it does not, it inherits whatever Settings says. Inheritance is the
+ * default and has to be, because every schedule already saved on disk predates
+ * this field: a saved schedule with no bumperStyle reads undefined, which is
+ * falsy, which falls straight through to the global. That is the whole
+ * migration, and it is why this returns rather than defaults.
+ *
+ * It deliberately does NOT resolve the id to a style object. resolveStyle falls
+ * back to the default for anything it does not recognise, so resolving here
+ * would turn "this schedule inherits" into "this schedule is explicitly the
+ * still menu" — the one answer that cannot then be told from a real choice.
+ * The caller resolves; this only decides whose id wins.
+ */
+function activeBumperStyleId(settings = {}) {
+  const schedule = activeSchedule(settings);
+  const own = schedule && schedule.bumperStyle;
+  return own || settings.bumperStyle || null;
+}
+
 /** Episodes per block for whichever running order is in force. */
 function blockSizeFor(settings) {
   const schedule = activeSchedule(settings);
@@ -1233,6 +1256,7 @@ function applySettings(shows, state, patch, options = {}) {
 module.exports = {
   DEFAULT_SETTINGS,
   activeSchedule,
+  activeBumperStyleId,
   openingScheduleId,
   showsInSchedule,
   blockSizeFor,
