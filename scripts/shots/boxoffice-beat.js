@@ -38,13 +38,22 @@ const opener = card.querySelector('.boxoffice__opener');
  */
 const maskOf = () => getComputedStyle(bg).maskImage;
 
+/**
+ * A DEADLINE, not a count of sleeps.
+ *
+ * Sampling every 120ms and adding up the sleeps drifts badly: each
+ * getComputedStyle costs real time, so a frame asked for at 1600ms was
+ * actually taken past 2300 — deep into the next beat. The shot then shows a
+ * beat it is not labelled with, which is worse than no shot, because it gets
+ * read as the labelled beat behaving wrongly.
+ */
 const opened = [];
 const wiped = [];
-const step = 120;
-for (let t = 0; t < at; t += step) {
-  await wait(step);
+const started = performance.now();
+while (performance.now() - started < at) {
   opened.push(maskOf());
   wiped.push(getComputedStyle(opener).clipPath);
+  await wait(200);
 }
 
 // Somewhere in the run the band must reach past the edges of the frame, or it

@@ -5024,10 +5024,16 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   gap: clamp(8px, 1vw, 18px);
-  /* Its own black plate, as in the reference — the lockup sits on solid black
-     even while picture is showing above and below it. */
-  background: #000;
-  padding: clamp(6px, 1.1vh, 16px) clamp(14px, 2vw, 34px);
+  /*
+   * NO PLATE. The reference sets its lockup on a black bar; hers is not to,
+   * and on a card whose whole point is the picture opening behind the type, a
+   * solid rectangle under it is one more thing between the two. The lockup
+   * sits on whatever is there — black at first, picture once the band opens.
+   *
+   * Which also means the wipe now takes only the type, not a rectangle with
+   * type on it, and reads as the words being uncovered rather than a panel
+   * sliding off.
+   */
   text-transform: uppercase;
   /*
    * THE UNFURL. scaleX from a sliver, about the centre — which is what makes
@@ -5047,19 +5053,42 @@ input[type="range"]::-webkit-slider-thumb {
   transform: translate(-50%, -50%) scaleX(1);
   opacity: 1;
 }
-/* THE WIPE, left to right, taking the plate and the lockup together. */
+/**
+ * THE WIPE — the plate's RIGHT edge retreating LEFTWARD.
+ *
+ * Direction matters and I had it backwards. In the reference the plate is
+ * anchored to the left of frame and its right edge travels left, so the mark
+ * is eaten from its right side — HBO, then HB, then H — while the word beside
+ * it is already sitting on picture. Clipping from the left instead makes the
+ * lockup vanish left-to-right, which reads as the opposite gesture: something
+ * being pushed off rather than something being uncovered.
+ *
+ * inset(top right bottom left): growing the RIGHT inset to 100% walks the
+ * visible edge leftwards.
+ */
 .boxoffice[data-beat="wipe"] .boxoffice__opener,
 .boxoffice[data-beat="titles"] .boxoffice__opener,
 .boxoffice[data-beat="hold"] .boxoffice__opener {
   transform: translate(-50%, -50%) scaleX(1);
   opacity: 1;
-  clip-path: inset(0 0 0 100%);
+  clip-path: inset(0 100% 0 0);
 }
-/* And out: compressed back to a sliver, the entrance in reverse. */
+/**
+ * And out: compressed back to a LINE, the entrance in reverse.
+ *
+ * Read frame by frame the reference does not fade this — it squeezes, the gap
+ * between mark and word closing until the whole lockup is a bright vertical
+ * sliver, which sits for an instant and is then gone. So the scale goes far
+ * smaller than the entrance needs (0.004, not 0.02: at 0.02 it is still a
+ * smudge with width, not a line), the easing accelerates hard into it, and
+ * the opacity is held until the squeeze has finished rather than crossfading
+ * through it.
+ */
 .boxoffice[data-beat="out"] .boxoffice__opener {
-  transform: translate(-50%, -50%) scaleX(0.02);
+  transform: translate(-50%, -50%) scaleX(0.004);
   opacity: 0;
-  transition: transform 620ms cubic-bezier(0.7, 0, 0.84, 0), opacity 300ms ease 380ms;
+  transition: transform 560ms cubic-bezier(0.76, 0, 0.9, 0.2),
+              opacity 160ms linear 620ms;
 }
 
 .boxoffice__mark { display: block; }
