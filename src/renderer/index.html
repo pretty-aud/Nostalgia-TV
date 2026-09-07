@@ -327,6 +327,41 @@
       <div class="asbump__sign" id="asbumpSign" hidden></div>
     </section>
 
+    <!--
+      THE BOX OFFICE — after HBO's on-air package, c. 2003 to 2011.
+
+      Its own section for the same reason the schedule card is: it shares
+      nothing with either of the others. A backdrop, a gradient over it, the
+      mark beside a word, and three programmes rather than one.
+
+      Ten seconds, because that is how long its cue runs — see `seconds` in
+      the registry. Everything about this card is the opposite instinct from
+      the schedule card next door: weight and ceremony rather than deadpan
+      patience, resolves rather than hard cuts, upper case throughout.
+    -->
+    <section class="boxoffice" id="boxoffice" aria-live="polite" hidden>
+      <!--
+        The backdrop is TWO elements, one of which is always idle. Swapping a
+        single element between <img> and <video> means rebuilding it on every
+        card; keeping both and hiding one keeps the swap to an attribute.
+      -->
+      <div class="boxoffice__bg" aria-hidden="true">
+        <img class="boxoffice__still" id="boxofficeStill" alt="" hidden />
+        <video class="boxoffice__clip" id="boxofficeClip" muted playsinline hidden></video>
+      </div>
+      <div class="boxoffice__wash" aria-hidden="true"></div>
+
+      <div class="boxoffice__plate">
+        <p class="boxoffice__next">
+          <span class="boxoffice__mark" id="boxofficeMark" aria-hidden="true"></span>
+          <span class="boxoffice__word">Next</span>
+        </p>
+        <ol class="boxoffice__list" id="boxofficeList"></ol>
+      </div>
+
+      <div class="boxoffice__sign" id="boxofficeSign" hidden></div>
+    </section>
+
     <!-- Waiting on a conversion.
 
          A panel rather than a toast because the wait is not always short: a
@@ -818,6 +853,23 @@
             </span>
           </div>
           <p class="modes__note" id="bumperMusicPath"></p>
+
+          <!--
+            The backdrop, for a style that has one. A select rather than a
+            toggle because a third source is already foreseeable (the artwork
+            she has hand-placed), and a checkbox that has to become a menu
+            later is a migration for no reason.
+          -->
+          <label class="field" id="bumperBgField" hidden>
+            <span class="field__label mono">Backdrop</span>
+            <span class="field__control">
+              <select id="bumperBgSelect">
+                <option value="still">A frame from what is next</option>
+                <option value="video">A moving clip from what is next</option>
+                <option value="none">Gradient only</option>
+              </select>
+            </span>
+          </label>
         </section>
 
         <section class="setgroup">

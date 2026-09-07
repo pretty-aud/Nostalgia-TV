@@ -58,6 +58,8 @@ const FIELD_ELEMENTS = {
   duration: 'bumperField',
   /** Where a music-backed style deals its track from. */
   musicDir: 'bumperMusicField',
+  /** Whether a card's backdrop moves or holds still. */
+  background: 'bumperBgField',
 };
 
 /**
@@ -89,6 +91,19 @@ const BUILTIN_STYLES = [
     seconds: 15,
     note: 'A schedule card on black, under a different piece of music every time. '
       + 'Fifteen seconds, cut from wherever in the track sounds best.',
+  },
+  {
+    id: 'boxoffice',
+    label: 'The box office',
+    kind: 'video',
+    fields: ['background'],
+    /**
+     * Ten, not fifteen, and not a preference: this is the length of the cue
+     * it bakes in, measured at 10.08s. See VIDEO_SECONDS below.
+     */
+    seconds: 10,
+    note: 'The mark, then the next three programmes, over a gradient and a frame '
+      + 'from what is coming. One fixed piece of music.',
   },
 ];
 

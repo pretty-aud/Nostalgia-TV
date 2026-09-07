@@ -26,6 +26,8 @@ const SHOTS = [
   'cewr-standby',
   'cewr-card',
   'cewr-signoff',
+  'boxoffice-next',
+  'boxoffice-titles',
   'browse-rail',
   'rail-autoplay',
   'detail-media',

@@ -43,6 +43,13 @@
     // schedule card care about its beats and its type, not its sound, and the
     // card is driven by its own timers rather than by anything mpv reports.
     nextBumperMusic: async () => ({ absPath: 'D:/music/bump.mp3', startSeconds: 42, title: 'bump' }),
+    bumperCue: async () => 'D:/audio/box-office.mp3',
+    // A flat slate rather than a photograph: the review shots are for judging
+    // the TYPE and the gradient, and a busy still makes that harder to read,
+    // not easier. The real card gets a frame from the programme.
+    bumperStill: async () => 'data:image/svg+xml;base64,' + btoa(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="9">'
+      + '<rect width="16" height="9" fill="#233042"/></svg>'),
     locateLibrary: async (p) => ({ ok: Boolean(p), rootPath: p, moved: false }),
     // The real library when the server was pointed at one — the fixture below
     // cannot reproduce anything that depends on the viewer's actual files.

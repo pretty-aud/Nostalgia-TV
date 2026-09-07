@@ -39,7 +39,7 @@ const GLOBALS = new Set([
   'AbortController', 'IntersectionObserver', 'ResizeObserver', 'MutationObserver',
   'localStorage', 'sessionStorage', 'performance', 'crypto', 'structuredClone',
   'getComputedStyle', 'matchMedia', 'alert', 'HTMLElement', 'Node', 'Element', 'CSS',
-  'DOMParser', 'Response', 'Request', 'Headers',
+  'DOMParser', 'Response', 'Request', 'Headers', 'btoa', 'atob',
   // language
   'Math', 'JSON', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Date', 'RegExp',
   'Map', 'Set', 'WeakMap', 'WeakSet', 'Promise', 'Symbol', 'Error', 'TypeError',

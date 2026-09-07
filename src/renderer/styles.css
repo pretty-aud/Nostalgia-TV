@@ -4860,3 +4860,173 @@ input[type="range"]::-webkit-slider-thumb {
    so the card owns the keyboard while it is up. Which of the two is actually
    drawn is the STYLE, not the view. */
 .app[data-bumper-style="cewr"] .bumper { display: none; }
+
+/* ══ THE BOX OFFICE ════════════════════════════════════════════════════════
+
+   After HBO's on-air package, c. 2003 to 2011.
+
+   Fixed colours, fenced to this prefix, for the reason the schedule card
+   gives at length: this is an imitation of a specific network's identity, not
+   the app's interface wearing a palette.
+
+   Everything here is the opposite instinct from the card next door. That one
+   is deadpan — flat black, hard cuts, lower case, patience. This one wants
+   weight: a graded backdrop, a slow resolve, upper case, and type that is
+   quiet rather than loud, because the picture behind it is doing the work.
+
+   Sized in vh for the same reason: broadcast type is sized against the frame,
+   and the frame is defined by its height. */
+
+.boxoffice {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: #05070d;      /* opaque: the plane below is live video */
+  overflow: hidden;
+  text-shadow: none;
+}
+.boxoffice[hidden] { display: none; }
+.boxoffice [hidden] { display: none; }
+
+/* The backdrop, and the two things that can fill it. object-fit: cover so a
+   4:3 source still fills a 16:9 frame rather than sitting in pillarbox — this
+   is a background, not a presentation of the picture. */
+.boxoffice__bg { position: absolute; inset: 0; }
+.boxoffice__still,
+.boxoffice__clip {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Slightly desaturated and darkened at source rather than relying on the
+     wash alone: a bright frame behind white type stays unreadable however
+     much gradient is put over it. */
+  filter: saturate(0.72) brightness(0.55);
+}
+
+/**
+ * The wash. A DIRECTIONAL gradient, never a flat scrim.
+ *
+ * The research note is specific that the era's look is gradient fields graded
+ * like film rather than flat brand fill, and that a flat overlay is what makes
+ * a modern attempt look like a web page. Two layers: a blue-violet cast for
+ * the colour, and a vertical darkening that puts the weight under the type.
+ */
+.boxoffice__wash {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(5, 7, 13, 0.15) 0%, rgba(5, 7, 13, 0.82) 78%, #05070d 100%),
+    linear-gradient(115deg, rgba(28, 42, 92, 0.55) 0%, rgba(12, 14, 34, 0.35) 55%, rgba(58, 30, 78, 0.45) 100%);
+}
+
+/* The type sits over both, left-aligned in a block that is optically placed
+   low — where a broadcast lower third goes, not dead centre. */
+.boxoffice__plate {
+  position: relative;
+  justify-self: start;
+  /* CENTRED, not bottom-anchored. Measured off the reference frame: the block
+     there runs from about 46% to 62% of the frame height, so its optical
+     centre is the middle of the picture. Anchored to the bottom it read as a
+     lower third, which is a different kind of card — a caption over something
+     playing, rather than a title card in its own right. */
+  align-self: center;
+  margin: 0 0 0 8vw;
+  display: grid;
+  gap: clamp(8px, 1.4vh, 20px);
+  color: #fff;
+  font-family: Oswald, "Arial Narrow", sans-serif;
+  text-transform: uppercase;
+}
+
+/* Beat one: the mark, then the word, on one baseline. */
+.boxoffice__next {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.2vw, 20px);
+}
+.boxoffice__mark svg {
+  display: block;
+  width: clamp(28px, 4.6vh, 64px);
+  height: auto;
+}
+.boxoffice__word {
+  font-weight: 600;
+  font-size: clamp(15px, 2.4vh, 34px);
+  /* Tracked out. Hierarchy in this system is size and tracking, never weight
+     or colour — the research note is explicit, and it is what keeps a small
+     line reading as deliberate rather than as a caption. */
+  letter-spacing: 0.34em;
+  /* The tracking adds a trailing gap after the last letter; pulling it back
+     keeps the optical left edge aligned with the titles below. */
+  margin-right: -0.34em;
+  color: #dfe4f2;
+}
+
+.boxoffice__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: clamp(2px, 0.6vh, 10px);
+}
+
+/**
+ * The three programmes. The FIRST is the one coming next and is set large;
+ * the other two are what follows it and step down.
+ *
+ * Size does the ranking, not colour or weight — same rule as the eyebrow.
+ */
+.boxoffice__row {
+  font-weight: 600;
+  letter-spacing: 0.008em;
+  line-height: 1.1;
+  max-width: 24ch;
+}
+.boxoffice__row--lead {
+  font-size: clamp(26px, 6.2vh, 88px);
+  color: #fff;
+}
+.boxoffice__row--then {
+  font-size: clamp(14px, 2.2vh, 31px);
+  color: #b9c0d4;
+  letter-spacing: 0.06em;
+}
+
+/* Beat three: the mark alone, centred, over the darkened backdrop. */
+.boxoffice__sign { position: relative; }
+.boxoffice__sign svg {
+  display: block;
+  width: clamp(72px, 12vh, 190px);
+  height: auto;
+}
+
+/**
+ * This card RESOLVES rather than cutting. Opposite of the schedule card by
+ * design: HBO's package is a production-value flex, and the beats are slow on
+ * purpose — 600ms and up, per the timing table in the research note.
+ */
+.boxoffice__plate > *,
+.boxoffice__sign {
+  opacity: 0;
+  transform: translateY(0.35em);
+  transition: opacity 620ms ease, transform 620ms cubic-bezier(0.2, 0, 0, 1);
+}
+.boxoffice[data-beat="next"] .boxoffice__next,
+.boxoffice[data-beat="titles"] .boxoffice__next,
+.boxoffice[data-beat="titles"] .boxoffice__list,
+.boxoffice[data-beat="sign"] .boxoffice__sign {
+  opacity: 1;
+  transform: none;
+}
+/* The plate leaves before the mark arrives, or the two overlap mid-resolve. */
+.boxoffice[data-beat="sign"] .boxoffice__plate { opacity: 0; transition: opacity 420ms ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .boxoffice__plate > *,
+  .boxoffice__sign { transition-duration: 1ms; transform: none; }
+}
+
+.app[data-bumper-style="boxoffice"] .bumper { display: none; }

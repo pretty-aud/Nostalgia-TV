@@ -969,6 +969,7 @@ function renderSettings() {
     ? (musicDir.split(/[\\/]/).filter(Boolean).pop() || musicDir)
     : 'Choose folder…';
   el('bumperMusicPath').textContent = musicDir;
+  el('bumperBgSelect').value = state.settings.bumperBackground || 'still';
   el('bumperMusicCount').textContent = musicDir && bumperMusicCount !== null
     ? `${bumperMusicCount} track${bumperMusicCount === 1 ? '' : 's'}`
     : '';
@@ -1311,6 +1312,147 @@ async function showAdultSwimBumper(onDone, leadOverride) {
   endTimer = setTimeout(finish, secondsFor('cewr') * 1000);
 }
 
+/** The cue the box office bakes in. No setting — it IS the style. */
+const BOX_OFFICE_CUE = 'box-office.mp3';
+
+/**
+ * THE BOX OFFICE — the mark, then what is coming, over a graded backdrop.
+ *
+ * Ten seconds, because that is how long its cue runs. Where the schedule card
+ * is deadpan and cuts, this one resolves: HBO's package was a production-value
+ * flex and the beats are slow on purpose.
+ *
+ * ── Three programmes, not one ────────────────────────────────────────────
+ *
+ * The lead is set large and the two behind it step down. That is her ask, and
+ * it is also what makes the card honest — the queue genuinely knows the next
+ * three, so showing them costs nothing and says more than a single title.
+ *
+ * ── The backdrop is prepared, never fetched on the beat ──────────────────
+ *
+ * Asked for BEFORE anything is on screen, and the card runs regardless of
+ * whether it arrives. A background is decoration: losing it is a plainer
+ * card, never a bumper that fails to play, and waiting on ffmpeg with the
+ * type already up would be exactly the stall she asked not to have.
+ */
+async function showBoxOffice(onDone, leadOverride) {
+  const upcoming = peek(shows, state, 3);
+  const lead = leadOverride || upcoming[0];
+  if (!lead) { onDone(); return; }
+
+  const rows = [lead, ...upcoming.filter((item) => item !== lead)]
+    .slice(0, 3)
+    .map((item) => item.showName || (item.episode && item.episode.showName) || '')
+    .filter(Boolean);
+
+  const card = el('boxoffice');
+  const still = el('boxofficeStill');
+  const clip = el('boxofficeClip');
+
+  /**
+   * The backdrop and the cue are asked for together, before the card is up.
+   *
+   * Neither is allowed to hold the card: a cue that cannot be found plays the
+   * card silent, and a backdrop that is not ready plays it on gradient alone.
+   * Both are real states — the cue is vendored rather than committed, so a
+   * fresh clone genuinely has none until scripts/vendor-audio.mjs runs.
+   */
+  const backdrop = state.settings.bumperBackground || 'still';
+  const leadPath = lead.episode && lead.episode.absPath;
+  const [cuePath, stillUrl] = await Promise.all([
+    window.tv.bumperCue ? window.tv.bumperCue(BOX_OFFICE_CUE).catch(() => null) : null,
+    backdrop !== 'none' && leadPath && window.tv.bumperStill
+      ? window.tv.bumperStill(leadPath).catch(() => null)
+      : null,
+  ]);
+
+  if (bumperCleanup) bumperCleanup();
+
+  const list = el('boxofficeList');
+  list.textContent = '';
+  rows.forEach((name, index) => {
+    const row = document.createElement('li');
+    row.className = `boxoffice__row boxoffice__row--${index === 0 ? 'lead' : 'then'}`;
+    row.textContent = name;
+    list.append(row);
+  });
+
+  el('boxofficeMark').innerHTML = markSvg({ size: 64, title: null });
+  el('boxofficeSign').innerHTML = markSvg({ size: 190, title: null });
+
+  still.hidden = true;
+  clip.hidden = true;
+  if (stillUrl) {
+    still.src = stillUrl;
+    still.hidden = false;
+  }
+
+  el('boxofficeSign').hidden = true;
+  card.dataset.beat = 'in';
+  card.hidden = false;
+  app.dataset.bumperStyle = 'boxoffice';
+  app.dataset.view = 'bumper';
+  playingBumperClip = true;
+
+  if (cuePath) {
+    window.tv.mpvOpen(cuePath, { startSeconds: 0 })
+      .catch((error) => console.error('[bumper] the cue would not play:', error && error.message));
+  }
+
+  /**
+   * Beats, in milliseconds. Slower than the schedule card's on purpose — the
+   * research note's timing table puts every resolve in this package at 600ms
+   * and up, against the other card's hard cuts.
+   */
+  const BEATS = [
+    [500, () => { card.dataset.beat = 'next'; }],
+    [2100, () => { card.dataset.beat = 'titles'; }],
+    [7600, () => { card.dataset.beat = 'sign'; el('boxofficeSign').hidden = false; }],
+  ];
+
+  const timers = BEATS.map(([at, run]) => setTimeout(run, at));
+  let done = false;
+  let endTimer = null;
+
+  const teardown = () => {
+    for (const timer of timers) clearTimeout(timer);
+    clearTimeout(endTimer);
+    bumperCleanup = null;
+    document.removeEventListener('keydown', onKey, true);
+    card.removeEventListener('click', onClick);
+  };
+  bumperCleanup = teardown;
+
+  const finish = () => {
+    if (done) return;
+    done = true;
+    teardown();
+    card.hidden = true;
+    delete card.dataset.beat;
+    delete app.dataset.bumperStyle;
+    // Release the picture, or a paused frame of the next programme's backdrop
+    // sits in memory for the rest of the session.
+    still.removeAttribute('src');
+    clip.removeAttribute('src');
+    window.tv.mpvStop().catch(() => {});
+    playingBumperClip = false;
+    onDone();
+  };
+
+  const onKey = (event) => {
+    if (event.key === 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    finish();
+  };
+  const onClick = () => finish();
+
+  document.addEventListener('keydown', onKey, true);
+  card.addEventListener('click', onClick);
+
+  endTimer = setTimeout(finish, secondsFor('boxoffice') * 1000);
+}
+
 /**
  * A way in for the review shots, and ONLY under the preview harness.
  *
@@ -1329,6 +1471,7 @@ async function showAdultSwimBumper(onDone, leadOverride) {
 if (window.__tvCalls) {
   window.__preview = {
     showAdultSwimBumper: (onDone, leadOverride) => showAdultSwimBumper(onDone, leadOverride),
+    showBoxOffice: (onDone, leadOverride) => showBoxOffice(onDone, leadOverride),
     settings: () => state.settings,
   };
 }
@@ -1996,7 +2139,9 @@ function onEpisodeEnded() {
        * she cannot even see switch it off.
        */
       const style = resolveStyle(state.settings.bumperStyle);
-      if (isFixedLength(style.id)) {
+      if (style.id === 'boxoffice') {
+        showBoxOffice(after, leadOverride);
+      } else if (isFixedLength(style.id)) {
         showAdultSwimBumper(after, leadOverride);
       } else if (state.settings.bumperEnabled && state.settings.bumperSeconds > 0) {
         showBumper(after, leadOverride);
@@ -5144,6 +5289,10 @@ The channel keeps its own place.`)) return;
    * puts the path on that list, and a path arriving any other way is one mpv
    * would refuse to open.
    */
+  el('bumperBgSelect').addEventListener('change', (event) => {
+    setSetting({ bumperBackground: event.target.value });
+  });
+
   el('bumperMusicPick').addEventListener('click', async () => {
     const picked = await window.tv.pickBumperMusic();
     if (!picked) return;                      // cancelled — keep what she had

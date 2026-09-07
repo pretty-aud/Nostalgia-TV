@@ -55,6 +55,11 @@ const DEFAULT_SETTINGS = {
    * mpv will refuse to open.
    */
   bumperMusicDir: '',
+  /**
+   * Whether a card that has a backdrop moves it or holds a frame. Flat, like
+   * every other per-style key — boot() merges saved settings one level deep.
+   */
+  bumperBackground: 'still',
   loopWhenExhausted: true, // a channel should not die when a show runs out
   disabledShows: [],       // show ids the user has switched off
   marathonShowId: null,    // when set, ONLY this show plays (see isEnabled)

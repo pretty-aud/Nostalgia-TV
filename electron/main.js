@@ -18,6 +18,28 @@ const { createMpvHost } = require('./mpvHost.js');
 const artwork = require('./artwork.js');
 const ingest = require('./ingest.js');
 const bumperMusic = require('./bumperMusic.js');
+const bumperClip = require('./bumperClip.js');
+
+/**
+ * The audio a style bakes in, as a real path on disk.
+ *
+ * NOT inside the asar, and that is not a preference: mpv is a separate process
+ * and cannot read an archive. extraResources copies vendor/audio to
+ * resources/audio for exactly this, the same route ffmpeg and mpv take.
+ *
+ * The dev-tree path is second because a packaged app has both — resourcesPath
+ * exists and the repo may be sitting beside it — and the shipped copy is the
+ * one that must win.
+ */
+function bakedCuePath(name) {
+  const candidates = [];
+  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'audio', name));
+  candidates.push(path.join(__dirname, '..', 'vendor', 'audio', name));
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
 const MAX_SCAN_DEPTH = 6;
 const MAX_FILES = 20000;
@@ -966,6 +988,50 @@ function registerIpc() {
     }
   });
 
+  /**
+   * The cue a style bakes in. No folder, no picker — it IS the style.
+   *
+   * Its directory joins allowedRoots because mpv:open gates on that list and
+   * this is an app-owned file rather than anything the renderer chose. That is
+   * the distinction the list actually cares about: a path the app ships is not
+   * a path a compromised renderer can point at someone's documents.
+   */
+  ipcMain.handle('bumperMusic:cue', async (_event, name) => {
+    if (typeof name !== 'string' || !/^[a-z0-9-]+\.mp3$/.test(name)) return null;
+    const absPath = bakedCuePath(name);
+    if (!absPath) {
+      // Vendored, not committed — a fresh clone has none until
+      // scripts/vendor-audio.mjs runs. Say so rather than playing silence.
+      console.error(`[bumper] baked cue missing: ${name} — run scripts/vendor-audio.mjs`);
+      return null;
+    }
+    allowedRoots.add(path.dirname(absPath));
+    return absPath;
+  });
+
+  /**
+   * A still from the upcoming programme, for a card that wants one behind it.
+   *
+   * Returns a data URL like thumb:get, rather than a path: the renderer would
+   * otherwise need the cache directory allowlisted for the media protocol, and
+   * a still is small enough that it is not worth widening that list for.
+   */
+  ipcMain.handle('bumperBg:still', async (_event, absPath) => {
+    if (typeof absPath !== 'string' || !isInsideAllowedRoot(absPath)) return null;
+    try {
+      const probe = await prepare.inspect(absPath);
+      const seconds = probe && probe.durationMs ? probe.durationMs / 1000 : 0;
+      const still = await bumperClip.stillFor(absPath, seconds);
+      const bytes = await fsp.readFile(still);
+      return `data:image/jpeg;base64,${bytes.toString('base64')}`;
+    } catch (error) {
+      // A background is decoration. Losing it is a plainer card, never a
+      // bumper that fails to play.
+      console.error('[bumper] no background still for', path.basename(absPath), error.message);
+      return null;
+    }
+  });
+
   ipcMain.handle('library:scan', async (_event, rootPath) => {
     if (typeof rootPath !== 'string' || !rootPath) return { ok: false, error: 'No folder given' };
     try {
@@ -1297,6 +1363,10 @@ if (!app.requestSingleInstanceLock()) {
     // anything now, and clearing it must never hold up the window opening.
     pruneOldThumbs();
     ingest.init({ file: path.join(app.getPath('userData'), 'ingest.json') });
+    bumperClip.init({
+      dir: path.join(app.getPath('userData'), 'bumper-bg'),
+      findFfmpeg: prepare.findFfmpeg,
+    });
 
     protocol.handle('media', serveMedia);
     registerIpc();
