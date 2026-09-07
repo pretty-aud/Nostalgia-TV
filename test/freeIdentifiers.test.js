@@ -36,6 +36,10 @@ const GLOBALS = new Set([
   'cancelAnimationFrame', 'queueMicrotask', 'fetch', 'URL', 'URLSearchParams', 'Blob',
   'FileReader', 'File', 'FormData', 'Image', 'Audio', 'Option', 'Event', 'CustomEvent',
   'KeyboardEvent', 'MouseEvent', 'DragEvent', 'PointerEvent',
+  // DataTransfer sits beside DragEvent: a synthetic drag needs one, and
+  // Chromium does let a script construct it (what it will not do is attach one
+  // to a REAL drag). The probes in scripts/shots use it.
+  'DataTransfer',
   'AbortController', 'IntersectionObserver', 'ResizeObserver', 'MutationObserver',
   'localStorage', 'sessionStorage', 'performance', 'crypto', 'structuredClone',
   'getComputedStyle', 'matchMedia', 'alert', 'HTMLElement', 'Node', 'Element', 'CSS',

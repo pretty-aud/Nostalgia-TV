@@ -27,6 +27,8 @@ const SHOTS = [
   'setsub-rhythm',
   'settings-switches',
   'settings-whole',
+  'sched-drag',
+  'sched-gap',
   'cewr-standby',
   'cewr-card',
   'cewr-signoff',
@@ -94,6 +96,12 @@ const THEMES = {
   // two would collide the moment somebody adds it — photographed so that stays
   // a decision rather than a surprise.
   'settings-switches': ['midnight', 'arctic', '01', 'vhs', 'kawaii'],
+  // VHS is not optional for these two: the drop-lands-at-the-bottom bug was
+  // reported on that skin, because uppercasing every string grows the cards and
+  // leaves more empty column beneath them. Testing only the default palette
+  // would re-test the case where the dead zones were smallest.
+  'sched-drag': ['midnight', 'vhs'],
+  'sched-gap': ['midnight', 'vhs'],
 };
 
 let failed = 0;

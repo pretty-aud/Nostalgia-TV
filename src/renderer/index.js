@@ -3890,6 +3890,90 @@ function renderSchedPool() {
   el('schedPoolCount').textContent = shows.length ? String(shows.length) : '';
 }
 
+/**
+ * WHERE A DRAGGED BLOCK WILL LAND — measured once, shown as an opening space.
+ *
+ * The old version asked each CARD where the pointer was, and let the column
+ * handle everything else by appending to the end. That is most of the column:
+ * .setsched__list has 8px of padding, an 8px gap between every pair of cards,
+ * and a 220px minimum height, so with four blocks in a schedule the majority of
+ * the target area was dead space that meant "put it last". Aiming between two
+ * cards — the obvious way to say "here, in the middle" — hit a gap and sent the
+ * block to the bottom. The VHS skin makes it worse rather than different: it
+ * uppercases every string and swaps the face, so cards grow and there is more
+ * empty column under them.
+ *
+ * So the index is computed at the COLUMN level from the pointer against every
+ * card's midpoint, and there are no dead zones left to fall through.
+ *
+ * ── the geometry is CACHED, and that is the whole trick ──────────────────────
+ *
+ * The space that opens is drawn by translating the cards below the insertion
+ * point. If the index were recomputed from live rects, opening the space would
+ * move a card under the pointer, which changes the index, which moves the
+ * space — the oscillation every implementation of this effect hits. Measuring
+ * once at dragstart, in coordinates relative to the list's scrolled content,
+ * breaks that loop completely: transforms do not change layout, the cached
+ * spans do not change at all, and the answer cannot feed back into itself.
+ *
+ * Content coordinates rather than viewport ones so the list can be scrolled
+ * mid-drag — including by the auto-scroll below — without the spans going
+ * stale.
+ */
+let dragGeom = null;    // { list, spans: [{ top, height }], gap }
+let dragGapAt = null;   // the index the open space is currently showing
+
+function captureDragGeometry(list, gap) {
+  const box = list.getBoundingClientRect();
+  const origin = box.top - list.scrollTop;
+  return {
+    list,
+    gap,
+    spans: [...list.querySelectorAll('.setsched__card')].map((card) => {
+      const rect = card.getBoundingClientRect();
+      return { top: rect.top - origin, height: rect.height };
+    }),
+  };
+}
+
+function insertionIndexAt(clientY) {
+  if (!dragGeom) return 0;
+  const { list, spans } = dragGeom;
+  const y = clientY - list.getBoundingClientRect().top + list.scrollTop;
+  for (let i = 0; i < spans.length; i += 1) {
+    if (y < spans[i].top + spans[i].height / 2) return i;
+  }
+  return spans.length;
+}
+
+function showDragGap(index) {
+  if (!dragGeom || index === dragGapAt) return;
+  dragGapAt = index;
+  const cards = [...dragGeom.list.querySelectorAll('.setsched__card')];
+  cards.forEach((card, i) => {
+    card.style.transform = i >= index ? `translateY(${dragGeom.gap}px)` : '';
+  });
+}
+
+function clearDragGap() {
+  if (dragGeom) {
+    for (const card of dragGeom.list.querySelectorAll('.setsched__card')) card.style.transform = '';
+  }
+  dragGapAt = null;
+}
+
+/**
+ * A long running order does not fit, so a drag has to be able to reach past the
+ * fold. Driven from dragover rather than a timer: the pointer only moves while
+ * the browser is sending these, so the scroll stops the moment the drag does.
+ */
+function autoScroll(list, clientY) {
+  const box = list.getBoundingClientRect();
+  const edge = 36;
+  if (clientY < box.top + edge) list.scrollTop -= 12;
+  else if (clientY > box.bottom - edge) list.scrollTop += 12;
+}
+
 /** Drag handlers shared by both columns. */
 function wireCardDrag(li, source, index, showId) {
   li.addEventListener('dragstart', (event) => {
@@ -3898,29 +3982,57 @@ function wireCardDrag(li, source, index, showId) {
     event.dataTransfer.effectAllowed = 'move';
     // Firefox refuses to begin a drag with nothing on the transfer.
     event.dataTransfer.setData('text/plain', showId);
+    // The space that opens is exactly the size of the thing that will fill it.
+    dragGeom = captureDragGeometry(el('schedOrder'), li.getBoundingClientRect().height);
   });
   li.addEventListener('dragend', () => {
     delete li.dataset.dragging;
     dragFrom = null;
-    clearDropMarks();
+    clearDragGap();
+    dragGeom = null;
+    delete el('schedOrder').dataset.over;
+    delete el('schedPool').dataset.over;
   });
+}
 
-  if (source !== 'order') return;
+/**
+ * THE COLUMNS OWN THE DROP, both of them — a card is never a target.
+ *
+ * One handler per column means one answer per column. It also means an EMPTY
+ * running order still accepts a drop, which was the reason the container was a
+ * target in the first place; what changed is that it is now the ONLY target, so
+ * "the container" no longer silently means "the end".
+ */
+function wireColumnDrops() {
+  const order = el('schedOrder');
 
-  li.addEventListener('dragover', (event) => {
+  order.addEventListener('dragover', (event) => {
     if (!dragFrom) return;
     event.preventDefault();
-    const box = li.getBoundingClientRect();
-    clearDropMarks();
-    li.dataset.drop = event.clientY < box.top + box.height / 2 ? 'before' : 'after';
+    event.dataTransfer.dropEffect = 'move';
+    order.dataset.over = 'true';
+    autoScroll(order, event.clientY);
+    showDragGap(insertionIndexAt(event.clientY));
   });
-  li.addEventListener('drop', (event) => {
+
+  /**
+   * dragleave fires when the pointer crosses onto a CHILD, so the naive version
+   * of this cleared the highlight and the open space every time the pointer
+   * touched a card — which is most of the column. relatedTarget is where the
+   * pointer went; if that is still inside the list, nothing has been left.
+   */
+  order.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget && order.contains(event.relatedTarget)) return;
+    delete order.dataset.over;
+    clearDragGap();
+  });
+
+  order.addEventListener('drop', (event) => {
     if (!dragFrom) return;
     event.preventDefault();
-    event.stopPropagation();     // the column's own handler must not also fire
-    const box = li.getBoundingClientRect();
-    const before = event.clientY < box.top + box.height / 2;
-    let target = index + (before ? 0 : 1);
+    delete order.dataset.over;
+    let target = insertionIndexAt(event.clientY);
+    clearDragGap();
     if (dragFrom.source === 'order') {
       // Remove FIRST, then correct the target: after the splice every index
       // above the one removed has shifted down by one, and dropping an item
@@ -3932,34 +4044,7 @@ function wireCardDrag(li, source, index, showId) {
       draft.items.splice(target, 0, dragFrom.showId);
     }
     dragFrom = null;
-    renderScheduleEditor();
-  });
-}
-
-function clearDropMarks() {
-  for (const node of document.querySelectorAll('.setsched__card[data-drop]')) delete node.dataset.drop;
-}
-
-/** The columns themselves are targets, so an EMPTY list still accepts a drop. */
-function wireColumnDrops() {
-  const order = el('schedOrder');
-  order.addEventListener('dragover', (event) => {
-    if (!dragFrom) return;
-    event.preventDefault();
-    order.dataset.over = 'true';
-  });
-  order.addEventListener('dragleave', () => { delete order.dataset.over; });
-  order.addEventListener('drop', (event) => {
-    delete order.dataset.over;
-    if (!dragFrom) return;
-    event.preventDefault();
-    // Landing on the container rather than on a card means "the end".
-    if (dragFrom.source === 'pool') draft.items.push(dragFrom.showId);
-    else {
-      const [moved] = draft.items.splice(dragFrom.index, 1);
-      draft.items.push(moved);
-    }
-    dragFrom = null;
+    dragGeom = null;
     renderScheduleEditor();
   });
 
@@ -3968,15 +4053,22 @@ function wireColumnDrops() {
   pool.addEventListener('dragover', (event) => {
     if (!dragFrom || dragFrom.source !== 'order') return;
     event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
     pool.dataset.over = 'true';
+    // Leaving the running order closes the space: it is no longer going there.
+    clearDragGap();
   });
-  pool.addEventListener('dragleave', () => { delete pool.dataset.over; });
+  pool.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget && pool.contains(event.relatedTarget)) return;
+    delete pool.dataset.over;
+  });
   pool.addEventListener('drop', (event) => {
     delete pool.dataset.over;
     if (!dragFrom || dragFrom.source !== 'order') return;
     event.preventDefault();
     draft.items.splice(dragFrom.index, 1);
     dragFrom = null;
+    dragGeom = null;
     renderScheduleEditor();
   });
 }

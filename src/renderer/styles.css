@@ -4825,7 +4825,8 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: var(--r-sm);
   background: var(--paper);
   cursor: grab;
-  transition: border-color var(--fast), background var(--fast), opacity var(--fast);
+  transition: border-color var(--fast), background var(--fast), opacity var(--fast),
+              transform var(--fast);
 }
 .setsched__card:hover { border-color: var(--ink-faint); background: var(--lift); }
 .setsched__card:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
@@ -4833,8 +4834,26 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* Where the card would land. A line rather than a gap: a gap moves everything
    below it and the list appears to jump while you are still deciding. */
-.setsched__card[data-drop="before"] { box-shadow: 0 -2px 0 var(--signal); }
-.setsched__card[data-drop="after"]  { box-shadow: 0 2px 0 var(--signal); }
+/* THE SPACE OPENS. A 2px line drawn on the card above or below the insertion
+   point used to be the whole answer, and it asked the reader to infer a
+   position from an edge — on a skin that gives every card a heavy border, the
+   line was one more border among several. A gap the size of the block is not a
+   hint about where it will land; it is the shape of the block, already there.
+
+   TRANSFORM, not margin or a placeholder. Transforms do not affect layout, so
+   opening the space cannot move a card under the pointer and change the answer
+   that opened it. The index is computed from geometry cached at dragstart for
+   the same reason — see captureDragGeometry. Between them there is no path
+   from the effect back to its own cause, which is the failure this effect
+   normally has.
+
+   The transition rides --fast, and the global prefers-reduced-motion block puts
+   every duration to 1ms, so the space still opens — it simply arrives rather
+   than travels. That is the right fallback here: the space IS the information,
+   and removing it would remove the answer. */
+/* The transition itself is declared once, on .setsched__card above, with
+   transform in the list. Repeating the whole shorthand here would be a second
+   place for it to drift out of step with the first. */
 
 .setsched__pos {
   font-family: var(--mono, monospace);
@@ -4843,7 +4862,11 @@ input[type="range"]::-webkit-slider-thumb {
   min-width: 22px;
 }
 .setsched__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.setsched__eps { font-size: var(--t-meta); color: var(--ink-faint); }
+/* NOWRAP. "1 EP" is two characters and a unit and must never be two lines —
+   on the VHS skin, which uppercases every string and sets them in a wider
+   face, it wrapped and made that one card taller than its siblings. A row of
+   blocks that are not the same height reads as one of them being special. */
+.setsched__eps { font-size: var(--t-meta); color: var(--ink-faint); white-space: nowrap; }
 
 /* --ink-mute, not --ink-faint: at the faintest tint this vanished completely
    against the card and the only way to remove a block was to know that
