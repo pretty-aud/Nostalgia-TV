@@ -727,24 +727,30 @@ async function createWindow() {
        * planeManager's reverse glue makes dragging the strip carry the video
        * window along underneath.
        *
-       * 'hidden' RATHER THAN frame: false, and that difference is the whole
-       * of Windows snapping.
+       * WINDOWS SNAPPING DOES NOT WORK HERE, and titleBarStyle: 'hidden' does
+       * not fix it. Tried, deployed, measured, reverted — recorded so nobody
+       * spends the afternoon on it twice.
        *
-       * A frame:false window has no caption at all, so dragging it can only
-       * be done from inside Chromium by -webkit-app-region — and a drag the
-       * app performs itself is not a drag Windows ever sees. The snap
-       * overlay that appears at the top of the screen, and the Snap Layouts
-       * flyout on the maximise button, both hang off the OS caption. Neither
-       * could ever appear, which is exactly what she reported: every other
-       * window on the machine offers them and this one did not.
+       * The snap overlay at the top of the screen and the Snap Layouts flyout
+       * both hang off a caption drag that the OPERATING SYSTEM performs. This
+       * app never gives it one. The strip under the pointer belongs to the
+       * INTERFACE plane — a transparent frameless child of this window — and
+       * -webkit-app-region has Chromium move that child itself, with
+       * planeManager's reverse glue dragging this window along underneath.
+       * Windows sees a program repositioning a window, which is not a gesture
+       * it offers to complete. Putting a caption on THIS window changes
+       * nothing, because this window is not the one being dragged, and the
+       * child cannot be snapped in its own right either.
        *
-       * 'hidden' keeps the caption for the OS and hides it from the eye:
-       * still a full-bleed content area with no title bar drawn, but a
-       * window Windows recognises as draggable and snappable. Content bounds
-       * are unchanged, which matters because planeManager aligns the two
-       * planes on getContentBounds and nothing else.
+       * The real fix is to hand the drag to Windows on mousedown —
+       * ReleaseCapture then WM_NCLBUTTONDOWN/HTCAPTION on this HWND — which
+       * needs a native call. This project reaches user32 through a hidden
+       * PowerShell (see mpvPlayer.js) at about 300ms a time, and a window
+       * that only starts following the mouse a third of a second late is
+       * worse than one that does not snap. A native module would fix it and
+       * would add the build step this project has deliberately never had.
        */
-      titleBarStyle: 'hidden',
+      frame: false,
     },
     overlayWebPreferences: {
       preload: path.join(__dirname, 'preload.js'),

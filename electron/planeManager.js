@@ -78,7 +78,33 @@ function createPlanes({ videoOptions = {}, overlayWebPreferences = {}, Window = 
     ...(minWidth ? { minWidth } : {}),
     ...(minHeight ? { minHeight } : {}),
     minimizable: false,
-    maximizable: false,
+    /**
+     * maximizable is TRUE, and that single bit is Windows snapping.
+     *
+     * It reads like a window-button setting and it is not one — the overlay
+     * has no window buttons, and the renderer draws the app's own. What it
+     * actually controls is WS_MAXIMIZEBOX, and Windows will not Aero Snap or
+     * offer the Snap Layouts flyout on a window that lacks that style. The
+     * drag reaches the OS perfectly well; the OS looks at the style bits and
+     * declines.
+     *
+     * Measured on this machine with scripts/snap-styles.cjs, which is kept
+     * for exactly this reason:
+     *
+     *   video   0x14c70000  +MAXIMIZEBOX +MINIMIZEBOX +THICKFRAME +CAPTION
+     *   overlay 0x14000000  (visible, clip-siblings, and nothing else)
+     *
+     * The video plane had every bit it needed the whole time. It was never
+     * the window being dragged: the drag strip is in the interface plane, so
+     * the pointer is over the OVERLAY, and the overlay was the one Windows
+     * was being asked to snap. Setting titleBarStyle on the video plane
+     * therefore changed nothing at all, which is what shipping it proved.
+     * With this flag the overlay reads 0x14010000 and snapping works.
+     *
+     * The cost is that Windows can now maximise the overlay by itself, which
+     * is what a drag to the top edge IS — hence the maximise glue below.
+     */
+    maximizable: true,
     skipTaskbar: true,   // one taskbar entry: the pair presents as ONE app
     show: false,
     webPreferences: overlayWebPreferences,
@@ -123,46 +149,127 @@ function createPlanes({ videoOptions = {}, overlayWebPreferences = {}, Window = 
    * user dragging, and the video plane follows underneath, keeping its
    * frame offset. The `syncing` flag stops the two moves chasing each other.
    */
-  overlay.on('move', () => {
+  /**
+   * The follow runs on the NEXT TICK, never straight off the event. This is
+   * the difference between snapping working and snapping destroying the
+   * window size she had before she snapped.
+   *
+   * Windows announces a maximise — which is all a drag to the top edge is —
+   * as a resize and a move FIRST, with isMaximized() still reporting false,
+   * and only afterwards emits 'maximize'. Traced on this machine with
+   * scripts/snap-styles.cjs:
+   *
+   *   overlay resize   2563x1440+3441+0  max=false     <- already full screen
+   *   overlay move     2563x1440+3441+0  max=false
+   *   overlay maximize 2560x1440+3440+0  max=true      <- only now
+   *
+   * Run synchronously, the follow copies that first full-screen rectangle
+   * onto the video plane while both planes still believe they are restored —
+   * which overwrites the restore rectangle Windows was holding for each of
+   * them. Snapping then worked exactly once: unsnapping gave back a window
+   * the size of the display, and the 1930x1205 she had been using was gone.
+   * No isMaximized() check can catch it, because the flag is false at the
+   * moment the guard would run.
+   *
+   * One tick later the state has settled and the guards mean what they say.
+   * Coalesced, so a drag that fires fifty moves does one follow per tick
+   * instead of fifty — which is strictly less work than before, not more.
+   */
+  let pending = null;
+  const followOverlay = () => {
+    pending = null;
     if (syncing || video.isDestroyed() || overlay.isDestroyed()) return;
+    /**
+     * A maximised overlay was not resized by her, it was resized by Windows,
+     * and its rectangle belongs to the OS. The maximise glue below drives the
+     * pair by STATE in that case; copying a full-screen rectangle through the
+     * bounds path is wrong whatever the timing happens to be.
+     *
+     * Honest note: neither the fake nor scripts/snap-styles.cjs can currently
+     * make this line fire — deferring the follow means the state has always
+     * settled by the time it runs. It is kept as the precondition it is, not
+     * as a fix for anything observed. The twin guard in sync() was removed
+     * for exactly the reason this one is not: sync() is correct in every
+     * state, so its version really was doing nothing.
+     */
+    if (overlay.isMaximized()) return;
     // A maximized or fullscreen window must not be dragged out of that state
     // sideways — the OS would report it still maximized at the new position.
     if (video.isMaximized() || video.isFullScreen()) { sync(); return; }
+
+    const target = overlay.getContentBounds();
     const content = video.getContentBounds();
-    const frame = video.getBounds();
+    /**
+     * A resize and a move are one event here, because after coalescing they
+     * arrive together and there is no way to tell them apart. Size first:
+     * setContentBounds carries the position too, so a resize that also moved
+     * — dragging the top-left corner, a half-screen snap — needs one call.
+     */
+    /**
+     * A PIXEL IS NOT A RESIZE, and treating it as one makes the window grow.
+     *
+     * The two planes never agree exactly about a size: the video window
+     * carries WS_THICKFRAME and the overlay does not, so a rectangle handed
+     * from one to the other comes back a pixel wider. Compared exactly, the
+     * follow reads that pixel as the viewer resizing, writes it to the video
+     * plane, the forward sync writes it back a pixel wider again, and every
+     * snap-and-unsnap leaves the window one pixel bigger than it was.
+     * Measured at exactly +1px per round trip by scripts/snap-styles.cjs,
+     * which now runs three cycles for that reason. It is invisible for the
+     * first few and then it is not.
+     *
+     * Two pixels of slack costs nothing — the overlay is transparent and its
+     * edge is dark chrome either way — and it is the difference between two
+     * windows that settle and two windows that push each other.
+     */
+    const NEAR = 2;
+    if (Math.abs(content.width - target.width) > NEAR
+      || Math.abs(content.height - target.height) > NEAR) {
+      syncing = true;
+      video.setContentBounds(target);
+      syncing = false;
+      return;
+    }
     // Content bounds for the same reason sync() uses them: the overlay's own
     // invisible resize border would otherwise shift the video window by the
     // border width on every single drag.
-    const target = overlay.getContentBounds();
+    const frame = video.getBounds();
     const wantX = target.x - (content.x - frame.x);
     const wantY = target.y - (content.y - frame.y);
     if (wantX === frame.x && wantY === frame.y) return;   // converged
     syncing = true;
     video.setPosition(wantX, wantY);
     syncing = false;
-  });
+  };
+  const scheduleFollow = () => {
+    if (syncing || pending) return;
+    pending = setTimeout(followOverlay, 0);
+  };
+  overlay.on('move', scheduleFollow);
+  overlay.on('resize', scheduleFollow);
+
   /**
-   * The reverse glue for RESIZE, the twin of the move handler above.
+   * The reverse glue for MAXIMISE — the one a snap to the top edge uses.
    *
-   * Dragging an edge resizes the OVERLAY — it owns the only grabbable border
-   * — so the video window has to be driven to match, or mpv would keep
-   * rendering at the old size while the interface changed shape around it.
+   * Dragging to the top of the screen is not a move, it is Windows maximising
+   * the window under the pointer, and that window is the overlay. Left there
+   * the pair would disagree about its own state: the interface covering the
+   * whole screen, the video plane still officially restored, the app's own
+   * maximise button showing the wrong icon, and the video plane's restore
+   * rectangle quietly overwritten with the size of the display.
    *
-   * Content bounds, not bounds: the overlay is frameless, so what the viewer
-   * dragged is a content rectangle, and that is what the video window must
-   * end up with. setContentBounds does the frame arithmetic for us, which the
-   * move handler has to do by hand because it only knows a position.
+   * The video plane is the one that matters — it owns the taskbar entry and
+   * everything the renderer is told about window state — so its maximise is
+   * driven from the overlay's, and the forward sync then puts the overlay
+   * back over it.
    */
-  overlay.on('resize', () => {
+  overlay.on('maximize', () => {
     if (syncing || video.isDestroyed() || overlay.isDestroyed()) return;
-    // Maximised and fullscreen sizes belong to the OS; leave them alone and
-    // let the forward sync put the overlay back where it should be.
-    if (video.isMaximized() || video.isFullScreen()) { sync(); return; }
-    const target = overlay.getContentBounds();
-    if (boundsEqual(video.getContentBounds(), target)) return;   // converged
-    syncing = true;
-    video.setContentBounds(target);
-    syncing = false;
+    if (!video.isMaximized()) video.maximize();
+  });
+  overlay.on('unmaximize', () => {
+    if (syncing || video.isDestroyed() || overlay.isDestroyed()) return;
+    if (video.isMaximized()) video.unmaximize();
   });
 
   // Some of those events fire BEFORE the OS settles the final bounds
@@ -195,6 +302,8 @@ function createPlanes({ videoOptions = {}, overlayWebPreferences = {}, Window = 
     if (!overlay.isDestroyed()) overlay.close();
   });
   overlay.on('closed', () => {
+    // A follow scheduled a tick ago would run against a destroyed pair.
+    if (pending) { clearTimeout(pending); pending = null; }
     if (!video.isDestroyed()) video.close();
   });
 
