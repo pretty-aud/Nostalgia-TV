@@ -1184,6 +1184,28 @@ function skip(shows, state, options = {}) {
  * queue — otherwise switching to "blocks" would not take effect until a dozen
  * episodes later, which reads as the toggle being broken.
  */
+/**
+ * Which schedule the channel should be on when it opens.
+ *
+ * Pure, and separate from the applying, so the decision can be tested without
+ * a renderer — the renderer's job is only to hand the answer to applySettings,
+ * which is what actually rebuilds the queue.
+ *
+ * Remembering is the ABSENCE of a decision: it returns whatever was already in
+ * force. Only switching that off makes this choose, and then the default is
+ * CHECKED rather than trusted — a saved id outlives the schedule it names, and
+ * one pointing at a deleted schedule would leave the channel filtered to a set
+ * of shows that no longer exists. Unknown lands on null, the plain shuffle.
+ */
+function openingScheduleId(settings = {}) {
+  if (settings.rememberLastSchedule !== false) {
+    return settings.activeScheduleId || null;
+  }
+  const wanted = settings.defaultScheduleId || null;
+  const exists = (settings.schedules || []).some((schedule) => schedule.id === wanted);
+  return exists ? wanted : null;
+}
+
 function applySettings(shows, state, patch, options = {}) {
   const rng = options.rng || Math.random;
   const settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}), ...patch };
@@ -1211,6 +1233,7 @@ function applySettings(shows, state, patch, options = {}) {
 module.exports = {
   DEFAULT_SETTINGS,
   activeSchedule,
+  openingScheduleId,
   showsInSchedule,
   blockSizeFor,
   createState,

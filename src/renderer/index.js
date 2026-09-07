@@ -28,6 +28,7 @@ import {
   applySettings,
   formatEpisodeLabel,
   activeSchedule,
+  openingScheduleId,
   showsInSchedule,
 } from '../shared/scheduler.js';
 import {
@@ -6362,6 +6363,52 @@ function onGlobalKey(event) {
 // boot
 // ---------------------------------------------------------------------------
 
+/**
+ * WHICH SCHEDULE THE CHANNEL OPENS ON — and it has to reach the QUEUE.
+ *
+ * activeScheduleId is written whenever she changes it, so doing nothing means
+ * "carry on with the last one", which is what the app has always done and what
+ * rememberLastSchedule leaves alone. Only the OFF case acts.
+ *
+ * ── Why this runs after the library, and through applySettings ───────────
+ *
+ * The first version set state.settings directly, before loadLibrary, on the
+ * reasoning that the library would then build a queue from the right order.
+ * It does not: loadLibrary PRUNES the saved queue against what was found and
+ * never rebuilds it. So the setting changed, the sidebar's Programming
+ * dropdown showed the default, and the channel went on playing last session's
+ * running order until the old queue drained — the setting looking right
+ * everywhere except in what actually played.
+ *
+ * applySettings is the thing that knows: activeScheduleId is in its reshape
+ * list, so a change discards the queue AND the deck and refills from the
+ * schedule now in force. Which means this must run after `shows` exists, or it
+ * would refill from nothing.
+ *
+ * ── The marathon goes too ────────────────────────────────────────────────
+ *
+ * A marathon overrides the rotation entirely, so one left running from last
+ * session would quietly beat the default and make "always start on this" untrue
+ * in the one case that looks most like a bug. Switching the carry-on off means
+ * every launch starts from the same place, and a marathon is not that place.
+ */
+function applyOpeningSchedule() {
+  if (state.settings.rememberLastSchedule !== false) return;
+  if (!shows.length) return;      // nothing to refill a queue from
+
+  /**
+   * The default is CHECKED, not trusted: a saved id outlives the schedule it
+   * names, and an id pointing at a deleted schedule would leave the channel
+   * filtered to a set of shows that no longer exists. Unknown lands on null,
+   * the plain shuffle — the same fallback resolveStyle uses, for the same
+   * reason.
+   */
+  state = applySettings(shows, state, {
+    activeScheduleId: openingScheduleId(state.settings),
+    marathonShowId: null,
+  }, {});
+}
+
 async function boot() {
   wireEvents();
 
@@ -6387,28 +6434,6 @@ async function boot() {
     state.settings = { ...state.settings, movieEvery: 24 };
   }
 
-  /**
-   * WHICH SCHEDULE THE CHANNEL OPENS ON.
-   *
-   * activeScheduleId is written every time she changes it, so doing nothing
-   * here means "carry on with the last one" — which is what the app has always
-   * done and what rememberLastSchedule leaves alone. Only the OFF case does
-   * any work: it puts the default back, whatever was in force at closing.
-   *
-   * A saved id can outlive the schedule it names, so the default is checked
-   * against the list rather than trusted. An id that no longer exists lands on
-   * null, which is the plain shuffle — the same place resolveStyle sends an
-   * unknown style, and for the same reason: a settings value from another
-   * build must never leave the channel with nothing to play.
-   *
-   * Before the queue is built, deliberately. Changing it afterwards would mean
-   * reshaping a queue that had just been committed from the wrong order.
-   */
-  if (!state.settings.rememberLastSchedule) {
-    const wanted = state.settings.defaultScheduleId;
-    const exists = (state.settings.schedules || []).some((s) => s.id === wanted);
-    state.settings = { ...state.settings, activeScheduleId: exists ? wanted : null };
-  }
 
   applyTheme();
   applyFonts();
@@ -6420,6 +6445,7 @@ async function boot() {
 
   if (state.rootPath) {
     await loadLibrary(state.rootPath);
+    applyOpeningSchedule();
   } else {
     renderWelcome();
   }

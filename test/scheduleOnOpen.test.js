@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { DEFAULT_SETTINGS } from '../src/shared/scheduler.js';
+import {
+  DEFAULT_SETTINGS, openingScheduleId, applySettings, createState,
+} from '../src/shared/scheduler.js';
 
 /**
  * WHICH SCHEDULE THE CHANNEL OPENS ON.
@@ -42,33 +44,6 @@ describe('the defaults for opening on a schedule', () => {
     const source = readFileSync(new URL('../src/shared/scheduler.js', import.meta.url), 'utf8');
     expect(source).toMatch(/^\s*rememberLastSchedule: true,$/m);
     expect(source).toMatch(/^\s*defaultScheduleId: null,$/m);
-  });
-});
-
-describe('the rule boot applies', () => {
-  it('does nothing at all when the last schedule is being remembered', () => {
-    // The whole rule is inside a negated check: remembering is the absence of
-    // an action, not an action of its own. If this ever becomes an else branch
-    // that assigns something, "carry on where I left off" has stopped meaning
-    // "leave it alone".
-    expect(JS).toMatch(/if \(!state\.settings\.rememberLastSchedule\)/);
-  });
-
-  it('checks the default still exists before using it', () => {
-    // A saved id outlives the schedule it names — deleting one and reopening
-    // must not leave the channel pointed at a schedule that is gone.
-    expect(JS).toMatch(/schedules \|\| \[\]\)\.some\(\(s\) => s\.id === wanted\)/);
-    expect(JS).toMatch(/activeScheduleId: exists \? wanted : null/);
-  });
-
-  it('settles the schedule BEFORE the library builds a queue', () => {
-    // Changing it afterwards would mean reshaping a queue just committed from
-    // the wrong running order.
-    const rule = JS.indexOf('rememberLastSchedule');
-    const load = JS.indexOf('await loadLibrary(state.rootPath)');
-    expect(rule).toBeGreaterThan(-1);
-    expect(load).toBeGreaterThan(-1);
-    expect(rule).toBeLessThan(load);
   });
 });
 
@@ -130,5 +105,119 @@ describe('the dropdowns in settings', () => {
     const markup = HTML.replace(/<!--[\s\S]*?-->/g, '');
     const bare = [...markup.matchAll(/<select(?![^>]*class="select")[^>]*>/g)].map((m) => m[0]);
     expect(bare, 'these selects will draw as light grey boxes in a dark sheet').toEqual([]);
+  });
+});
+
+/**
+ * WHICH SCHEDULE, as a decision rather than as source text.
+ *
+ * The first version of these greped boot() for the shape of an `if`. That
+ * catches the rule being deleted and nothing else — it passed while the rule
+ * was in the wrong place entirely, setting the schedule before the library
+ * loaded, where nothing rebuilt the queue. The decision lives in the scheduler
+ * now precisely so it can be asked rather than read.
+ */
+describe('choosing the schedule to open on', () => {
+  const SCHEDULES = [{ id: 'sat', name: 'Saturday' }, { id: 'late', name: 'Late night' }];
+
+  it('carries on with whatever was in force, when remembering', () => {
+    expect(openingScheduleId({
+      rememberLastSchedule: true, activeScheduleId: 'late', defaultScheduleId: 'sat',
+      schedules: SCHEDULES,
+    })).toBe('late');
+  });
+
+  it('takes the default instead, when not', () => {
+    expect(openingScheduleId({
+      rememberLastSchedule: false, activeScheduleId: 'late', defaultScheduleId: 'sat',
+      schedules: SCHEDULES,
+    })).toBe('sat');
+  });
+
+  it('falls back to the shuffle when the default names a deleted schedule', () => {
+    // A saved id outlives the schedule it names. Pointed at one that is gone,
+    // the channel would be filtered to a set of shows that no longer exists.
+    expect(openingScheduleId({
+      rememberLastSchedule: false, activeScheduleId: 'late', defaultScheduleId: 'gone',
+      schedules: SCHEDULES,
+    })).toBe(null);
+  });
+
+  it('opens on the shuffle when no default was ever chosen', () => {
+    expect(openingScheduleId({
+      rememberLastSchedule: false, activeScheduleId: 'late', schedules: SCHEDULES,
+    })).toBe(null);
+  });
+
+  it('remembers by default, which is what the app already did', () => {
+    // No key at all — an older settings file. It must not start overriding.
+    expect(openingScheduleId({ activeScheduleId: 'late' })).toBe('late');
+  });
+});
+
+/**
+ * AND IT HAS TO REACH THE QUEUE.
+ *
+ * This is the one that matters, and the one the source-grep version could not
+ * ask. The original rule set the schedule before loadLibrary, on the belief
+ * that loading would build a queue from it — loadLibrary only PRUNES the saved
+ * queue and never rebuilds it. So the setting changed, the sidebar showed the
+ * default, and the channel went on playing last session's running order until
+ * the old queue drained: right everywhere except in what actually played.
+ */
+describe('applying it', () => {
+  const shows = ['alpha', 'beta', 'gamma'].map((id) => ({
+    id,
+    name: id,
+    episodes: Array.from({ length: 4 }, (_, i) => ({
+      relPath: `${id}/S01E0${i + 1}.mkv`, showId: id, showName: id, season: 1, episode: i + 1,
+    })),
+  }));
+
+  /**
+   * The settings go in as the PATCH, not onto the state.
+   *
+   * applySettings rebuilds only when a reshape key CHANGED against the state it
+   * was given — so putting them on the state and passing an empty patch changes
+   * nothing, builds nothing, and hands back the empty queue createState made.
+   * Which is exactly what the first version of this test did, and it read as
+   * the code failing rather than the fixture never starting.
+   */
+  const withQueue = (settings) => applySettings(
+    shows, createState('D:/TV'), settings, { rng: () => 0.42 },
+  );
+
+  it('discards a queue built from the schedule that is being left behind', () => {
+    const schedules = [{ id: 'only-alpha', name: 'Alpha', items: ['alpha'] }];
+    // A session that ended on a schedule limited to one show.
+    const ended = withQueue({ schedules, activeScheduleId: 'only-alpha' });
+    expect(ended.queue.length).toBeGreaterThan(0);
+    expect([...new Set(ended.queue.map((q) => q.showId))]).toEqual(['alpha']);
+
+    // Opening with the carry-on off and no default: back to everything.
+    const opened = applySettings(shows, ended, {
+      activeScheduleId: openingScheduleId({
+        ...ended.settings, rememberLastSchedule: false, defaultScheduleId: null,
+      }),
+      marathonShowId: null,
+    }, { rng: () => 0.42 });
+
+    expect(new Set(opened.queue.map((q) => q.showId)).size).toBeGreaterThan(1);
+  });
+
+  /**
+   * A marathon overrides the rotation entirely, so one left running from last
+   * session would beat the default and make "always start on this" untrue in
+   * the case that looks most like a bug.
+   */
+  it('clears a marathon left running from the last session', () => {
+    const ended = withQueue({ marathonShowId: 'beta' });
+    expect([...new Set(ended.queue.map((q) => q.showId))]).toEqual(['beta']);
+
+    const opened = applySettings(shows, ended, {
+      activeScheduleId: null, marathonShowId: null,
+    }, { rng: () => 0.42 });
+    expect(opened.settings.marathonShowId).toBe(null);
+    expect(new Set(opened.queue.map((q) => q.showId)).size).toBeGreaterThan(1);
   });
 });
