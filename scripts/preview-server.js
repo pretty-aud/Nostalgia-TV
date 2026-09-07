@@ -27,6 +27,10 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.map': 'application/json',
   '.woff2': 'font/woff2',
+  // The box office plays a cut clip in a <video>. Served as octet-stream a
+  // browser refuses it outright, and the media element reports that as
+  // error 4 — the same code it gives for a file that is not there at all.
+  '.mp4': 'video/mp4',
 };
 
 /**

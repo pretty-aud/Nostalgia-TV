@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('tv', {
   // The cue a style bakes in, and a still from what is coming next.
   bumperCue: (name) => ipcRenderer.invoke('bumperMusic:cue', name),
   bumperStill: (absPath) => ipcRenderer.invoke('bumperBg:still', absPath),
+  // Start the moving backdrop, and ask for it — two calls, because the second
+  // must answer instantly whether or not the first has finished.
+  prepareBumperClip: (absPath, seconds) => ipcRenderer.invoke('bumperBg:prepare', absPath, seconds),
+  bumperClip: (absPath, seconds) => ipcRenderer.invoke('bumperBg:clip', absPath, seconds),
   // Finds the same folder again when its drive letter has changed.
   locateLibrary: (previousPath) => ipcRenderer.invoke('library:locate', previousPath),
 

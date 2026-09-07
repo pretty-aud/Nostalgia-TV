@@ -1316,6 +1316,31 @@ async function showAdultSwimBumper(onDone, leadOverride) {
 const BOX_OFFICE_CUE = 'box-office.mp3';
 
 /**
+ * Ask for the moving backdrop to be cut, as early as the chain allows.
+ *
+ * Deliberately duplicates advance()'s idea of what plays next rather than
+ * being handed it: the real lead is settled several callbacks later, after the
+ * sting and the promo, and waiting for that would give away the entire head
+ * start this exists to buy. Guessing wrong costs one wasted transcode of a
+ * file that was going to be played soon anyway.
+ *
+ * Silent about everything. No style that wants a clip, no movie, no path —
+ * each is an ordinary state, and none of them is worth a line in the console
+ * every time an episode ends.
+ */
+function prepareBoxOfficeBackdrop() {
+  if (state.settings.bumperStyle !== 'boxoffice') return;
+  if (state.settings.bumperBackground !== 'video') return;
+  if (!window.tv.prepareBumperClip) return;   // the preview harness has none
+
+  const lead = movieIsDue(state) ? movieItem(state.pendingMovie) : peek(shows, state, 1)[0];
+  const absPath = lead && lead.episode && lead.episode.absPath;
+  if (!absPath) return;
+
+  window.tv.prepareBumperClip(absPath, secondsFor('boxoffice')).catch(() => {});
+}
+
+/**
  * THE BOX OFFICE — the mark, then what is coming, over a graded backdrop.
  *
  * Ten seconds, because that is how long its cue runs. Where the schedule card
@@ -1359,10 +1384,19 @@ async function showBoxOffice(onDone, leadOverride) {
    */
   const backdrop = state.settings.bumperBackground || 'still';
   const leadPath = lead.episode && lead.episode.absPath;
-  const [cuePath, stillUrl] = await Promise.all([
+  const [cuePath, stillUrl, clipUrl] = await Promise.all([
     window.tv.bumperCue ? window.tv.bumperCue(BOX_OFFICE_CUE).catch(() => null) : null,
+    /**
+     * The still is fetched even in 'video' mode, as the fallback. It is one
+     * frame and it is cached, so the cost is negligible against the certainty
+     * of having SOMETHING behind the type — the clip is a transcode started
+     * seconds ago and it is genuinely allowed not to be finished.
+     */
     backdrop !== 'none' && leadPath && window.tv.bumperStill
       ? window.tv.bumperStill(leadPath).catch(() => null)
+      : null,
+    backdrop === 'video' && leadPath && window.tv.bumperClip
+      ? window.tv.bumperClip(leadPath, secondsFor('boxoffice')).catch(() => null)
       : null,
   ]);
 
@@ -1380,11 +1414,38 @@ async function showBoxOffice(onDone, leadOverride) {
   el('boxofficeMark').innerHTML = markSvg({ size: 64, title: null });
   el('boxofficeSign').innerHTML = markSvg({ size: 190, title: null });
 
+  /**
+   * The clip if it is ready, the still if it is not, and the gradient alone if
+   * neither is. Never both: they are stacked, and two backdrops at once is a
+   * still showing through a clip's letterbox.
+   *
+   * The still is put up UNDERNEATH a clip that is playing, not instead of it —
+   * a <video> shows nothing until its first frame decodes, and on a cold cache
+   * that flash of empty gradient is visible.
+   */
   still.hidden = true;
   clip.hidden = true;
   if (stillUrl) {
     still.src = stillUrl;
     still.hidden = false;
+  }
+  if (clipUrl) {
+    clip.src = clipUrl;
+    clip.hidden = false;
+    clip.currentTime = 0;
+    /**
+     * Muted and swallowed. The cue is already playing through mpv, and a
+     * rejected play() — which is what an autoplay policy or a codec Chromium
+     * will not take produces — must leave the still showing rather than
+     * becoming an unhandled rejection nobody sees.
+     */
+    const started = clip.play();
+    if (started && typeof started.catch === 'function') {
+      started.catch((error) => {
+        console.error('[bumper] the backdrop clip would not play:', error && error.message);
+        clip.hidden = true;
+      });
+    }
   }
 
   el('boxofficeSign').hidden = true;
@@ -2121,6 +2182,20 @@ function onEpisodeEnded() {
   refreshLocks();
   renderSidebar();
   persist();
+
+  /**
+   * START CUTTING THE BACKDROP NOW, before anything else in the chain.
+   *
+   * This is the head start that makes a transcode affordable: the sting and
+   * the promo run for several seconds before the card is raised, and that is
+   * the window her instruction described — build these while the clips before
+   * it are playing, never make the card wait.
+   *
+   * Fire and forget, and only for the style that wants one. If it is not
+   * finished by the time the card goes up, the card uses the still and nobody
+   * waits for anything.
+   */
+  prepareBoxOfficeBackdrop();
 
   // Broadcast order: sting, promo, continuity card, then the next programme —
   // or, when the lead has run out, the movie presentation and the movie.

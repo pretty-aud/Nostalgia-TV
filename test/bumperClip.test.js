@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  seekFor, FRACTION, FLOOR_SECONDS, CAP_SECONDS,
+  seekFor, clipArgs, FRACTION, FLOOR_SECONDS, CAP_SECONDS,
 } from '../electron/bumperClip.js';
 
 /**
@@ -77,5 +77,62 @@ describe('choosing where to take the background from', () => {
         expect(seekFor(bad)).toBe(0);
       }
     });
+  });
+});
+
+/**
+ * The ffmpeg call for a backdrop clip.
+ *
+ * Every switch asserted here was found by cutting a real episode and looking
+ * at what came out — none is a precaution — and every one of them fails
+ * SILENTLY if it is dropped. The fixture library is H.264 in mp4 with one
+ * stream and no chapters, so a clip cut from it comes out fine no matter which
+ * of these is missing; only her library, which is HEVC in Matroska with
+ * chapters, shows the difference. A test at the argument list is the only
+ * place this can be caught without her drive attached.
+ */
+describe('the ffmpeg call that cuts it', () => {
+  const args = clipArgs('S01E01.mkv', 189.08, 10, 'out.mp4');
+  const pair = (flag) => args[args.indexOf(flag) + 1];
+
+  it('seeks BEFORE the input, not after', () => {
+    // -ss after -i decodes every frame up to the offset. For a film sampled
+    // ten minutes in that is ten minutes of decoding for a ten-second clip.
+    expect(args.indexOf('-ss')).toBeLessThan(args.indexOf('-i'));
+    expect(pair('-ss')).toBe('189.08');
+  });
+
+  it('takes exactly one stream: the first video track', () => {
+    expect(pair('-map')).toBe('0:v:0');
+    for (const refusal of ['-an', '-sn', '-dn']) expect(args).toContain(refusal);
+  });
+
+  /**
+   * CHAPTERS, which -dn does not cover and -map does not exclude. Her episodes
+   * carry them, and ffmpeg turns a Matroska chapter list into an MP4 chapter
+   * track that ffprobe reports as a bin_data stream — measured, on
+   * Afro Samurai S01E01, surviving -map 0:v:0 -an -sn -dn.
+   */
+  it('refuses chapters, which survive every other exclusion', () => {
+    expect(pair('-map_chapters')).toBe('-1');
+  });
+
+  it('encodes something a browser will actually decode', () => {
+    // The whole reason this transcode exists. yuv420p specifically: a 10-bit
+    // source passed through unchanged is a file Chromium declines.
+    expect(pair('-c:v')).toBe('libx264');
+    expect(pair('-pix_fmt')).toBe('yuv420p');
+  });
+
+  it('is cut for readiness rather than for looks', () => {
+    // It runs for ten seconds behind type, at reduced height. A slower preset
+    // buys quality nobody can see, at the risk of missing its own card.
+    expect(pair('-preset')).toBe('veryfast');
+    expect(pair('-t')).toBe('10');
+    expect(pair('-vf')).toMatch(/min\(720,ih\)/);
+  });
+
+  it('writes a file a <video> can start before it has all of it', () => {
+    expect(pair('-movflags')).toBe('+faststart');
   });
 });

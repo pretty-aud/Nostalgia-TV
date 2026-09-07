@@ -44,6 +44,11 @@
     // card is driven by its own timers rather than by anything mpv reports.
     nextBumperMusic: async () => ({ absPath: 'D:/music/bump.mp3', startSeconds: 42, title: 'bump' }),
     bumperCue: async () => 'D:/audio/box-office.mp3',
+    prepareBumperClip: async () => true,
+    // Never ready in the harness: the preview has no library to cut from, and
+    // pretending otherwise would hide the still fallback, which is the path
+    // that actually runs whenever a drive is slow.
+    bumperClip: async () => null,
     // A flat slate rather than a photograph: the review shots are for judging
     // the TYPE and the gradient, and a busy still makes that harder to read,
     // not easier. The real card gets a frame from the programme.

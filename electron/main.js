@@ -1032,6 +1032,53 @@ function registerIpc() {
     }
   });
 
+  /**
+   * Start cutting the moving backdrop. Returns at once; never waits.
+   *
+   * Called when the bumper chain BEGINS — while the interstitial clips and
+   * promos before the card are still playing — which is the head start that
+   * makes a transcode affordable at all. Her instruction was explicit: build
+   * these during the clips that come first, never stall the card on one.
+   *
+   * Fire-and-forget by design. The card asks separately for whatever is ready
+   * and takes the still if the answer is nothing, so a slow drive costs a
+   * moving backdrop rather than a working bumper.
+   */
+  ipcMain.handle('bumperBg:prepare', async (_event, absPath, clipSeconds) => {
+    if (typeof absPath !== 'string' || !isInsideAllowedRoot(absPath)) return false;
+    const seconds = Number(clipSeconds);
+    if (!Number.isFinite(seconds) || seconds <= 0) return false;
+
+    (async () => {
+      try {
+        const probe = await prepare.inspect(absPath);
+        await bumperClip.clipFor(absPath, probe && probe.durationMs ? probe.durationMs / 1000 : 0, seconds);
+      } catch (error) {
+        console.error('[bumper] backdrop clip failed for', path.basename(absPath), error.message);
+      }
+    })();
+    return true;
+  });
+
+  /**
+   * The cut clip, if it is ready THIS INSTANT. Never waits for one.
+   *
+   * A media:// URL rather than a data URL — unlike the still, a ten-second
+   * H.264 clip is megabytes, and pushing that through IPC as base64 to hand it
+   * to a <video> would be slower than the transcode.
+   */
+  ipcMain.handle('bumperBg:clip', async (_event, absPath, clipSeconds) => {
+    if (typeof absPath !== 'string' || !isInsideAllowedRoot(absPath)) return null;
+    const seconds = Number(clipSeconds);
+    if (!Number.isFinite(seconds) || seconds <= 0) return null;
+    try {
+      const ready = await bumperClip.readyClip(absPath, seconds);
+      return ready ? mediaUrlFor(ready) : null;
+    } catch {
+      return null;
+    }
+  });
+
   ipcMain.handle('library:scan', async (_event, rootPath) => {
     if (typeof rootPath !== 'string' || !rootPath) return { ok: false, error: 'No folder given' };
     try {
@@ -1367,6 +1414,14 @@ if (!app.requestSingleInstanceLock()) {
       dir: path.join(app.getPath('userData'), 'bumper-bg'),
       findFfmpeg: prepare.findFfmpeg,
     });
+    /**
+     * The cut clips are served over media:// to a <video>, so their folder has
+     * to be on allowedRoots. Safe for the same reason the baked cue's folder
+     * is: this is a directory the APP owns inside userData, not anywhere the
+     * renderer named. That list exists to stop a compromised renderer pointing
+     * at someone's documents, not to hide the app's own cache from itself.
+     */
+    allowedRoots.add(bumperClip.directory());
 
     protocol.handle('media', serveMedia);
     registerIpc();

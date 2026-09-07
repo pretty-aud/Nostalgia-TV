@@ -194,12 +194,51 @@ async function clipFor(absPath, durationSeconds, clipSeconds) {
   if (existing) return existing;
 
   await fsp.mkdir(cacheDir, { recursive: true });
-  const job = run([
+  const job = run(clipArgs(absPath, seek, clipSeconds, out), out, 120000)
+    .finally(() => jobs.delete(out));
+
+  jobs.set(out, job);
+  return job;
+}
+
+/**
+ * The ffmpeg call for a backdrop clip, as an argument list.
+ *
+ * Pulled out so it can be asserted. Every switch in here was found by cutting
+ * a real episode and looking at what came out — none is a precaution — and
+ * each would fail silently if it were dropped: the picture would still play in
+ * the harness, and only her library would be wrong.
+ */
+function clipArgs(absPath, seek, clipSeconds, out) {
+  return [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-ss', String(seek),
     '-i', absPath,
     '-t', String(clipSeconds),
-    '-an',                       // mpv owns the sound
+    /**
+     * EXACTLY ONE STREAM: the first video track, and nothing else.
+     *
+     * -an alone is not enough. Measured against a real episode — HEVC in
+     * Matroska — the output carried a `bin_data` stream through into the mp4,
+     * copied from whatever the container had alongside the picture. A <video>
+     * asked to play a file with a stream it does not understand is not
+     * reliably a working <video>, and that failure would appear only on her
+     * library and never on the fixtures.
+     *
+     * -map picks the picture; -an, -sn and -dn refuse audio, subtitles and
+     * data explicitly rather than hoping the muxer declines them.
+     */
+    '-map', '0:v:0',
+    '-an', '-sn', '-dn',         // mpv owns the sound; nothing else is wanted
+    /**
+     * CHAPTERS, which -dn does not cover and -map does not exclude.
+     *
+     * Her episodes carry them, and ffmpeg turns a Matroska chapter list into
+     * an MP4 chapter track — which ffprobe reports as a `bin_data` stream with
+     * a `text` tag. It survived -map 0:v:0 -an -sn -dn, because chapters are
+     * metadata rather than a mapped stream, and only this switch refuses them.
+     */
+    '-map_chapters', '-1',
     '-vf', "scale=-2:'min(720,ih)'",
     /**
      * veryfast and a loose CRF on purpose. This is a background behind type,
@@ -210,10 +249,36 @@ async function clipFor(absPath, durationSeconds, clipSeconds) {
     '-pix_fmt', 'yuv420p',       // or Chromium refuses 10-bit sources outright
     '-movflags', '+faststart',
     out,
-  ], out, 120000).finally(() => jobs.delete(out));
+  ];
+}
 
-  jobs.set(out, job);
-  return job;
+/**
+ * The cut clip if it exists RIGHT NOW, else null. Never starts one.
+ *
+ * Deliberately a separate call from clipFor. The card asks this on its way up
+ * and must get an answer immediately: awaiting clipFor would make the card
+ * wait for a transcode it was specifically designed not to wait for, and the
+ * failure would look like the app hanging between programmes.
+ *
+ * It has to re-derive the same cache key, which means re-probing the duration
+ * — cheap, because inspect() is memoised and prepare() has already probed this
+ * file to play it.
+ */
+async function readyClip(absPath, clipSeconds, durationSeconds) {
+  if (!cacheDir) return null;
+  try {
+    const stat = await fsp.stat(absPath);
+    const seek = seekFor(durationSeconds, clipSeconds);
+    const out = path.join(cacheDir, `${cacheKey(absPath, stat, `clip${clipSeconds}`, seek)}.mp4`);
+    return (await fsp.stat(out)).size > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Where the cut pieces live, so the caller can allowlist it for media://. */
+function directory() {
+  return cacheDir;
 }
 
 module.exports = {
@@ -221,7 +286,10 @@ module.exports = {
   FLOOR_SECONDS,
   CAP_SECONDS,
   seekFor,
+  clipArgs,
   init,
+  directory,
   stillFor,
   clipFor,
+  readyClip,
 };
