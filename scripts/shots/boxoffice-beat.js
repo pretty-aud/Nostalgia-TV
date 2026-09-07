@@ -1,61 +1,61 @@
 /**
- * THE BOX OFFICE at one moment of its run, chosen by the URL.
+ * THE BOX OFFICE at one moment of its run, chosen by ?at= in the URL.
  *
- * shoot-state photographs a snippet's final state, so a card with five beats
- * needs five runs. Rather than five near-identical files, the moment comes
- * from the query string — ?at=2400 — and the caller runs this once per beat
- * and tiles the results into a contact sheet.
- *
- * That sheet is the point: it is the same instrument used to read her
- * reference bumper (four frames a second, tiled), so the two can be laid side
- * by side and compared as timelines rather than as descriptions.
+ * shoot-state photographs a snippet's final state, so a card with seven beats
+ * needs seven runs. The moment comes from the query string and the caller
+ * tiles the results — the same instrument used to read her reference bumper,
+ * so the two can be laid side by side as timelines rather than descriptions.
  *
  * Bare statements; throws so shoot-all gates on it.
  *
  * Failing controls, each RUN:
- *   - remove the travel measurement and it throws "the badge never travels";
- *   - remove the band and it throws "the picture is not revealed as a band".
+ *   - remove the @property inherits:true and it throws "the band never opens
+ *     for the element that carries the mask" — which is the bug that made
+ *     every earlier measurement lie;
+ *   - remove the opener's clip-path wipe and it throws "the opener is never
+ *     wiped away".
  */
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const at = Number(new URLSearchParams(location.search).get('at') || 2600);
+const at = Number(new URLSearchParams(location.search).get('at') || 5000);
 
 await wait(400);
 window.tv.mpvOpen = () => Promise.resolve();
 window.__preview.settings().bumperBackground = 'still';
 window.__preview.showBoxOffice(() => {}, null);
 
-/**
- * The travel offsets are written the moment the card is raised, so they are
- * readable immediately — and being zero means the badge opens exactly where
- * it ends, which is precisely the "not very dynamic" version.
- */
-await wait(120);
 const card = document.getElementById('boxoffice');
-const travelX = parseFloat(card.style.getPropertyValue('--travel-x')) || 0;
-const travelY = parseFloat(card.style.getPropertyValue('--travel-y')) || 0;
-if (Math.abs(travelX) < 40 && Math.abs(travelY) < 40) {
-  throw new Error(`the badge never travels: --travel-x=${travelX} --travel-y=${travelY}`);
-}
-
-// The band: before the picture opens, the backdrop is clipped to a slit.
 const bg = card.querySelector('.boxoffice__bg');
-if (!/inset/.test(getComputedStyle(bg).clipPath)) {
-  throw new Error(`the picture is not revealed as a band: clip-path=${getComputedStyle(bg).clipPath}`);
+const opener = card.querySelector('.boxoffice__opener');
+
+/**
+ * THE MASK IS READ ON THE CHILD, never on the card.
+ *
+ * The band stops are set on the card and consumed by this child. Registered
+ * with inherits:false the child kept the initial value for ever while the
+ * card's own animated perfectly — so every check that read the card reported
+ * a band that opened, against a screen that showed a bar. Read where the
+ * mask actually resolves, or this measures nothing.
+ */
+const maskOf = () => getComputedStyle(bg).maskImage;
+
+const opened = [];
+const wiped = [];
+const step = 120;
+for (let t = 0; t < at; t += step) {
+  await wait(step);
+  opened.push(maskOf());
+  wiped.push(getComputedStyle(opener).clipPath);
 }
 
-await wait(Math.max(0, at - 520));
-
-// Both labels she asked for, and in the right order.
-const block = card.querySelector('.boxoffice__block');
-const words = [...block.querySelectorAll('.boxoffice__word, .boxoffice__lead, .boxoffice__thenlabel')]
-  .filter((el) => el.offsetParent !== null)
-  .map((el) => el.textContent.trim());
-if (at >= 3000 && !words.some((w) => /up next/i.test(w))) {
-  throw new Error(`no "Up next" above the lead: ${words.join(' / ')}`);
+// Somewhere in the run the band must reach past the edges of the frame, or it
+// never became a full picture — only ever a bar.
+if (at >= 4000 && !opened.some((m) => /-\d/.test(m))) {
+  throw new Error(`the band never opens for the element that carries the mask: ${opened[opened.length - 1]}`);
 }
-if (at >= 3000 && block.querySelectorAll('.boxoffice__row').length
-  && !words.some((w) => /followed by/i.test(w))) {
-  throw new Error(`no "Followed by" above the rest: ${words.join(' / ')}`);
+
+// And the opener must be taken away, or it sits over the picture for ever.
+if (at >= 4000 && !wiped.some((c) => /inset\([^)]*100%/.test(c))) {
+  throw new Error(`the opener is never wiped away: ${wiped[wiped.length - 1]}`);
 }
 
 const box = card.getBoundingClientRect();

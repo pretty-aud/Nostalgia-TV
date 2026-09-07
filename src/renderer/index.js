@@ -1616,19 +1616,39 @@ if (window.tv.isDebug) {
       return report;
     },
 
-    /** What the card is actually showing, for a script to check from outside. */
+    /**
+     * What the card is actually showing, for a script to check from outside.
+     *
+     * The band is read on the element that CARRIES THE MASK, not on the card.
+     * Reading the card is what made every earlier check report an open band
+     * against a screen showing a bar: the stops were declared inherits:false,
+     * so the child kept its initial value while the card's own animated.
+     */
     inspect() {
       const card = el('boxoffice');
       const clip = el('boxofficeClip');
       const still = el('boxofficeStill');
+      const bg = card.querySelector('.boxoffice__bg');
+      const block = card.querySelector('.boxoffice__block');
+      const wash = card.querySelector('.boxoffice__wash');
+      const opener = card.querySelector('.boxoffice__opener');
+      const lead = el('boxofficeLead');
+      const box = lead.getBoundingClientRect();
       return {
         beat: card.dataset.beat || null,
-        band: getComputedStyle(card).getPropertyValue('--band-top').trim(),
+        band: getComputedStyle(bg).getPropertyValue('--band-top').trim(),
         clip: clip.hidden ? null : clip.getAttribute('src'),
         clipPlaying: !clip.hidden && !clip.paused && clip.currentTime > 0,
         clipTime: clip.currentTime,
         clipSize: `${clip.videoWidth}x${clip.videoHeight}`,
         still: still.hidden ? null : String(still.getAttribute('src')).slice(0, 24),
+        // The lower third: is it up, is it opaque, and is it on the screen?
+        blockOpacity: Number(getComputedStyle(block).opacity).toFixed(2),
+        washOpacity: Number(getComputedStyle(wash).opacity).toFixed(2),
+        openerClip: getComputedStyle(opener).clipPath,
+        leadText: lead.textContent,
+        leadAt: `${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)}`,
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
       };
     },
   };

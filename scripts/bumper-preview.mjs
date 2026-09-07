@@ -191,6 +191,9 @@ async function main() {
     say(`         clip decoding: ${playing.length ? `yes, ${playing[0].clipSize}, reached ${playing[playing.length - 1].clipTime.toFixed(1)}s` : 'NO'}`);
     say(`         band: ${bands}`);
     say(`         beats: ${seen.map((s) => s.beat).join(' -> ')}`);
+    for (const s of seen) {
+      say(`         ${String(s.beat).padEnd(7)} band=${String(s.band).padEnd(9)} block=${s.blockOpacity} wash=${s.washOpacity} lead@${s.leadAt} in ${s.viewport}`);
+    }
     await sleep(1200);
   }
 
