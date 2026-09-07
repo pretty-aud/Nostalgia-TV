@@ -14,6 +14,7 @@
  */
 
 import { extractFile, listPackage } from '@electron/asar';
+import fs from 'node:fs';
 import path from 'node:path';
 
 const asar = path.join(
@@ -50,6 +51,7 @@ const bundle = read('src', 'renderer', 'bundle.js');
 const css = read('src', 'renderer', 'styles.css');
 const styles = read('src', 'shared', 'bumperStyles.js');
 const music = read('electron', 'bumperMusic.js');
+const clipper = read('electron', 'bumperClip.js');
 
 const checks = [
   ['the style registry ships, with the schedule card in it',
@@ -94,6 +96,42 @@ const checks = [
    */
   ['the preview-only entry point is fenced, not exposed',
     Boolean(bundle) && /window\.__tvCalls/.test(bundle)],
+
+  // ── the box office ────────────────────────────────────────────────────
+  ['the box office is in the style registry, at its own length',
+    Boolean(styles) && /id: 'boxoffice'/.test(styles) && /seconds: 10/.test(styles)],
+  ['the backdrop cutter ships, at the deeper seek',
+    Boolean(clipper) && /map_chapters/.test(clipper) && /FRACTION = 0\.22/.test(clipper)],
+  ['its card driver is in the bundle',
+    Boolean(bundle) && /showBoxOffice/.test(bundle) && /boxofficeLead/.test(bundle)],
+  ['Raleway ships as a real file, with its licence',
+    has('fonts/raleway.woff2') && has('fonts/Raleway-LICENSE.txt')],
+  ['the card is styled, with the band it animates',
+    Boolean(css) && /\.boxoffice__opener/.test(css) && /--band-top/.test(css)],
+
+  /**
+   * inherits: TRUE — one word, and the difference between a picture that opens
+   * and a bar that never does. The element carrying the mask reads the value
+   * from the card, and inherits:false leaves it at its initial for ever. It
+   * survived three rounds of review because it is invisible to every DOM
+   * measurement, so it earns a shipped check of its own.
+   */
+  ['the band stops inherit, or the mask never opens',
+    Boolean(css) && /@property --band-top \{[^}]*inherits: true/.test(css)],
+
+  ['the debug entry point is gated on the environment',
+    Boolean(bundle) && /isDebug/.test(bundle)],
+
+  /**
+   * THE CUE IS NOT IN THE ASAR, and must not be: mpv is a separate process and
+   * cannot read an archive, so it rides in extraResources as a real file. That
+   * makes it the one part of this feature a package-contents check cannot see
+   * — it has to be looked for on disk, beside the asar rather than inside it.
+   */
+  ['the baked cue ships beside the asar, as a real file',
+    // resources/audio/box-office.mp3 — extraResources copies INTO resources,
+    // which is the directory the asar itself sits in, not its parent.
+    fs.existsSync(path.join(path.dirname(asar), 'audio', 'box-office.mp3'))],
 ];
 
 let failed = 0;
