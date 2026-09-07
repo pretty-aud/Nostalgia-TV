@@ -75,6 +75,17 @@ app.whenReady().then(async () => {
   if (snippetPath && snippetPath !== '-') {
     const snippet = fs.readFileSync(path.resolve(snippetPath), 'utf8');
     try {
+      /**
+       * A snippet may need a PARAMETER — most often a theme, so one snippet can
+       * photograph the same control in the palette that breaks it rather than
+       * needing a near-identical file per theme. It arrives through the
+       * environment and is handed over as JSON, never spliced into the source:
+       * a value interpolated into that template literal below would be running
+       * as code, and this repo has mangled source through a shell before.
+       */
+      await win.webContents.executeJavaScript(
+        `window.__shotTheme = ${JSON.stringify(process.env.NTV_SHOT_THEME || '')} || undefined;`,
+      );
       // Wrapped so the snippet can await, and so a stray `const` cannot collide
       // with anything the renderer already declared at top level.
       const value = await win.webContents.executeJavaScript(

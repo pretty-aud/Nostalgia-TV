@@ -688,8 +688,16 @@ option {
    while another rotation is selected, box opacity with the box switched off. */
 .field[data-muted="true"] { opacity: 0.42; }
 
+/* A --danger TOKEN, because #ff8f6b is a salmon chosen against a near-black
+   ground and there are eleven light ones. Measured against --paper-high it
+   came out between 1.19:1 (marigold) and 2.24:1 (arctic) — so the single
+   destructive control in the panel, "Reset every show to episode 1", faded
+   towards invisible at exactly the moment the pointer was on it. The light
+   value is the same hue taken down far enough to read on paper. */
+:root { --danger: #ff8f6b; }
+:root[data-light="true"] { --danger: #b3341a; }
 .btn--danger { color: var(--ink-mute); }
-.btn--danger:hover { color: #ff8f6b; border-color: #ff8f6b; }
+.btn--danger:hover { color: var(--danger); border-color: var(--danger); }
 
 /* schedule preview */
 .schedule { list-style: none; padding-bottom: var(--u); }
@@ -888,7 +896,14 @@ option {
   margin-bottom: 8px;
 }
 .field__control { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
-.field__control output { font-size: var(--t-meta); color: var(--signal-soft); min-width: 52px; }
+/* A slider's readout is DATA, not state. The stylesheet's own note at the top
+   says the full signal "was doing seven jobs at once, which meant nothing it
+   marked actually stood out" — and --signal-soft then quietly picked up three
+   of them, this being one. Seven amber numbers down a settings sheet make
+   amber the most common non-grey thing in it, which is precisely how an accent
+   stops accenting. The colour goes back to meaning one thing: this is on. The
+   numbers are just numbers, and the mono face already sets them apart. */
+.field__control output { font-size: var(--t-meta); color: var(--ink); min-width: 52px; }
 
 input[type="range"] {
   flex: 1;
@@ -905,16 +920,130 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
 }
 
+/* ── the switch ───────────────────────────────────────────────────────────
+
+   Every one of these is a state of the running channel, not a value in a form
+   being filled in: nothing here has a Save button, and ticking one takes effect
+   on the next programme. A checkbox says "I am part of a form"; a switch says
+   "I am a thing that is currently on". The controls were always the second
+   kind and were drawn as the first.
+
+   ROW-REVERSE, so the label reads first and the control sits on the right.
+   That is the change that does the most for the panel as a whole: eight
+   booleans scattered down a long sheet previously began at eight different
+   left edges depending on label length, and now they end at ONE right edge.
+   Alignment is the cheapest order there is. It costs no DOM reordering either
+   — the input is still the first child, so tab order and the label's implicit
+   association are exactly what they were.
+
+   It stays a real <input type="checkbox">. Every one of these is read as
+   .checked and listened to on 'change' (index.js, eight call sites), so this is
+   provably a no-op for the logic — and it stays a checkbox to a screen reader,
+   which is the only reason a styled div is ever tempting and never right. */
 .check {
   display: flex;
+  flex-direction: row-reverse;
+  justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: calc(var(--u) * 2);
   padding: calc(var(--u) * 2) var(--gutter) 0;
   font-size: var(--t-body);
-  color: var(--ink-mute);
+  color: var(--ink);
   cursor: pointer;
 }
-.check input { accent-color: var(--signal-soft); width: 15px; height: 15px; cursor: pointer; }
+
+/* --ink, not --ink-mute. These labels sat a rank below the .field__label of
+   the sliders they sit between, so a checkbox read as less of a control than a
+   slider for no reason other than the colour it happened to inherit. */
+.check > span { min-width: 0; }
+
+.check input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  position: relative;
+  width: 34px;
+  height: 19px;
+  margin: 0;
+  /* --ink-mute, NOT --hair. A hairline is the right weight for a divider and
+     the wrong weight for the edge of a control: composited over the sheet,
+     --hair measures 1.37:1 to 1.91:1 across the 34 palettes, under the 3:1
+     WCAG asks of a component boundary in every single one. An off switch drawn
+     in --hair is a control you cannot prove is there. --ink-mute measures
+     3.47:1 to 6.96:1 — no failures, same one-line rule. */
+  border: 1px solid var(--ink-mute);
+  /* --r-sm, the radius every BOX in this stylesheet uses — .btn, .mode,
+     .select, .setnav__item. --r-pill is reserved here for LINES and the things
+     that ride them: the range track and thumb, the progress bar, a scrollbar
+     thumb. A 999px track with a round knob is the iOS switch, and dropping one
+     into a Swiss sheet makes it the only soft object among forty hard ones.
+     The knob's position is what says "switch"; the radius never was. */
+  border-radius: var(--r-sm);
+  background: var(--lift);
+  cursor: pointer;
+  /* background-COLOR, not the shorthand. `transition: background` makes every
+     longhand under it animatable — including background-position, which the
+     VCR skin uses to centre the cross it draws on this same input. The mark
+     then interpolated from 0% to 50% on every tick and a probe caught it at
+     49.96%, which is not a rounding error but a mark visibly sliding into
+     place. The only thing here that should move is the colour. */
+  transition: background-color var(--fast), border-color var(--fast);
+}
+
+/* THE KNOB IS --paper, in both states.
+   --paper is every theme's ground, so it is by construction the thing that
+   contrasts with --ink and with --signal. A hard-coded dark knob would read
+   correctly on Midnight's amber and vanish on Arctic's blue; this one is right
+   in all 34 palettes without a single per-theme override, which is the rule
+   this stylesheet already keeps (a theme is a token set, never a restyle). */
+.check input[type="checkbox"]::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  /* Same measurement as the track's edge: the knob at --ink-faint came out
+     between 2.09:1 and 3.59:1 against its own track and failed in 31 of 33
+     palettes, so the OFF position — the one a reader has to identify without
+     anything to compare it to — was the least visible state of the control.
+     --ink-mute puts every palette between 3.99:1 and 7.70:1. */
+  background: var(--ink-mute);
+  transform: translateY(-50%);
+  transition: transform var(--fast), background-color var(--fast);
+}
+.check input[type="checkbox"]:checked {
+  background: var(--switch-on, var(--signal));
+  border-color: var(--switch-on, var(--signal));
+}
+.check input[type="checkbox"]:checked::after {
+  background: var(--paper);
+  transform: translate(15px, -50%);
+}
+
+.check:hover input[type="checkbox"] { border-color: var(--ink); }
+.check:hover input[type="checkbox"]::after { background: var(--ink); }
+/* THE CHECKED HOVER HAS TO BE SAID TWICE, because the hover rule and the
+   checked rule are both (0,3,1) and the hover one comes later — so without
+   this, hovering a switch that is ON repainted its border --ink and left an
+   accent fill inside a white outline. A tie is decided by source order, which
+   is a fact about where the rules happen to sit, not about which one means
+   more. Anything that must beat both has to out-specify both. */
+.check:hover input[type="checkbox"]:checked {
+  border-color: var(--switch-on, var(--signal));
+}
+.check:hover input[type="checkbox"]:checked::after { background: var(--paper); }
+.check input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* The high-contrast fallback for this control is NOT here. It has to sit after
+   the VCR skin's own .check rules to beat them, so it lives at the end of that
+   block — search for "forced-colors". Leaving it beside the component read
+   better and did nothing. */
+
 /* The clip count is an aside, not part of the label it follows. */
 .check .mono { margin-left: 8px; color: var(--ink-faint); font-size: var(--t-micro); }
 
@@ -1695,7 +1824,19 @@ input[type="range"]::-webkit-slider-thumb {
 .show__lock { color: var(--signal-soft); }
 
 .setgroup { padding-top: calc(var(--u) * 3); }
-.setgroup + .setgroup { border-top: 1px solid var(--hair-soft); margin-top: calc(var(--u) * 2); }
+/* --hair, not --hair-soft: sub-headings inside a section now carry a
+   --hair-soft rule of their own, and a section boundary drawn at the same
+   weight as the boundaries inside it says the hierarchy is flat. The section
+   break also gets more air, so the two are told apart by space as well as by
+   weight — a reader should not have to compare two greys to know which is the
+   bigger break. */
+/* SIX UNITS, against the sub-heading's four. With both at four the two breaks
+   came to the same 56px and differed only by the alpha of a hairline — and
+   alpha is the one thing that does not survive 34 palettes intact (--hair is a
+   white at 0.10 in the dark themes and a dark ink at 0.18 in the light ones).
+   A hierarchy that can only be read by comparing two greys is not a hierarchy.
+   Space is the part that reads identically everywhere, so space carries it. */
+.setgroup + .setgroup { border-top: 1px solid var(--hair); margin-top: calc(var(--u) * 6); }
 .setgroup__head {
   font-family: var(--grotesque);
   font-size: var(--t-lead);
@@ -2008,7 +2149,15 @@ input[type="range"]::-webkit-slider-thumb {
 .mode:hover { color: var(--ink); background: var(--lift); }
 .mode[aria-pressed="true"] {
   background: var(--signal);
-  color: #17130a;              /* dark ink on amber, never white */
+  /* --paper, not a fixed near-black. The comment this replaces said "dark ink
+     on amber, never white", which was right about Midnight and wrong about the
+     eleven themes whose --signal is not amber: on Arctic (#1b6ca8) that ink
+     measured 3.48:1 and on Bone 3.21:1, both under AA, on the most-pressed
+     control in the settings sheet. --paper is by construction the ground the
+     theme's ink contrasts with, so it lands dark on amber and light on blue
+     without a single per-theme override — the same reasoning as the switch
+     knob below, and as .show__toggle, which already does this. */
+  color: var(--paper);
   font-weight: 600;
   box-shadow: var(--e-1);
 }
@@ -2285,20 +2434,74 @@ input[type="range"]::-webkit-slider-thumb {
   white-space: nowrap;
 }
 
-/* A heading INSIDE a settings section. Three related jobs now share one
-   section, and without a label each the buttons read as one undifferentiated
-   pile. Deliberately quieter than .setgroup__head — it is a sub-heading, and
-   matching the section head would just recreate the three sections it
-   replaced. */
+/* A heading INSIDE a settings section, and the boundary that comes with it.
+   Three related jobs share one section, and without a label each the controls
+   read as one undifferentiated pile.
+
+   It was quieter than .setgroup__head on the theory that a sub-heading should
+   be — but it was set in --ink-faint at 11px, which made it quieter than the
+   FIELD LABELS underneath it too. That inverts the hierarchy: "Style" in white
+   body text outranked the "UP NEXT" it belongs to, so the eye read a run of
+   equal controls with a grey whisper occasionally interrupting. It is the
+   quietest thing in the panel that has the second-loudest job.
+
+   So it keeps the eyebrow idiom — uppercase, tracked, small — and takes full
+   --ink, plus two devices that cost no new ink:
+
+     a RULE above it, at --hair-soft, with the space split unevenly so the
+     heading sits closer to what it introduces than to what it ends. That is
+     the whole trick of a boundary: proximity says which side the label is on.
+
+     a TICK before it, in --signal. The accent is already the panel's "this one
+     is live" colour, so a sub-heading marked with it reads as structure rather
+     than as another control, and the three boundaries become countable at a
+     glance instead of legible only by reading.
+
+   The section boundary above (.setgroup + .setgroup) moves to --hair so the two
+   weights are actually different. Two dividers of the same weight would say the
+   hierarchy is flat, which is worse than no divider at all. */
 .setsub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: var(--t-micro);
   font-weight: 600;
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
-  color: var(--ink-faint);
-  margin-top: calc(var(--u) * 2.5);
+  color: var(--ink);
+  border-top: 1px solid var(--hair-soft);
+  margin-top: calc(var(--u) * 4);
+  padding-top: calc(var(--u) * 3);
+  margin-bottom: calc(var(--u) * 1.5);
 }
-.setsub:first-of-type { margin-top: var(--u); }
+.setsub::before {
+  content: '';
+  flex: none;
+  width: 3px;
+  height: 10px;
+  background: var(--signal);
+}
+
+/* ONLY A HEADING THAT ACTUALLY TOUCHES THE SECTION HEAD.
+   The exception exists for one situation: a rule drawn immediately under a
+   section title would divide that title from its own body. So the selector
+   should describe that situation and nothing else — which `+` does exactly.
+
+   Two selectors were tried first and both described something subtly different.
+   `.setsub:first-of-type` is scoped to the PARENT, so Promos — first inside the
+   #promoGroup wrapper the code needs in order to hide the sub-group — counted
+   as a section opener and lost its rule. Narrowing to `.setgroup > …` fixed
+   Promos and still got Library and Interface wrong: "New additions" sits under
+   a path, a stats line and a button row, and "Fonts" under the theme select and
+   three OSD fields, yet each is its section's first h4. Both were silently
+   losing the divider she asked for, in two of the ten places it belongs.
+
+   "First" was never the property that mattered. Adjacency was. */
+.setgroup__head + .setsub {
+  border-top: 0;
+  margin-top: var(--u);
+  padding-top: 0;
+}
 
 /* ── light themes: the shared scaffolding ─────────────────────────────────
 
@@ -2656,11 +2859,20 @@ input[type="range"]::-webkit-slider-thumb {
 :root[data-theme="01"] .ident__set { filter: drop-shadow(0 0 5px var(--signal-alt-soft)); }
 /* Both checkbox surfaces in the settings window, not just the plain rows —
    the play-order table opens out of the same sheet, and a lime tick beside an
-   orange one reads as a bug rather than a distinction. */
+   orange one reads as a bug rather than a distinction.
+
+   THE SETTINGS ROWS NEEDED A SECOND DECLARATION once they became switches.
+   accent-color only reaches a NATIVE control, and a switch is drawn with
+   appearance:none — so this rule kept applying to .lockrow and quietly stopped
+   applying to .check, which would have put the lime back beside the orange
+   exactly as the comment above says it must not. --switch-on is the seam: the
+   base switch reads it and falls back to --signal, so this is the only theme
+   that has to say anything. */
 :root[data-theme="01"] .check input,
 :root[data-theme="01"] .lockrow input[type="checkbox"] {
   accent-color: var(--signal-alt-soft);
 }
+:root[data-theme="01"] { --switch-on: var(--signal-alt-soft); }
 :root[data-theme="01"] .sched:first-child .sched__n,
 :root[data-theme="01"] .sched:first-child .sched__code { color: #ff7a1a; }
 
@@ -3651,6 +3863,16 @@ input[type="range"]::-webkit-slider-thumb {
 /* BOTH checkbox surfaces. The settings sheet uses .check, and the Play-order
    table opening out of the same sheet builds bare inputs into .lockrow — so
    fixing only .check left the native control standing on the second table. */
+/* THE VCR SKIN KEEPS ITS TICK BOX, and must therefore also lose the knob.
+
+   These selectors are (0,3,1) against the switch's (0,2,1), so the skin still
+   wins the box — which is right, the drawn cross is a deliberate piece of this
+   skin and not an accident. What it does NOT override is the ::after that
+   draws the switch's knob, and a 13px knob sitting inside a 20px cross box is
+   the exact shape of a half-applied refactor. Specificity is not a safety net;
+   a pseudo-element the other rule never mentions is simply not in the fight.
+
+   Verified by photograph, not by reading: shots/vhs-settings.png. */
 :root[data-skin="vcr"] .check input,
 :root[data-skin="vcr"] .lockrow input[type="checkbox"] {
   appearance: none;
@@ -3659,8 +3881,10 @@ input[type="range"]::-webkit-slider-thumb {
   height: 20px;
   flex: none;
   border: 2px solid var(--ink);
+  border-radius: 0;
   background-color: transparent;
 }
+:root[data-skin="vcr"] .check input[type="checkbox"]::after { content: none; }
 :root[data-skin="vcr"] .check input:checked,
 :root[data-skin="vcr"] .lockrow input[type="checkbox"]:checked,
 :root[data-skin="vcr"] .show[data-off="false"] .show__toggle {
@@ -3677,6 +3901,36 @@ input[type="range"]::-webkit-slider-thumb {
     linear-gradient(315deg,
       transparent calc(50% - 1.5px), var(--ink) calc(50% - 1.5px),
       var(--ink) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+}
+
+/* HIGH CONTRAST GETS THE REAL CONTROL BACK — and it has to be said HERE.
+   appearance:none is what makes a switch drawable and also what makes it
+   vanish under forced colours: the background and the ::after knob are both
+   taken over by the OS palette, leaving an empty box with no way to read on
+   from off. Handing the native checkbox back is the only version that still
+   answers the question.
+
+   A MEDIA QUERY CONTRIBUTES NOTHING TO SPECIFICITY. Written beside the switch
+   three thousand lines up, `.check input[type="checkbox"]` came to (0,2,1) and
+   lost to the skin's (0,3,1) — so the one skin that repaints this control was
+   also the only place the accessibility fallback silently failed to fire. It
+   is placed after the skin, and names the skin, so it wins on both counts.
+
+   The cross is unpainted too: it is a background-image, which survives
+   appearance:auto and would otherwise sit on top of the native tick. */
+@media (forced-colors: active) {
+  .check input[type="checkbox"],
+  :root[data-skin="vcr"] .check input[type="checkbox"] {
+    appearance: auto;
+    -webkit-appearance: auto;
+    width: 15px;
+    height: 19px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    background-image: none;
+  }
+  .check input[type="checkbox"]::after { content: none; }
 }
 :root[data-skin="vcr"] .show[data-off="false"] .show__toggle {
   background-image:
@@ -4651,8 +4905,14 @@ input[type="range"]::-webkit-slider-thumb {
    which read as every section being spaced differently. Inside the sheet
    there is ONE left edge and one vertical scale; the sidebar keeps its own.
    --------------------------------------------------------------------------- */
+/* .resetline belongs in this list too. It carries the same --gutter inset as
+   the other three, has exactly one instance — the "Reset appearance" row in
+   Interface — and was the only thing in the sheet still indented past the left
+   edge everything else shares. One row out of alignment in a column of forty
+   does not read as a row that is different; it reads as a mistake. */
 #settingsBody .field,
 #settingsBody .check,
+#settingsBody .resetline,
 #settingsBody .modes__note {
   padding-left: 0;
   padding-right: 0;
@@ -4662,10 +4922,21 @@ input[type="range"]::-webkit-slider-thumb {
 #settingsBody .check { padding-top: calc(var(--u) * 1.75); }
 #settingsBody .setrow { margin-top: calc(var(--u) * 1.25); }
 
-/* Subsection heads breathe more than the controls inside a subsection: the
-   gap ABOVE a group must beat the gaps WITHIN it or the grouping reads wrong. */
-#settingsBody .setsub { margin-top: calc(var(--u) * 3); }
-#settingsBody .setsub:first-of-type { margin-top: calc(var(--u) * 0.5); }
+/* THE SUB-HEADING RHYTHM LIVES ON .setsub NOW, and these two had to go for it
+   to reach the screen.
+
+   They said the same thing as the base rules and outranked them: an id is
+   (1,0,0), so `#settingsBody .setsub:first-of-type` at (1,2,0) beat
+   `.setgroup > .setsub:first-of-type` at (0,3,0) no matter how carefully that
+   selector was written. The direct-child combinator up there exists to stop
+   #promoGroup from resetting :first-of-type — and while these lived here it
+   did nothing at all, which is the worst possible outcome: a guard that reads
+   as a fix, passes review, and is inert. Promos measured 28px above its rule
+   against its siblings' 48px, and the reason was three hundred lines away.
+
+   .setsub is only ever used inside this sheet — there is no sidebar version to
+   protect, unlike .field and .check above — so scoping it by id bought nothing
+   and cost the override. */
 
 /* ---------------------------------------------------------------------------
    The library table's own cells (the table furniture itself is .locktable,

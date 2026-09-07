@@ -716,12 +716,20 @@
             <span class="cuepreview__text" id="cuePreviewText">The quick brown fox.</span>
           </div>
 
-          <label class="field">
+          <!--
+            A DIV, not a label. A <label> with no `for` binds to the first
+            labelable element inside it — and the swatches renderCueControls
+            builds here are <button>s, which are labelable. So "Colour" became
+            the accessible name of the first swatch and of nothing else: the
+            group had a label that named one of its children. The <span
+            role="group"> already carries the real name.
+          -->
+          <div class="field">
             <span class="field__label mono">Colour</span>
             <span class="field__control">
               <span class="swatches" id="cueColors" role="group" aria-label="Subtitle colour"></span>
             </span>
-          </label>
+          </div>
 
           <label class="field">
             <span class="field__label mono">Font</span>
@@ -743,7 +751,7 @@
           </label>
 
           <label class="check">
-            <input type="checkbox" id="cueBackground" />
+            <input type="checkbox" role="switch" id="cueBackground" />
             <span>Box behind the text</span>
           </label>
 
@@ -755,7 +763,9 @@
             </span>
           </label>
 
-          <label class="field">
+          <!-- Same defect as Colour above: three <button>s inside a <label>,
+               so "Position" named the Top button rather than the group. -->
+          <div class="field">
             <span class="field__label mono">Position</span>
             <span class="field__control">
               <span class="modes" id="cuePosition" role="group" aria-label="Subtitle position">
@@ -764,7 +774,7 @@
                 <button class="mode" data-pos="bottom" type="button">Bottom</button>
               </span>
             </span>
-          </label>
+          </div>
         </section>
 
 <section class="setgroup">
@@ -788,7 +798,7 @@
           </label>
 
           <label class="check">
-            <input type="checkbox" id="loopToggle" />
+            <input type="checkbox" role="switch" id="loopToggle" />
             <span>Restart a show when it finishes</span>
           </label>
         </section>
@@ -818,7 +828,7 @@
             overrides it.
           -->
           <label class="check">
-            <input type="checkbox" id="rememberScheduleToggle" />
+            <input type="checkbox" role="switch" id="rememberScheduleToggle" />
             <span>Carry on with the schedule I was last using</span>
           </label>
           <p class="modes__note" id="rememberScheduleNote"></p>
@@ -852,7 +862,7 @@
           <p class="modes__note" id="movieNote"></p>
 
           <label class="check" id="presentationRow" hidden>
-            <input type="checkbox" id="presentationToggle" />
+            <input type="checkbox" role="switch" id="presentationToggle" />
             <span>Play a presentation before each movie <span class="mono" id="presentationCount"></span></span>
           </label>
         </section>
@@ -937,12 +947,12 @@
           <h4 class="setsub">Between episodes</h4>
 
           <label class="check" id="bumperClipRow" hidden>
-            <input type="checkbox" id="bumperClipToggle" />
+            <input type="checkbox" role="switch" id="bumperClipToggle" />
             <span>Play a bumper between episodes <span class="mono" id="bumperClipCount"></span></span>
           </label>
 
           <label class="check">
-            <input type="checkbox" id="autoCropToggle" />
+            <input type="checkbox" role="switch" id="autoCropToggle" />
             <span>Crop black bars baked into the picture</span>
           </label>
           <p class="modes__note" id="autoCropNote"></p>
@@ -966,12 +976,12 @@
             <h4 class="setsub">Promos</h4>
 
           <label class="check">
-            <input type="checkbox" id="promoToggle" />
+            <input type="checkbox" role="switch" id="promoToggle" />
             <span>Play promos <span class="mono" id="promoCount"></span></span>
           </label>
 
           <label class="check">
-            <input type="checkbox" id="promoBetweenToggle" />
+            <input type="checkbox" role="switch" id="promoBetweenToggle" />
             <span>Only between shows or blocks</span>
           </label>
           <p class="modes__note" id="promoBetweenNote"></p>

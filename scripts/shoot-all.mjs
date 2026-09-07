@@ -23,6 +23,10 @@ const SHOTS = [
   'sidebar-footer',
   'upnext-settings',
   'upnext-fonts',
+  'settings-subsections',
+  'setsub-rhythm',
+  'settings-switches',
+  'settings-whole',
   'cewr-standby',
   'cewr-card',
   'cewr-signoff',
@@ -74,21 +78,43 @@ const SIZES = {
   'vhs-transport-narrow': ['980', '720'],
 };
 
+/**
+ * Shots that must run in more than one palette.
+ *
+ * A component drawn with `appearance: none` is only as portable as the tokens
+ * it reads, and the two ways that goes wrong are invisible in the default
+ * theme: a skin that overrides the control at higher specificity, and an off
+ * state whose contrast collapses on a light ground. So the switch is
+ * photographed in a dark theme, a light one, the theme with its own accent
+ * rule, and the skin that repaints the control entirely.
+ */
+const THEMES = {
+  // kawaii decorates a hand-written list of headings with a ::before heart.
+  // .setsub is not on that list and the sub-heading tick is a ::before, so the
+  // two would collide the moment somebody adds it — photographed so that stays
+  // a decision rather than a surprise.
+  'settings-switches': ['midnight', 'arctic', '01', 'vhs', 'kawaii'],
+};
+
 let failed = 0;
 for (const name of SHOTS) {
   const size = SIZES[name] || [];
-  const result = spawnSync(electron, [
-    path.join(root, 'scripts', 'shoot-state.js'), '--',
-    url,
-    path.join(root, 'shots', `${name}.png`),
-    path.join(root, 'scripts', 'shots', `${name}.js`),
-    ...size,
-  ], { cwd: root, encoding: 'utf8' });
+  for (const theme of THEMES[name] || ['']) {
+    const suffix = theme ? `-${theme}` : '';
+    const result = spawnSync(electron, [
+      path.join(root, 'scripts', 'shoot-state.js'), '--',
+      url,
+      path.join(root, 'shots', `${name}${suffix}.png`),
+      path.join(root, 'scripts', 'shots', `${name}.js`),
+      ...size,
+    ], { cwd: root, encoding: 'utf8', env: { ...process.env, NTV_SHOT_THEME: theme } });
 
-  const ok = result.status === 0;
-  if (!ok) failed += 1;
-  const at = size.length ? ` @${size.join('x')}` : '';
-  console.log(`${ok ? '✓' : '✗'} ${name}${at}${ok ? '' : ` (exit ${result.status}) ${(result.stderr || '').trim()}`}`);
+    const ok = result.status === 0;
+    if (!ok) failed += 1;
+    const at = size.length ? ` @${size.join('x')}` : '';
+    const inTheme = theme ? ` [${theme}]` : '';
+    console.log(`${ok ? '✓' : '✗'} ${name}${at}${inTheme}${ok ? '' : ` (exit ${result.status}) ${(result.stderr || '').trim()}`}`);
+  }
 }
 
 process.exit(failed ? 1 : 0);
