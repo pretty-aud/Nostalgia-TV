@@ -726,8 +726,25 @@ async function createWindow() {
        * The drag strip and the buttons live in the INTERFACE plane; the
        * planeManager's reverse glue makes dragging the strip carry the video
        * window along underneath.
+       *
+       * 'hidden' RATHER THAN frame: false, and that difference is the whole
+       * of Windows snapping.
+       *
+       * A frame:false window has no caption at all, so dragging it can only
+       * be done from inside Chromium by -webkit-app-region — and a drag the
+       * app performs itself is not a drag Windows ever sees. The snap
+       * overlay that appears at the top of the screen, and the Snap Layouts
+       * flyout on the maximise button, both hang off the OS caption. Neither
+       * could ever appear, which is exactly what she reported: every other
+       * window on the machine offers them and this one did not.
+       *
+       * 'hidden' keeps the caption for the OS and hides it from the eye:
+       * still a full-bleed content area with no title bar drawn, but a
+       * window Windows recognises as draggable and snappable. Content bounds
+       * are unchanged, which matters because planeManager aligns the two
+       * planes on getContentBounds and nothing else.
        */
-      frame: false,
+      titleBarStyle: 'hidden',
     },
     overlayWebPreferences: {
       preload: path.join(__dirname, 'preload.js'),
