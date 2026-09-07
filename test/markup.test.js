@@ -120,8 +120,27 @@ describe('every element the renderer reaches for exists', () => {
  */
 describe('every markup id is referenced', () => {
   const html = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.html'), 'utf8');
-  const js = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.js'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'src', 'renderer', 'styles.css'), 'utf8');
+
+  /**
+   * index.js AND src/shared, because a registry may now own an element id.
+   *
+   * bumperStyles.js maps each up-next style to the settings fields it wants,
+   * as element ids — that is the whole point of it, and it is what stops the
+   * theme menu's two-lists-that-look-like-one problem from repeating. Reading
+   * only index.js reported 'bumperField' as an orphan when it is referenced
+   * perfectly well, one file over.
+   *
+   * The guard is not weakened by this: an id named in NO source still fails.
+   * It is widened to where the renderer's references actually live.
+   */
+  const sharedDir = path.join(root, 'src', 'shared');
+  const js = [
+    fs.readFileSync(path.join(root, 'src', 'renderer', 'index.js'), 'utf8'),
+    ...fs.readdirSync(sharedDir)
+      .filter((name) => name.endsWith('.js'))
+      .map((name) => fs.readFileSync(path.join(sharedDir, name), 'utf8')),
+  ].join('\n');
 
   const ids = [...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
 

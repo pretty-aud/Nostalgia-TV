@@ -746,16 +746,40 @@
           </label>
         </section>
 
+        <!--
+          UP NEXT — its own permanent group, and permanent is the point.
+
+          The style picker changes which FIELDS below it are shown, never
+          whether this section exists: renderSettingsNav builds the left rail
+          from the group headings, so a group that came and went would make the
+          settings navigation grow and shrink as you changed style.
+
+          The <option>s are built from BUILTIN_STYLES at render time, NOT
+          written here. The theme menu below is 35 hand-written options beside
+          a separate array, and five palettes shipped that nobody could select.
+        -->
         <section class="setgroup">
-          <h3 class="setgroup__head mono">Bumpers</h3>
+          <h3 class="setgroup__head mono">Up next</h3>
 
           <label class="field">
-            <span class="field__label mono">Up-next card</span>
+            <span class="field__label mono">Style</span>
+            <span class="field__control">
+              <select class="select" id="bumperStyleSelect"></select>
+            </span>
+          </label>
+          <p class="modes__note" id="bumperStyleNote"></p>
+
+          <label class="field" id="bumperField">
+            <span class="field__label mono">Hold for</span>
             <span class="field__control">
               <input type="range" id="bumperRange" min="0" max="15" step="1" />
               <output class="mono" id="bumperOut"></output>
             </span>
           </label>
+        </section>
+
+        <section class="setgroup">
+          <h3 class="setgroup__head mono">Bumpers</h3>
 
           <label class="check" id="bumperClipRow" hidden>
             <input type="checkbox" id="bumperClipToggle" />

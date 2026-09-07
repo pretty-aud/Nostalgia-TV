@@ -31,6 +31,12 @@ import {
   showsInSchedule,
 } from '../shared/scheduler.js';
 import {
+  BUILTIN_STYLES,
+  resolveStyle,
+  fieldsFor,
+  allFieldElements,
+} from '../shared/bumperStyles.js';
+import {
   readyCopy,
   seedFromCursors,
   markEpisode,
@@ -906,6 +912,42 @@ function renderSettings() {
     : (runningSchedule
       ? `Paused while the “${runningSchedule.name}” schedule runs. Shuffle to go back to a rotation.`
       : (MODE_NOTES[state.settings.mode] || ''));
+
+  /**
+   * The up-next style, and the fields that come and go with it.
+   *
+   * Options are BUILT from BUILTIN_STYLES, never written into the markup. The
+   * theme <select> forty lines down is the cautionary tale: 35 hand-written
+   * options beside a separate array, and five palettes shipped that nobody
+   * could select, past a green suite.
+   *
+   * Built once and then only re-valued — rebuilding on every render would
+   * throw away the open dropdown mid-click.
+   */
+  const styleSelect = el('bumperStyleSelect');
+  if (!styleSelect.options.length) {
+    for (const style of BUILTIN_STYLES) {
+      const option = document.createElement('option');
+      option.value = style.id;
+      option.textContent = style.label;
+      styleSelect.append(option);
+    }
+  }
+  const upNextStyle = resolveStyle(state.settings.bumperStyle);
+  styleSelect.value = upNextStyle.id;
+  el('bumperStyleNote').textContent = upNextStyle.note || '';
+
+  /**
+   * HIDDEN, not dimmed, and that is the exception rather than the house rule.
+   *
+   * The rule for a control that depends on another SETTING is to dim it, so it
+   * still says what it would do — that is why the block size and the promo gap
+   * stay visible. These are the VHS case instead: how long to hold a still
+   * frame is not a dimmed question under a style with its own running time, it
+   * is not a question at all. Answering it would change nothing.
+   */
+  const wantedFields = new Set(fieldsFor(upNextStyle.id));
+  for (const id of allFieldElements()) el(id).hidden = !wantedFields.has(id);
 
   el('bumperRange').value = String(state.settings.bumperEnabled ? state.settings.bumperSeconds : 0);
   el('bumperOut').textContent = state.settings.bumperEnabled && state.settings.bumperSeconds > 0
@@ -4851,6 +4893,21 @@ The channel keeps its own place.`)) return;
       persist();
     });
   }
+
+  /**
+   * 'change', not 'input': a native <select> fires input on every keyboard
+   * arrow while the list is open, so 'input' would save and re-render a style
+   * per key on the way past it.
+   *
+   * renderSettings runs synchronously here, which is the whole mechanism by
+   * which the fields below swap — the same trick the theme <select> uses to
+   * make the VHS face picker appear with its skin, with no extra wiring.
+   */
+  el('bumperStyleSelect').addEventListener('change', (event) => {
+    state = applySettings(shows, state, { bumperStyle: resolveStyle(event.target.value).id }, {});
+    renderSettings();
+    persist();
+  });
 
   el('bumperRange').addEventListener('input', (event) => {
     const value = Number(event.target.value);

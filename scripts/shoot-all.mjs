@@ -21,6 +21,7 @@ const SHOTS = [
   'transport-volume-mid',
   'transport-volume-muted',
   'sidebar-footer',
+  'upnext-settings',
   'browse-rail',
   'rail-autoplay',
   'detail-media',

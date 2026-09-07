@@ -36,6 +36,16 @@ const DEFAULT_SETTINGS = {
   blockSize: 2,            // consecutive episodes per turn when mode === 'blocks'
   bumperSeconds: 8,
   bumperEnabled: true,
+  /**
+   * Which up-next style draws the card. See src/shared/bumperStyles.js.
+   *
+   * FLAT, like vhsFont and vhsInk beside it, and for the same measured reason:
+   * boot() merges saved settings exactly one level deep, so a nested
+   * `bumper: { style: … }` written before a key existed comes back with that
+   * key undefined — and undefined reaches the stylesheet as the string
+   * "undefined". Every per-style setting added later must stay flat too.
+   */
+  bumperStyle: 'still',
   loopWhenExhausted: true, // a channel should not die when a show runs out
   disabledShows: [],       // show ids the user has switched off
   marathonShowId: null,    // when set, ONLY this show plays (see isEnabled)
