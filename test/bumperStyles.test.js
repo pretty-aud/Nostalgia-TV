@@ -77,10 +77,11 @@ describe('resolving a saved style', () => {
 /**
  * Driven with a FAKE list, not the shipping one.
  *
- * Only one style exists today, so asserting against BUILTIN_STYLES could not
- * tell "the fields swap" from "there is nothing to swap to" — the test would
- * pass against a function that returned its input. The fake is what makes the
- * mechanism testable before the second style is written, and it is also the
+ * Written when only one style existed, because asserting against
+ * BUILTIN_STYLES then could not tell "the fields swap" from "there is nothing
+ * to swap to". It stays on the fake now that there are two, for a second
+ * reason: a test bound to the shipping list changes meaning every time a style
+ * is added, and the mechanism it is checking does not. The fake is also the
  * shape an imported template will arrive in.
  */
 describe('the fields follow the style', () => {
@@ -103,8 +104,11 @@ describe('the fields follow the style', () => {
   });
 
   it('reports a field no one drew instead of silently dropping it', () => {
-    const broken = [{ id: 'x', label: 'X', kind: 'video', fields: ['musicDir'] }];
-    expect(unknownFields(broken)).toEqual(['x: musicDir']);
+    // A field name that is not in FIELD_ELEMENTS. Deliberately nonsense
+    // rather than a plausible one: this test previously used 'musicDir',
+    // which then became a real field and quietly stopped testing anything.
+    const broken = [{ id: 'x', label: 'X', kind: 'video', fields: ['noSuchControl'] }];
+    expect(unknownFields(broken)).toEqual(['x: noSuchControl']);
   });
 });
 

@@ -46,6 +46,15 @@ const DEFAULT_SETTINGS = {
    * "undefined". Every per-style setting added later must stay flat too.
    */
   bumperStyle: 'still',
+  /**
+   * The folder a music-backed up-next style deals its track from.
+   *
+   * Empty until she picks one, and flat for the same reason bumperStyle is.
+   * Set only through the folder dialog: that dialog is what puts the path on
+   * the main process's allowedRoots, so a path arriving any other way is one
+   * mpv will refuse to open.
+   */
+  bumperMusicDir: '',
   loopWhenExhausted: true, // a channel should not die when a show runs out
   disabledShows: [],       // show ids the user has switched off
   marathonShowId: null,    // when set, ONLY this show plays (see isEnabled)

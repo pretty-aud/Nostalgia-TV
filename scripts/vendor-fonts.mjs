@@ -51,11 +51,26 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
 
 const FONTS = [
   {
-    file: 'roboto-condensed-bold.woff2',
-    css: 'https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@700&display=block',
+    /**
+     * VARIABLE, 400 to 700, not a single static Bold.
+     *
+     * The real face is Helvetica Neue Condensed Bold — confirmed across
+     * several sources, adopted 25 May 2003 and used consistently on the logo,
+     * the bumpers and the promos. It is licensed and cannot ship, and Roboto
+     * Condensed is the honest stand-in: Roboto is a neo-grotesque in the same
+     * line, and it is open.
+     *
+     * But it is not the SAME weight at the same number. Roboto Condensed 700
+     * is optically heavier and tighter than Helvetica Neue Condensed Bold, and
+     * set at 700 the card read as too bold. One variable file makes the weight
+     * something that can be dialled to match rather than something the choice
+     * of file locks in — and it costs less than shipping two statics.
+     */
+    file: 'roboto-condensed.woff2',
+    css: 'https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400..700&display=block',
     licence: 'RobotoCondensed-LICENSE.txt',
     licenceUrl: 'https://raw.githubusercontent.com/google/fonts/main/ofl/robotocondensed/OFL.txt',
-    what: 'Roboto Condensed Bold — stands in for Helvetica Neue Condensed Bold',
+    what: 'Roboto Condensed 400-700 variable — stands in for Helvetica Neue Condensed Bold',
   },
   {
     file: 'oswald-semibold.woff2',

@@ -300,6 +300,33 @@
       <div class="timer" aria-hidden="true"><i id="bumperTimerFill"></i></div>
     </section>
 
+    <!--
+      CHILD EXCLUSIVE WATER RECREATION — the schedule card on black.
+
+      Its own section rather than a mode of the card above, because it shares
+      nothing with it: no artwork, no progress timer, no skip footer, its own
+      type, its own three colours, and a running time set by the music rather
+      than by a setting. Folding two identities into one element is how a
+      component ends up with a boolean for every difference.
+
+      Three beats, hard cuts between them, no transitions. The whole point of
+      the reference is that it does NOT animate — copy arrives like a slide
+      changing, and then sits there. See docs the research came from: if a
+      motion choice makes it feel slick, it is wrong for this card.
+    -->
+    <section class="asbump" id="asbump" aria-live="polite" hidden>
+      <p class="asbump__standby" id="asbumpStandby" hidden>
+        Please stand by for your programming schedule:
+      </p>
+
+      <div class="asbump__sched" id="asbumpSched" hidden>
+        <h2 class="asbump__head">Up next</h2>
+        <ol class="asbump__list" id="asbumpList"></ol>
+      </div>
+
+      <div class="asbump__sign" id="asbumpSign" hidden></div>
+    </section>
+
     <!-- Waiting on a conversion.
 
          A panel rather than a toast because the wait is not always short: a
@@ -776,6 +803,21 @@
               <output class="mono" id="bumperOut"></output>
             </span>
           </label>
+
+          <!--
+            A BUTTON, not a text input. The folder dialog is what puts the path
+            on the main process's allowedRoots, and a path she typed would have
+            to be allowlisted on the renderer's say-so — which is the one thing
+            that list exists to prevent. A typed path would simply never play.
+          -->
+          <div class="field" id="bumperMusicField" hidden>
+            <span class="field__label mono">Music from</span>
+            <span class="field__control">
+              <button class="btn" type="button" id="bumperMusicPick">Choose folder…</button>
+              <span class="mono" id="bumperMusicCount"></span>
+            </span>
+          </div>
+          <p class="modes__note" id="bumperMusicPath"></p>
         </section>
 
         <section class="setgroup">

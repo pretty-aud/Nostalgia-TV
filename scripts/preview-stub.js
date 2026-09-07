@@ -38,6 +38,11 @@
 
   window.tv = {
     pickFolder: async () => null,
+    pickBumperMusic: async () => null,
+    // A track the preview cannot actually play — the shots that exercise the
+    // schedule card care about its beats and its type, not its sound, and the
+    // card is driven by its own timers rather than by anything mpv reports.
+    nextBumperMusic: async () => ({ absPath: 'D:/music/bump.mp3', startSeconds: 42, title: 'bump' }),
     locateLibrary: async (p) => ({ ok: Boolean(p), rootPath: p, moved: false }),
     // The real library when the server was pointed at one — the fixture below
     // cannot reproduce anything that depends on the viewer's actual files.

@@ -17,6 +17,7 @@ const { startMpvPlayer } = require('./mpvPlayer.js');
 const { createMpvHost } = require('./mpvHost.js');
 const artwork = require('./artwork.js');
 const ingest = require('./ingest.js');
+const bumperMusic = require('./bumperMusic.js');
 
 const MAX_SCAN_DEPTH = 6;
 const MAX_FILES = 20000;
@@ -433,6 +434,22 @@ async function loadState() {
       const parsed = JSON.parse(await fsp.readFile(file, 'utf8'));
       if (!parsed || typeof parsed !== 'object') continue;
       if (parsed.rootPath) allowedRoots.add(parsed.rootPath);
+      /**
+       * The bumper-music folder is allowlisted HERE, from the saved file, and
+       * never from an argument the renderer passes in.
+       *
+       * Both matter. Restoring it is what stops the folder working for one
+       * session and silently 403ing on every launch after — a fault that
+       * looks like the music feature breaking itself overnight. And taking it
+       * from disk rather than from IPC is what keeps allowedRoots meaning
+       * "somewhere she chose in a dialog": a handler that added whatever path
+       * it was handed would let a compromised renderer allowlist C:\ by
+       * asking politely.
+       */
+      if (parsed.settings && typeof parsed.settings.bumperMusicDir === 'string'
+        && parsed.settings.bumperMusicDir) {
+        allowedRoots.add(parsed.settings.bumperMusicDir);
+      }
       lastState = parsed;
       return parsed;
     } catch { /* try the backup */ }
@@ -895,6 +912,60 @@ function registerIpc() {
     return result.filePaths[0];
   });
 
+  /**
+   * The folder of music the video up-next styles deal from.
+   *
+   * Its own picker rather than a text box: the dialog is what puts the folder
+   * on allowedRoots, and a path she typed would have to be allowlisted on the
+   * renderer's say-so, which is the one thing that list exists to prevent.
+   */
+  ipcMain.handle('bumperMusic:pick', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a folder of bumper music',
+      properties: ['openDirectory'],
+      buttonLabel: 'Use this folder',
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const dir = result.filePaths[0];
+    allowedRoots.add(dir);
+    // The count comes back with it so the settings row can say what is in
+    // there. An empty folder is a thing she should find out about here, not
+    // by watching a bumper play in silence.
+    return { dir, count: (await bumperMusic.listTracks(dir)).length };
+  });
+
+  /**
+   * Deal a track and say where in it to start.
+   *
+   * Returns null rather than throwing for every ordinary emptiness — no folder
+   * set, folder gone, drive unplugged, nothing playable inside. The caller's
+   * job in all of those cases is the same: fall back to the still card. An
+   * exception would only turn a missing folder into a broken channel.
+   */
+  ipcMain.handle('bumperMusic:next', async (_event, dir, lastPath) => {
+    if (typeof dir !== 'string' || !dir) return null;
+    // The root itself is not "inside" itself — path.relative gives '' — so a
+    // bare isInsideAllowedRoot(dir) rejects the very folder she picked.
+    if (!allowedRoots.has(dir) && !isInsideAllowedRoot(dir)) return null;
+
+    const tracks = await bumperMusic.listTracks(dir);
+    const track = bumperMusic.chooseTrack(tracks, typeof lastPath === 'string' ? lastPath : null);
+    if (!track) return null;
+
+    try {
+      const startSeconds = await bumperMusic.startFor(track, prepare.findFfmpeg());
+      return { absPath: track, startSeconds, title: bumperMusic.trackTitle(track) };
+    } catch (error) {
+      /**
+       * Analysis failed — a corrupt file, or no ffmpeg. Still play the track,
+       * from the top. Silence would be the worse answer, and a bumper that
+       * starts at an intro is a bad fifteen seconds rather than a dead one.
+       */
+      console.error('[bumper music] could not analyse', path.basename(track), error.message);
+      return { absPath: track, startSeconds: 0, title: bumperMusic.trackTitle(track) };
+    }
+  });
+
   ipcMain.handle('library:scan', async (_event, rootPath) => {
     if (typeof rootPath !== 'string' || !rootPath) return { ok: false, error: 'No folder given' };
     try {
@@ -1206,6 +1277,22 @@ if (!app.requestSingleInstanceLock()) {
      */
     prepare.cleanupCache(undefined, { minAgeMs: 48 * 60 * 60 * 1000 }).catch(() => {});
     artwork.init({ dir: path.join(app.getPath('userData'), 'artwork'), findFfmpeg: prepare.findFfmpeg });
+    /**
+     * Resolve ffmpeg NOW, while nothing is playing.
+     *
+     * findFfmpeg is a spawnSync behind a memo — cheap forever after, and a
+     * blocking call on the main thread the first time. Every existing caller
+     * happens to reach it during a background sweep, so it has never mattered;
+     * the bumper-music handler reaches it in the moment before a card plays,
+     * which is precisely where this app has already been bitten once by a
+     * synchronous spawn on the main process. Warming it here means that first
+     * call has already happened by the time anything is on screen.
+     *
+     * Deferred a tick so it does not sit in front of the window opening, and
+     * swallowed because a missing ffmpeg is not a reason to fail startup —
+     * the handler that needs it already falls back.
+     */
+    setTimeout(() => { try { prepare.findFfmpeg(); } catch { /* handled at use */ } }, 0);
     // Fire and forget: the previous thumbnail generation is unreadable by
     // anything now, and clearing it must never hold up the window opening.
     pruneOldThumbs();

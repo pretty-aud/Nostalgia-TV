@@ -10,6 +10,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('tv', {
   pickFolder: () => ipcRenderer.invoke('library:pick'),
   scan: (rootPath) => ipcRenderer.invoke('library:scan', rootPath),
+
+  // The folder of music the video up-next styles deal from, and one deal from it.
+  pickBumperMusic: () => ipcRenderer.invoke('bumperMusic:pick'),
+  nextBumperMusic: (dir, lastPath) => ipcRenderer.invoke('bumperMusic:next', dir, lastPath),
   // Finds the same folder again when its drive letter has changed.
   locateLibrary: (previousPath) => ipcRenderer.invoke('library:locate', previousPath),
 

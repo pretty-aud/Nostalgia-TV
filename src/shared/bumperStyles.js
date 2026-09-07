@@ -56,6 +56,8 @@
 const FIELD_ELEMENTS = {
   /** How long a still card holds. Meaningless for anything with a run time. */
   duration: 'bumperField',
+  /** Where a music-backed style deals its track from. */
+  musicDir: 'bumperMusicField',
 };
 
 /**
@@ -78,6 +80,14 @@ const BUILTIN_STYLES = [
     kind: 'still',
     fields: ['duration'],
     note: 'The card this channel has always used — artwork, the episode, and what follows it.',
+  },
+  {
+    id: 'cewr',
+    label: 'Child exclusive water recreation',
+    kind: 'video',
+    fields: ['musicDir'],
+    note: 'A schedule card on black, under a different piece of music every time. '
+      + 'Fifteen seconds, cut from wherever in the track sounds best.',
   },
 ];
 

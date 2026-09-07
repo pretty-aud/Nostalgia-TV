@@ -32,10 +32,13 @@ import {
 } from '../shared/scheduler.js';
 import {
   BUILTIN_STYLES,
+  VIDEO_SECONDS,
   resolveStyle,
   fieldsFor,
   allFieldElements,
+  isFixedLength,
 } from '../shared/bumperStyles.js';
+import { markSvg } from '../shared/nostalgiaMark.js';
 import {
   readyCopy,
   seedFromCursors,
@@ -954,6 +957,22 @@ function renderSettings() {
     ? `${state.settings.bumperSeconds}s`
     : 'Off';
 
+  /**
+   * The music folder, shown as the folder NAME with the full path underneath.
+   *
+   * A bare path in the control is unreadable at settings width and a bare name
+   * is ambiguous once she has two folders called "bumper music" on different
+   * drives — so the button says which one and the note says where.
+   */
+  const musicDir = state.settings.bumperMusicDir || '';
+  el('bumperMusicPick').textContent = musicDir
+    ? (musicDir.split(/[\\/]/).filter(Boolean).pop() || musicDir)
+    : 'Choose folder…';
+  el('bumperMusicPath').textContent = musicDir;
+  el('bumperMusicCount').textContent = musicDir && bumperMusicCount !== null
+    ? `${bumperMusicCount} track${bumperMusicCount === 1 ? '' : 's'}`
+    : '';
+
   el('loopToggle').checked = Boolean(state.settings.loopWhenExhausted);
 
   const blockSize = Math.max(2, Number(state.settings.blockSize) || 2);
@@ -1114,6 +1133,205 @@ function renderSettings() {
 // ---------------------------------------------------------------------------
 // rendering: bumper
 // ---------------------------------------------------------------------------
+
+/**
+ * The last track dealt, so the same song does not play twice running.
+ *
+ * Deliberately NOT persisted. The bumper and promo decks are saved because
+ * they promise every clip is seen once before any repeats, and that promise
+ * has to survive a restart to mean anything. This promises only "not the same
+ * song twice in a row", which cannot be violated across a restart — nothing
+ * has played yet.
+ */
+let lastBumperTrack = null;
+
+/**
+ * How many tracks are in the chosen folder, or null before anything has
+ * counted. Held rather than derived because counting means a directory read,
+ * and renderSettings runs on every keystroke of every other control.
+ */
+let bumperMusicCount = null;
+
+/**
+ * CHILD EXCLUSIVE WATER RECREATION — the schedule card on black.
+ *
+ * Fifteen seconds, three beats, hard cuts. Music first and text second, which
+ * is the reference: the bump starts as sound, and the copy arrives over it
+ * like a slide changing rather than an animation playing.
+ *
+ * ── Timing lives HERE, not in mpv ────────────────────────────────────────
+ *
+ * mpv is given the track and a start offset and simply plays; the card counts
+ * its own fifteen seconds and then stops it. It has to be this way round.
+ * mpv's 'ended' is the rising edge of eof-reached, and a track is minutes
+ * long, so waiting for it would wait for the song. Driving from the renderer
+ * also means the beats stay in step when the music is missing entirely.
+ *
+ * ── Falling back is not failure ──────────────────────────────────────────
+ *
+ * No folder, folder gone, nothing playable in it: show the still card
+ * instead. Every one of those is a thing she can cause by unplugging a drive,
+ * and none of them is a reason for the channel to skip its continuity card.
+ */
+async function showAdultSwimBumper(onDone, leadOverride) {
+  const upcoming = peek(shows, state, 3);
+  const lead = leadOverride || upcoming[0];
+  if (!lead) { onDone(); return; }
+
+  /**
+   * Ask for music BEFORE anything is on screen.
+   *
+   * The analysis is ~150ms cold and cached after, but the folder could be on a
+   * drive that has spun down. Waiting here costs a beat of the outgoing
+   * programme's dissolve; waiting after the card is up would be fifteen
+   * seconds of silence with the text already running.
+   */
+  let music = null;
+  if (window.tv.nextBumperMusic && state.settings.bumperMusicDir) {
+    try {
+      music = await window.tv.nextBumperMusic(state.settings.bumperMusicDir, lastBumperTrack);
+    } catch (error) {
+      console.error('[bumper] music lookup failed:', error && error.message);
+    }
+  }
+  if (!music) { showBumper(onDone, leadOverride); return; }
+  lastBumperTrack = music.absPath;
+
+  // Tear down any card still wired up, or its key and click handlers survive
+  // and fire a second advance.
+  if (bumperCleanup) bumperCleanup();
+
+  /**
+   * The rows: the lead and whatever follows it, by NAME only.
+   *
+   * No episode codes and no times. The reference is a broadcast schedule and
+   * this channel has no clock — synthesising one would be inventing
+   * information — so what is left is the honest part, which is the running
+   * order. peek() slices before it filters, so this can legitimately be one
+   * row; the card reads correctly at any length.
+   */
+  const rows = [lead, ...upcoming.filter((item) => item !== lead)]
+    .slice(0, 4)
+    .map((item) => item.showName || (item.episode && item.episode.showName) || '')
+    .filter(Boolean);
+
+  const list = el('asbumpList');
+  list.textContent = '';
+  for (const name of rows) {
+    const row = document.createElement('li');
+    row.className = 'asbump__row';
+    row.textContent = name;
+    list.append(row);
+  }
+
+  // Size comes from CSS (11vh); the attribute is only a sensible default for
+  // anything that renders the string outside this card.
+  el('asbumpSign').innerHTML = markSvg({ size: 160, title: null });
+
+  const standby = el('asbumpStandby');
+  const sched = el('asbumpSched');
+  const sign = el('asbumpSign');
+  const card = el('asbump');
+  for (const node of [standby, sched, sign]) node.hidden = true;
+
+  app.dataset.bumperStyle = 'cewr';
+  app.dataset.view = 'bumper';
+  card.hidden = false;
+  /**
+   * The same flag playClip sets, and for the same reason. Six behaviours read
+   * it, and the one that bites is the resume-save: without it the finished
+   * episode's place is written at the CARD's timestamp, so the next time she
+   * opens that show it resumes fifteen seconds in.
+   */
+  playingBumperClip = true;
+
+  window.tv.mpvOpen(music.absPath, { startSeconds: music.startSeconds })
+    .catch((error) => console.error('[bumper] music would not play:', error && error.message));
+
+  /**
+   * The beats, in milliseconds from the music starting.
+   *
+   * Long holds on purpose. The research note is blunt about it: the card sits
+   * static for seconds doing nothing, and the patience IS the reference. A
+   * schedule that animated in briskly would be a different network.
+   */
+  const BEATS = [
+    [600, () => { standby.hidden = false; }],
+    [4200, () => { standby.hidden = true; sched.hidden = false; }],
+    [12300, () => { sched.hidden = true; sign.hidden = false; }],
+  ];
+
+  const timers = BEATS.map(([at, run]) => setTimeout(run, at));
+  let done = false;
+  // Declared before teardown closes over it: `const endTimer` further down is
+  // in the temporal dead zone until its own line runs, and bumperCleanup is
+  // handed out above that.
+  let endTimer = null;
+
+  const teardown = () => {
+    for (const timer of timers) clearTimeout(timer);
+    clearTimeout(endTimer);
+    bumperCleanup = null;
+    document.removeEventListener('keydown', onKey, true);
+    card.removeEventListener('click', onClick);
+  };
+  bumperCleanup = teardown;
+
+  const finish = () => {
+    if (done) return;     // a keypress landing on the last frame must not double-advance
+    done = true;
+    teardown();
+    card.hidden = true;
+    delete app.dataset.bumperStyle;
+    /**
+     * Stop the music before handing back. playNext loads the episode into the
+     * same mpv, which would replace the track anyway — but not until it has
+     * resolved a path, and a bar of bumper music over the first frame of the
+     * programme is exactly the seam this is supposed to hide.
+     */
+    window.tv.mpvStop().catch(() => {});
+    playingBumperClip = false;
+    onDone();
+  };
+
+  const onKey = (event) => {
+    if (event.key === 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    finish();
+  };
+  const onClick = () => finish();
+
+  document.addEventListener('keydown', onKey, true);
+  card.addEventListener('click', onClick);
+
+  // The fifteen seconds every video style is cut to — the same constant the
+  // registry uses to decide a style has no duration setting, so the card and
+  // the settings panel cannot disagree about how long this runs.
+  endTimer = setTimeout(finish, VIDEO_SECONDS * 1000);
+}
+
+/**
+ * A way in for the review shots, and ONLY under the preview harness.
+ *
+ * The card cannot be reached from the UI without playing an episode to its
+ * end, so a probe has no other route to it — and its three beats are each a
+ * full screen, which makes it precisely the thing that needs photographing.
+ *
+ * Fenced on __tvCalls, which only scripts/preview-stub.js defines. In the
+ * packaged app window.tv is the real preload bridge, this block never runs,
+ * and no internal is exposed. That is a stronger guarantee than a build flag,
+ * because it cannot be got wrong by building the wrong way.
+ *
+ * The existing __railAdvanceMs hook is a value the probe SETS; this is an
+ * entry point, which is a bigger thing to hand out — hence the fence.
+ */
+if (window.__tvCalls) {
+  window.__preview = {
+    showAdultSwimBumper: (onDone, leadOverride) => showAdultSwimBumper(onDone, leadOverride),
+    settings: () => state.settings,
+  };
+}
 
 async function showBumper(onDone, leadOverride) {
   const upcoming = peek(shows, state, 3);
@@ -1769,7 +1987,18 @@ function onEpisodeEnded() {
       const movieNow = movieIsDue(state);
       const leadOverride = movieNow ? movieItem(state.pendingMovie) : null;
       const after = () => (movieNow ? startMovie() : playNext());
-      if (state.settings.bumperEnabled && state.settings.bumperSeconds > 0) {
+      /**
+       * Which card, and whether there is one at all.
+       *
+       * The duration slider is still the off switch, but only for styles that
+       * HAVE a duration — a video style runs for its own fifteen seconds, so
+       * reading bumperSeconds to decide whether to show it would let a slider
+       * she cannot even see switch it off.
+       */
+      const style = resolveStyle(state.settings.bumperStyle);
+      if (isFixedLength(style.id)) {
+        showAdultSwimBumper(after, leadOverride);
+      } else if (state.settings.bumperEnabled && state.settings.bumperSeconds > 0) {
         showBumper(after, leadOverride);
       } else {
         after();
@@ -4905,6 +5134,21 @@ The channel keeps its own place.`)) return;
    */
   el('bumperStyleSelect').addEventListener('change', (event) => {
     state = applySettings(shows, state, { bumperStyle: resolveStyle(event.target.value).id }, {});
+    renderSettings();
+    persist();
+  });
+
+  /**
+   * The folder dialog is the ONLY way this setting is written, which is what
+   * keeps it in step with the main process's allowedRoots: the dialog is what
+   * puts the path on that list, and a path arriving any other way is one mpv
+   * would refuse to open.
+   */
+  el('bumperMusicPick').addEventListener('click', async () => {
+    const picked = await window.tv.pickBumperMusic();
+    if (!picked) return;                      // cancelled — keep what she had
+    bumperMusicCount = picked.count;
+    state = applySettings(shows, state, { bumperMusicDir: picked.dir }, {});
     renderSettings();
     persist();
   });

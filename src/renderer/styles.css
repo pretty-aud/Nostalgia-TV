@@ -96,8 +96,12 @@
  */
 @font-face {
   font-family: "Roboto Condensed";
-  src: url("fonts/roboto-condensed-bold.woff2") format("woff2");
-  font-weight: 700;
+  src: url("fonts/roboto-condensed.woff2") format("woff2-variations");
+  /* A RANGE, not a weight. Roboto Condensed 700 is optically heavier and
+     tighter than Helvetica Neue Condensed Bold, so the card is set below 700
+     to match the reference — which is only possible because the file carries
+     the axis rather than one baked weight. */
+  font-weight: 400 700;
   font-style: normal;
   font-display: block;      /* block, like the rest: a reflow reads as a glitch */
 }
@@ -4725,3 +4729,134 @@ input[type="range"]::-webkit-slider-thumb {
 }
 #settingsBody .libfact--path { color: var(--ink); margin-top: calc(var(--u) * 1.5); }
 #settingsBody .libfact--stats { color: var(--signal-soft); margin-bottom: calc(var(--u) * 2.5); }
+
+
+/* ══ CHILD EXCLUSIVE WATER RECREATION ══════════════════════════════════════
+
+   The schedule card on black, after the [adult swim] bumpers.
+
+   THIS COMPONENT IGNORES THE THEME, ON PURPOSE, and that is a break of the
+   house rule that a theme re-values tokens and never touches a component. The
+   justification is the same one that fences [data-skin="vcr"]: this is not the
+   app's interface wearing a colour scheme, it is an imitation of a specific
+   network's on-air identity, and that identity is three fixed colours.
+   Rendered in a pale theme's tokens it would not be the reference at all, it
+   would just be a list. Every colour here is literal for that reason, and the
+   exception is fenced to this one grep-able prefix.
+
+   ── SIZED IN vh, NOT vw ──────────────────────────────────────────────────
+
+   Broadcast type is sized against the FRAME, and the frame is defined by its
+   height — a wider window does not make a caption bigger on a real channel.
+   Sizing off vw made the card grow with the window's width, so the same card
+   read completely differently maximised and windowed.
+
+   The values come from measuring the reference frames rather than taste, then
+   scaled down: the real stand-by line runs about 6% of frame height and the
+   lineup head about 7%, and she asked for everything smaller than that.
+
+   ── THE TWO WIDTHS ARE DELIBERATE ────────────────────────────────────────
+
+   The stand-by line is set in a REGULAR-WIDTH grotesque and the lineup in a
+   condensed one, because that is what the reference frames show: "Please stand
+   by for your programming schedule:" has open, normal-width letterforms, while
+   "NEXT SATURDAY / BLEACH" is strongly condensed. Setting both condensed —
+   which is what the research note's "Helvetica Neue Condensed Bold everywhere"
+   would suggest — makes the stand-by line visibly wrong against the source. */
+
+.asbump {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  /* Opaque, and it has to be: the interface plane is a transparent window over
+     mpv's, so anything that does not paint its own ground shows live video. */
+  background: #000;
+  /* No text-shadow, no glow. The VCR skin's global outline would otherwise
+     inherit into this card and soften every letter. */
+  text-shadow: none;
+}
+
+/* Beat one. Sentence case with the colon, exactly as the frame reads — NOT
+   uppercase. Uppercasing the whole card was wrong: only the lineup is caps. */
+.asbump__standby {
+  margin: 0;
+  /* Wide enough for "Please stand by for your" and too narrow for the next
+     word, which is where the reference breaks. */
+  max-width: 27ch;
+  color: #fff;
+  font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 700;
+  font-size: clamp(20px, 4.2vh, 58px);
+  line-height: 1.22;
+  letter-spacing: 0.002em;
+  text-align: center;
+}
+
+/* Beat two. A block, optically centred, left-aligned inside itself — the
+   reference sets the titles as a column, not as centred lines. */
+.asbump__sched {
+  display: grid;
+  justify-items: start;
+  gap: clamp(10px, 1.6vh, 26px);
+  font-family: "Roboto Condensed", "Arial Narrow", sans-serif;
+  /* 600, not 700. Roboto Condensed at 700 is optically heavier and tighter
+     than Helvetica Neue Condensed Bold, which is the face the reference
+     actually uses — at 700 the card reads as shouting. */
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.asbump__head {
+  margin: 0;
+  /* The one colour that is not black or white. Sampled from the reference
+     frame: a warm butter yellow, not a signal yellow. */
+  color: #f5e455;
+  font-size: clamp(26px, 5.2vh, 74px);
+  line-height: 1;
+  letter-spacing: 0.012em;
+}
+
+.asbump__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: clamp(2px, 0.7vh, 12px);
+}
+
+.asbump__row {
+  color: #fff;
+  font-size: clamp(18px, 3.2vh, 46px);
+  line-height: 1.18;
+  letter-spacing: 0.004em;
+  /* Long titles are the norm in this library, not the exception. Wrapping is
+     allowed; running off the side of the screen is not. */
+  max-width: 22ch;
+}
+
+/* Beat three. The mark alone — no wordmark under it, which would fight the
+   condensed caps above and say the channel's name twice in fifteen seconds. */
+.asbump__sign svg {
+  display: block;
+  width: clamp(72px, 11vh, 170px);
+  height: auto;
+}
+
+/* Hard cuts, so nothing eases. An element is either up or it is not, which is
+   why the beats are driven by [hidden] rather than by opacity: a transition on
+   this card is the one thing the reference never does. */
+.asbump [hidden] { display: none; }
+
+/* [hidden] is a UA rule at element specificity; `.asbump` setting display:grid
+   beats it and the card would be on screen permanently. This is the same trap
+   that made the app use el.hidden everywhere else and then need a rule to make
+   it mean something. */
+.asbump[hidden] { display: none; }
+
+/* Both cards are the "bumper" view, and sharing that attribute is deliberate:
+   it is what makes the sidebar retreat, and what makes onGlobalKey stand down
+   so the card owns the keyboard while it is up. Which of the two is actually
+   drawn is the STYLE, not the view. */
+.app[data-bumper-style="cewr"] .bumper { display: none; }
