@@ -230,6 +230,21 @@ function createState(rootPath) {
     lastPromoRelPath: null,
     movieDeck: [],            // same, for the MOVIES folder
     lastMovieRelPath: null,
+
+    /**
+     * Where each schedule's own film list has got to. Keyed by schedule id, so
+     * two schedules keep separate memories — the global movieDeck above cannot
+     * be reused for this, because filtering it through one schedule's list
+     * would throw away every other schedule's position.
+     *
+     * PLAYBACK STATE, deliberately, not part of the schedule. applySettings
+     * treats `schedules` as a reshape key and compares it with JSON.stringify;
+     * a cursor written onto the schedule object would change that array every
+     * time a film played, discard the queue and the deck, and reshuffle the
+     * entire channel the moment a movie ended.
+     */
+    scheduleMovieCursor: {},  // scheduleId -> { index, lastRelPath }
+    scheduleMovieDecks: {},   // scheduleId -> relPath[], and '<id>:last'
     lastMovieAt: null,        // ms timestamp of the last movie that played
     /**
      * The movie is DEALT well before it plays, not at the transition.
@@ -343,6 +358,14 @@ function reconcileCursors(shows, state) {
 function pruneQueue(shows, queue) {
   const byId = new Map(shows.map((s) => [s.id, s]));
   return (queue || []).filter((item) => {
+    /**
+     * A placed film survives a rescan. It resolves to no show and no episode by
+     * design — which film it will be is decided when the block comes up — so
+     * the test below would delete every one of them the first time the library
+     * was rescanned, and the schedule would quietly stop showing films with
+     * nothing said and nothing logged.
+     */
+    if (item && item.movieBlock) return true;
     const show = byId.get(item.showId);
     if (!show) return false;
     const ep = show.episodes[item.episodeIndex];
@@ -453,6 +476,144 @@ function activeBumperStyleId(settings = {}) {
   const schedule = activeSchedule(settings);
   const own = schedule && schedule.bumperStyle;
   return own || settings.bumperStyle || null;
+}
+
+// ── movie blocks in a running order ─────────────────────────────────────────
+
+/**
+ * THE RESERVED ENTRY THAT MEANS "A FILM PLAYS HERE".
+ *
+ * A schedule's `items` stays `string[]`. Its element TYPE does not change;
+ * its vocabulary widens by exactly one reserved word. That matters more than
+ * it looks:
+ *
+ *   Three places shallow-copy items and copy its ELEMENTS by reference —
+ *   loadDraft, commitDraft and Duplicate in the renderer. With object entries
+ *   like { kind: 'movie' } the editor's draft would share those objects with
+ *   the schedule already running, so editing a draft would mutate the live
+ *   schedule before Save was pressed; applySettings compares by
+ *   JSON.stringify, both sides would stringify identically, `changed` would be
+ *   false and the queue would never rebuild. A saved edit that visibly does
+ *   nothing. Strings are values, so none of that can happen.
+ *
+ * AND IT CANNOT COLLIDE WITH A SHOW. showId() in parseEpisode.js lowercases a
+ * folder name and replaces every run of non-alphanumerics with '-'. No show id
+ * can contain an underscore, whatever she names a folder — this is structural,
+ * not merely unlikely.
+ *
+ * It is also ALREADY this codebase's reserved show id for a film: movieItem()
+ * in the renderer has always set showId: '__movie__'. Reusing it means one
+ * token means one thing across the running order, the deck and the queue.
+ */
+const MOVIE_BLOCK = '__movie__';
+
+function isMovieBlock(entry) {
+  return entry === MOVIE_BLOCK;
+}
+
+/** Does this schedule place films itself? */
+function hasMovieBlocks(schedule) {
+  return Boolean(schedule) && (schedule.items || []).some(isMovieBlock);
+}
+
+/**
+ * EVERY KEY PRESENT, so nothing downstream ever reads undefined.
+ *
+ * Settings are merged exactly one level deep at boot, and `schedules` is an
+ * ARRAY OF OBJECTS — two levels down — so the fields added here get no
+ * defaults at all from that merge. A schedule saved before this version has
+ * none of them. Rather than teaching every call site to cope, they are filled
+ * once, here, at the point a schedule is read.
+ *
+ * `movies: null` and `movies: []` deliberately mean the SAME thing — every
+ * film — because "I opened the box and put nothing in it" is not a decision to
+ * play nothing. Note this is the opposite convention to `items`, where an
+ * empty running order means an empty channel; the difference is that items is
+ * the schedule and movies is a filter on it.
+ */
+function normaliseSchedule(schedule) {
+  if (!schedule || typeof schedule !== 'object') return null;
+  const items = Array.isArray(schedule.items) ? schedule.items.filter((id) => typeof id === 'string') : [];
+  const movies = Array.isArray(schedule.movies)
+    ? schedule.movies.filter((path) => typeof path === 'string' && path)
+    : null;
+  return {
+    ...schedule,
+    id: String(schedule.id || ''),
+    name: String(schedule.name || 'Untitled schedule'),
+    blockSize: Math.max(1, Math.min(12, Number(schedule.blockSize) || 1)),
+    items,
+    bumperStyle: schedule.bumperStyle || null,
+    movies: movies && movies.length ? movies : null,
+    movieOrder: schedule.movieOrder === 'inorder' ? 'inorder' : 'shuffle',
+  };
+}
+
+/**
+ * The films a schedule may play, in the order she put them in.
+ *
+ * EMPTY MEANS ALL. That rule lives here and only here, so it cannot be
+ * remembered at one call site and forgotten at another.
+ *
+ * A named film the library cannot see is simply absent from the result rather
+ * than falling back to the whole folder: she chose a list because the others
+ * do not suit the schedule, and playing one of them because a file was renamed
+ * would be the one outcome worse than playing none.
+ *
+ * Her order is preserved, because with the shuffle switched off her order IS
+ * the running order of the films.
+ */
+function moviesForSchedule(movies, schedule) {
+  const all = Array.isArray(movies) ? movies : [];
+  const wanted = schedule && Array.isArray(schedule.movies) ? schedule.movies : null;
+  if (!wanted || wanted.length === 0) return all;
+  const byPath = new Map(all.map((movie) => [movie && movie.relPath, movie]));
+  return wanted.map((path) => byPath.get(path)).filter(Boolean);
+}
+
+/**
+ * The next film for a placed block, honouring this schedule's own order.
+ *
+ * THE POSITION AND THE DECK LIVE IN STATE, NOT ON THE SCHEDULE, and that is
+ * not tidiness. applySettings treats `schedules` as a reshape key and compares
+ * it with JSON.stringify: a cursor written onto the schedule object would
+ * change that array every time a film played, which discards the queue and the
+ * deck and reshuffles the whole channel the moment a movie ends.
+ *
+ * Both are keyed by schedule id so two schedules keep separate memories — the
+ * global movieDeck cannot be reused, because filtering it through one
+ * schedule's list would throw away every other schedule's shuffle position.
+ */
+function nextScheduledMovie(movies, state, schedule, options = {}) {
+  const rng = options.rng || Math.random;
+  const id = schedule && schedule.id;
+  const pool = unlockedMovies(moviesForSchedule(movies, schedule), state);
+  if (!id || pool.length === 0) return { state, movie: null };
+
+  if ((schedule.movieOrder || 'shuffle') === 'inorder') {
+    const cursors = { ...(state.scheduleMovieCursor || {}) };
+    const saved = cursors[id] || {};
+    /**
+     * Resumed by PATH first, index second. The index alone is meaningless once
+     * she reorders the list or a film leaves the library — it would silently
+     * point at a different title. Finding the last one played and stepping past
+     * it survives both; the index is the fallback for the first run and for a
+     * film that has since gone.
+     */
+    const at = pool.findIndex((movie) => movie.relPath === saved.lastRelPath);
+    const index = at === -1
+      ? Math.max(0, Number(saved.index) || 0) % pool.length
+      : (at + 1) % pool.length;
+    const movie = pool[index];
+    cursors[id] = { index: (index + 1) % pool.length, lastRelPath: movie.relPath };
+    return { state: { ...state, scheduleMovieCursor: cursors }, movie };
+  }
+
+  const decks = { ...(state.scheduleMovieDecks || {}) };
+  const dealt = dealInterstitial(pool, decks[id], (decks[`${id}:last`] || null), rng);
+  decks[id] = dealt.deck;
+  decks[`${id}:last`] = dealt.relPath;
+  return { state: { ...state, scheduleMovieDecks: decks }, movie: dealt.clip };
 }
 
 /** Episodes per block for whichever running order is in force. */
@@ -580,11 +741,21 @@ function refillQueue(shows, state, options = {}) {
          * schedule, not the clumping the shuffle exists to break up.
          */
         deck = (schedule.items || []).filter((id) => {
+          // A placed film always survives the refill. It names no show, so the
+          // lookup below would drop it — and dropping it is not "tidying an
+          // unresolvable entry", it is deleting a block she put there.
+          if (isMovieBlock(id)) return true;
           const show = byId.get(id);
           return show && hasEpisodesLeft(show);
         });
         // Every show on the schedule is gone or exhausted; nothing left to deal.
         if (deck.length === 0) break;
+        /**
+         * A schedule of nothing but films would refill for ever, because the
+         * token can never be exhausted the way a show's episodes can. One pass
+         * of the running order is enough to fill any queue.
+         */
+        if (deck.every(isMovieBlock) && queue.some((item) => item.movieBlock)) break;
       } else {
         const eligible = shows.filter(hasEpisodesLeft);
         if (eligible.length === 0) break;
@@ -600,7 +771,21 @@ function refillQueue(shows, state, options = {}) {
       }
     }
 
-    const show = byId.get(deck.shift());
+    const dealtId = deck.shift();
+
+    /**
+     * A PLACED FILM IS ONE ITEM, never a block of episodes. It reaches the
+     * queue as a marker rather than a playable item: which film it turns out
+     * to be is decided when the block comes up, not now, because the library
+     * can change between filling the queue and reaching this point and because
+     * "in order" has to read its position at the moment it is spent.
+     */
+    if (isMovieBlock(dealtId)) {
+      queue.push({ showId: MOVIE_BLOCK, movieBlock: true, episodeIndex: 0, relPath: null });
+      continue;
+    }
+
+    const show = byId.get(dealtId);
     if (!show || !hasEpisodesLeft(show)) continue;
 
     /**
@@ -629,10 +814,19 @@ function refillQueue(shows, state, options = {}) {
 function peek(shows, state, count = 3) {
   const byId = new Map(shows.map((s) => [s.id, s]));
   return (state.queue || []).slice(0, count).map((item) => {
+    /**
+     * A placed film is announced, not resolved. It has no episode — which one
+     * it will be is settled when the block comes up — and the filter below
+     * drops anything without one, so without this it would be invisible in Up
+     * Next: the sidebar would show the episodes either side of a film and no
+     * sign of the film itself, which is the opposite of the point of placing
+     * it somewhere on purpose.
+     */
+    if (item && item.movieBlock) return { ...item, show: null, episode: null, showName: 'Movie' };
     const show = byId.get(item.showId);
     const episode = show ? show.episodes[item.episodeIndex] : null;
     return decorate(item, show, episode);
-  }).filter((entry) => entry.episode);
+  }).filter((entry) => entry.episode || entry.movieBlock);
 }
 
 /** Attach the fields the UI renders, so the renderer never re-derives labels. */
@@ -667,6 +861,23 @@ function advance(shows, state, options = {}) {
   }
   const item = next.queue.shift();
   if (!item) return { state: next, item: null };
+
+  /**
+   * A PLACED FILM LEAVES THE QUEUE AND NOTHING ELSE HAPPENS HERE.
+   *
+   * It names no show, so writing a cursor for it would file playback progress
+   * under the id '__movie__' — a cursor for a show that does not exist, sitting
+   * in the same map the real ones live in — and it would land in the history
+   * as an episode that never played. Which film it is has not even been chosen
+   * yet; the caller does that, because the choice depends on the schedule's own
+   * list and on where its in-order position had got to at this moment.
+   */
+  if (item.movieBlock) {
+    const refilledForMovie = refillQueue(shows, next, { rng });
+    next.queue = refilledForMovie.queue;
+    next.deck = refilledForMovie.deck;
+    return { state: next, item: { ...item }, movieBlock: true };
+  }
 
   const byId = new Map(shows.map((s) => [s.id, s]));
   const show = byId.get(item.showId);
@@ -1258,7 +1469,21 @@ module.exports = {
   activeSchedule,
   activeBumperStyleId,
   openingScheduleId,
+  MOVIE_BLOCK,
+  isMovieBlock,
+  hasMovieBlocks,
+  normaliseSchedule,
+  moviesForSchedule,
+  nextScheduledMovie,
   showsInSchedule,
+  /**
+   * Exported so it can be ASKED. isEnabled is the real membership gate — every
+   * rotation path passes through it, while showsInSchedule only feeds the
+   * sidebar — and it reads a schedule's items with `.includes(show.id)`. That a
+   * reserved film token can never match a show id is the property the whole
+   * representation rests on, and it deserved a test rather than an argument.
+   */
+  isEnabled,
   blockSizeFor,
   createState,
   reconcileCursors,
