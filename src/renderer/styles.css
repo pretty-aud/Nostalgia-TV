@@ -5108,8 +5108,10 @@ input[type="range"]::-webkit-slider-thumb {
   height: auto;
 }
 .boxoffice__word {
-  /* BOLD. Small tracked type needs weight; a hairline at 26px disappears. */
-  font-weight: 700;
+  /* MEDIUM. Small tracked type needs SOME weight — a hairline at 26px
+     disappears — but bold against a 100-weight title is too much contrast:
+     the labels start shouting over the thing they are labelling. */
+  font-weight: 500;
   font-size: clamp(13px, 2vh, 28px);
   letter-spacing: 0.3em;
   margin-right: -0.3em;
@@ -5137,7 +5139,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .boxoffice__badge {
   margin: 0;
-  font-weight: 700;
+  font-weight: 500;
   font-size: clamp(11px, 1.5vh, 19px);
   letter-spacing: 0.3em;
   color: #dfe4f2;
@@ -5157,7 +5159,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .boxoffice__thenlabel {
   margin: clamp(5px, 1vh, 15px) 0 0;
-  font-weight: 700;
+  font-weight: 500;
   font-size: clamp(10px, 1.35vh, 17px);
   letter-spacing: 0.3em;
   color: #96a0bb;

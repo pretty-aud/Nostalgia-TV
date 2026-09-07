@@ -44,10 +44,24 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-/** The rule, in one place. */
-const FRACTION = 0.12;
-const FLOOR_SECONDS = 90;
-const CAP_SECONDS = 600;
+/**
+ * The rule, in one place.
+ *
+ * DEEPER THAN IT STARTED, because the first numbers kept landing in opening
+ * credits. 12% of a 24-minute episode is 2m53, and this library is largely
+ * anime, where an opening routinely runs past three minutes once a cold open
+ * is counted — so the "past the credits" rule was sampling the credits.
+ *
+ *   22%   a 24-minute episode now comes from 5m17, a 45-minute one from 9m54.
+ *   180s  no sample from the first three minutes at all, which is the floor
+ *         that actually clears a title sequence rather than just a logo.
+ *   900s  the spoiler guard, raised from 600 so a feature is sampled fifteen
+ *         minutes in rather than ten — still inside the first act of anything
+ *         feature length, which is the point of having a cap.
+ */
+const FRACTION = 0.22;
+const FLOOR_SECONDS = 180;
+const CAP_SECONDS = 900;
 
 /**
  * Where to take the background from, given a runtime.

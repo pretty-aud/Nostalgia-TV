@@ -314,3 +314,48 @@ describe('a half-written clip', () => {
     expect(fs.existsSync(target.replace(/.mp4$/, '.part.mp4'))).toBe(false);
   });
 });
+
+/**
+ * DEEP ENOUGH TO CLEAR A TITLE SEQUENCE — as minutes, not as arithmetic.
+ *
+ * Every other test here is written in terms of FRACTION, FLOOR and CAP, so it
+ * passes at any depth whatsoever. That is how the original numbers survived:
+ * 12% of a 24-minute episode is 2m53, and this library is largely anime, where
+ * an opening routinely runs past three minutes once a cold open is counted. The
+ * rule meant to skip the credits was sampling the credits, and no test could
+ * have said so, because they all agreed with whatever the constants were.
+ *
+ * These state the REQUIREMENT instead. Lower the constants and they fail.
+ */
+describe('how deep the background is taken from, in minutes', () => {
+  const MINUTE = 60;
+  const at = (minutes) => seekFor(minutes * MINUTE, 10) / MINUTE;
+
+  it('clears the opening of a half-hour episode', () => {
+    // A 24-minute episode with a 90-second opening after a cold open: nothing
+    // before about four minutes is reliably past it.
+    expect(at(24)).toBeGreaterThan(4);
+  });
+
+  it('clears the opening of a three-quarter-hour episode', () => {
+    expect(at(45)).toBeGreaterThan(6);
+  });
+
+  it('is well past the front of a feature film', () => {
+    expect(at(100)).toBeGreaterThan(10);
+    expect(at(140)).toBeGreaterThan(10);
+  });
+
+  it('still refuses to go so deep it spoils one', () => {
+    // The cap is the other half of the rule. Fifteen minutes into a feature is
+    // inside the first act; an hour in is the plot.
+    expect(at(140)).toBeLessThan(20);
+    expect(at(180)).toBeLessThan(20);
+  });
+
+  it('takes a short interstitial from its middle rather than its title card', () => {
+    // Two minutes cannot honour a three-minute floor; the middle is the best
+    // available answer, and it is still not the first frame.
+    expect(seekFor(2 * MINUTE, 10)).toBeGreaterThan(20);
+  });
+});
