@@ -4979,6 +4979,21 @@ input[type="range"]::-webkit-slider-thumb {
 
 .boxoffice__still,
 .boxoffice__clip {
+  /*
+   * ABSOLUTE, or they stack instead of overlapping.
+   *
+   * Both are height:100% inside the same box. Left in normal flow the image
+   * fills it and the video is laid out BELOW, off the bottom of the frame —
+   * so the clip decoded perfectly, reported itself playing, and was never on
+   * screen. It also explains the one screen grab where the picture appeared
+   * as a band near the bottom: that was the video, pushed down past the still.
+   *
+   * The clip comes after the still in the markup, so it paints over it — the
+   * still is the thing showing while a clip is not ready, and must be behind
+   * it rather than instead of it.
+   */
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
