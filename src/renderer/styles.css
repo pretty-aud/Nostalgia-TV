@@ -4899,11 +4899,28 @@ input[type="range"]::-webkit-slider-thumb {
 .setsched__drop:hover { color: var(--ink); background: var(--lift); }
 .setsched__drop:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
 
+/* The list and the hint that names it, stacked. min-height: 0 so the list's own
+   scrolling still works inside a flex column. */
+.setsched__area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .setsched__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  /* POINTER-EVENTS: NONE is the load-bearing line. The hint lies across the
+     whole drop area, and without this it would become the drop target for the
+     exact gesture it is asking for — a paragraph that swallows the drop it
+     invites. */
+  pointer-events: none;
   font-size: var(--t-meta);
   color: var(--ink-faint);
   text-align: center;
-  padding: calc(var(--u) * 2) 0 0;
+  padding: 0 var(--u);
   margin: 0;
 }
 

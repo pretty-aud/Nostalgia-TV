@@ -1209,8 +1209,20 @@
           <span class="mono setsched__n" id="schedCount"></span>
         </h3>
         <p class="setsched__hint">Top plays first. Drag to reorder, or drag a show back to the right to remove it.</p>
-        <ol class="setsched__list" id="schedOrder" aria-label="The running order"></ol>
-        <p class="setsched__empty" id="schedEmpty">Drag shows here to build a running order.</p>
+        <!--
+          THE PROMPT SITS OVER THE BOX, not under it.
+
+          It used to be a sibling BELOW the list, so "Drag shows here" appeared
+          underneath a 220px empty rectangle and pointed at nothing — inviting a
+          drop onto a paragraph that was never a drop target. Wrapping the two
+          lets the hint lie inside the area it names, and pointer-events: none
+          means a drag passes straight through it to the list underneath: a hint
+          must never be a target.
+        -->
+        <div class="setsched__area">
+          <ol class="setsched__list" id="schedOrder" aria-label="The running order"></ol>
+          <p class="setsched__empty" id="schedEmpty">Drag shows here to build a running order.</p>
+        </div>
       </section>
 
       <section class="setsched__col" aria-labelledby="schedPoolHead">
