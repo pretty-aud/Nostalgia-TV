@@ -18,8 +18,13 @@ const asar = path.join(
   'Programs', 'nostalgia-tv', 'resources', 'app.asar',
 );
 
-const planeManager = extractFile(asar, 'electron/planeManager.js').toString();
-const main = extractFile(asar, 'electron/main.js').toString();
+// path.join, not a forward-slash literal: extractFile looks entries up with
+// path.sep, and a nested forward-slash path reports 'not found in this
+// archive' — the same message a genuinely missing file gives. This file only
+// reads one-level paths, which happen to resolve either way, so it passed and
+// gave no hint the form was wrong until check-shipped-upnext.mjs hit it.
+const planeManager = extractFile(asar, path.join('electron', 'planeManager.js')).toString();
+const main = extractFile(asar, path.join('electron', 'main.js')).toString();
 
 const checks = [
   ['the overlay is maximizable — the WS_MAXIMIZEBOX Windows snaps on',
