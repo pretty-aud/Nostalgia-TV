@@ -106,6 +106,16 @@
   font-display: block;      /* block, like the rest: a reflow reads as a glitch */
 }
 @font-face {
+  font-family: "Raleway";
+  src: url("fonts/raleway.woff2") format("woff2-variations");
+  /* A RANGE, because the box office uses both ends of it: Thin for the titles
+     and Bold for the small tracked labels. One file, one rule — two statics
+     would be two downloads for one family. */
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
   font-family: "Oswald";
   src: url("fonts/oswald-semibold.woff2") format("woff2");
   font-weight: 600;
@@ -4911,7 +4921,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: #000;
   overflow: hidden;
   text-shadow: none;
-  font-family: Oswald, "Arial Narrow", sans-serif;
+  font-family: Raleway, "Helvetica Neue", Helvetica, Arial, sans-serif;
   color: #fff;
   --band-top: 50%;
   --band-bot: 50%;
@@ -5098,7 +5108,8 @@ input[type="range"]::-webkit-slider-thumb {
   height: auto;
 }
 .boxoffice__word {
-  font-weight: 600;
+  /* BOLD. Small tracked type needs weight; a hairline at 26px disappears. */
+  font-weight: 700;
   font-size: clamp(13px, 2vh, 28px);
   letter-spacing: 0.3em;
   margin-right: -0.3em;
@@ -5126,7 +5137,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .boxoffice__badge {
   margin: 0;
-  font-weight: 600;
+  font-weight: 700;
   font-size: clamp(11px, 1.5vh, 19px);
   letter-spacing: 0.3em;
   color: #dfe4f2;
@@ -5134,7 +5145,10 @@ input[type="range"]::-webkit-slider-thumb {
 
 .boxoffice__lead {
   margin: 0;
-  font-weight: 600;
+  /* THIN, and size carries it. The reference sets its title in a hairline
+     weight; at 78px Raleway Thin has real presence, and the wash beneath is
+     what keeps it legible over moving picture rather than the weight. */
+  font-weight: 100;
   font-size: clamp(24px, 5.6vh, 78px);
   line-height: 1.04;
   letter-spacing: 0.006em;
@@ -5143,7 +5157,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .boxoffice__thenlabel {
   margin: clamp(5px, 1vh, 15px) 0 0;
-  font-weight: 600;
+  font-weight: 700;
   font-size: clamp(10px, 1.35vh, 17px);
   letter-spacing: 0.3em;
   color: #96a0bb;
@@ -5157,7 +5171,9 @@ input[type="range"]::-webkit-slider-thumb {
   gap: clamp(1px, 0.25vh, 5px);
 }
 .boxoffice__row {
-  font-weight: 600;
+  /* Light like the lead — these are titles too, just quieter ones. Not 100:
+     at 28px a hairline is fragile over picture in a way it is not at 78. */
+  font-weight: 200;
   font-size: clamp(13px, 2vh, 28px);
   line-height: 1.14;
   letter-spacing: 0.05em;

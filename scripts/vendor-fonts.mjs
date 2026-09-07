@@ -73,6 +73,20 @@ const FONTS = [
     what: 'Roboto Condensed 400-700 variable — stands in for Helvetica Neue Condensed Bold',
   },
   {
+    /**
+     * VARIABLE, 100 to 700, because the box office uses both ends of it.
+     *
+     * Thin for the titles and Bold for the small tracked labels — two static
+     * files would be two downloads and two @font-face rules for one family,
+     * and the axis costs less than either.
+     */
+    file: 'raleway.woff2',
+    css: 'https://fonts.googleapis.com/css2?family=Raleway:wght@100..700&display=block',
+    licence: 'Raleway-LICENSE.txt',
+    licenceUrl: 'https://raw.githubusercontent.com/google/fonts/main/ofl/raleway/OFL.txt',
+    what: 'Raleway 100-700 variable — the box office',
+  },
+  {
     file: 'oswald-semibold.woff2',
     css: 'https://fonts.googleapis.com/css2?family=Oswald:wght@600&display=block',
     licence: 'Oswald-LICENSE.txt',
