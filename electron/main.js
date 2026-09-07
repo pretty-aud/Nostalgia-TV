@@ -1072,9 +1072,26 @@ function registerIpc() {
     const seconds = Number(clipSeconds);
     if (!Number.isFinite(seconds) || seconds <= 0) return null;
     try {
-      const ready = await bumperClip.readyClip(absPath, seconds);
+      /**
+       * The duration is REQUIRED — it is part of the cache key, through the
+       * seek. Called without one, the lookup computes a seek of zero and asks
+       * for a file that was never written; and since "no file" legitimately
+       * means "not cut yet", the card falls back to a still every time with
+       * nothing reporting a fault. That is exactly what shipped, and it is why
+       * clipPathFor now derives the path for both sides.
+       *
+       * inspect() is memoised and this file has already been probed to be
+       * played, so this costs nothing.
+       */
+      const probe = await prepare.inspect(absPath);
+      const ready = await bumperClip.readyClip(
+        absPath, probe && probe.durationMs ? probe.durationMs / 1000 : 0, seconds,
+      );
       return ready ? mediaUrlFor(ready) : null;
-    } catch {
+    } catch (error) {
+      // Was bare. A swallowed throw here is indistinguishable from "not ready
+      // yet", which is a legitimate answer — so a real fault reads as patience.
+      console.error('[bumper] could not look for the backdrop clip:', error.message);
       return null;
     }
   });

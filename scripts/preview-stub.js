@@ -37,6 +37,7 @@
   });
 
   window.tv = {
+    isDebug: false,
     pickFolder: async () => null,
     pickBumperMusic: async () => null,
     // A track the preview cannot actually play — the shots that exercise the

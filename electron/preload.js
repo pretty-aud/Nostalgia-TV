@@ -8,6 +8,15 @@ const { contextBridge, ipcRenderer } = require('electron');
  * bug (or injected string) in the UI cannot reach an arbitrary main handler.
  */
 contextBridge.exposeInMainWorld('tv', {
+  /**
+   * DEBUG MODE, from the environment the app was launched with.
+   *
+   * Read here rather than in the renderer because the renderer has no
+   * process.env — and read from the environment rather than a setting so it
+   * cannot be left switched on by a saved file. NTV_DEBUG=1 is the only way
+   * in, which means a packaged app started from the Start menu never has it.
+   */
+  isDebug: process.env.NTV_DEBUG === '1',
   pickFolder: () => ipcRenderer.invoke('library:pick'),
   scan: (rootPath) => ipcRenderer.invoke('library:scan', rootPath),
 

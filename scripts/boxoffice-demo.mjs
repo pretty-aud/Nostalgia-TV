@@ -170,13 +170,27 @@ async function main() {
    * so this needs no test-only surface — and registering the listener inside
    * the loop would stack a fresh one on every card.
    */
+  /**
+   * COUNT the duration reports, do not reset a value and wait for it.
+   *
+   * mpv announces a duration once, when a file loads. Zeroing the value at the
+   * top of each round and waiting for it to come back races that announcement:
+   * if the next programme had already loaded and reported, the zero erased the
+   * only report there was going to be, and round two waited for ever. Counting
+   * lets a round wait for a report NEWER than the one it started with, which
+   * cannot be lost.
+   */
   await evaluate(ws, `window.__demoDuration = 0;
+    window.__demoSeen = 0;
     window.tv.onMpvProp((name, value) => {
-      if (name === 'duration' && typeof value === 'number') window.__demoDuration = value;
+      if (name === 'duration' && typeof value === 'number' && value > 0) {
+        window.__demoDuration = value;
+        window.__demoSeen += 1;
+      }
     });
     true`);
 
-  for (let round = 1; round <= 1; round += 1) {
+  for (let round = 1; round <= 3; round += 1) {
     const now = await evaluate(ws, "document.getElementById('npShow').textContent");
 
     /**
@@ -187,14 +201,17 @@ async function main() {
      * Six seconds rather than one, so the resume-save and the end-of-file
      * handling run the way they normally would instead of being skipped past.
      */
-    await evaluate(ws, `window.__demoDuration = 0;
-      window.__demoPos = 0;
+    const seenBefore = await evaluate(ws, 'window.__demoSeen || 0');
+    await evaluate(ws, `window.__demoPos = 0;
       window.tv.onMpvProp((name, value) => {
         if (name === 'time-pos' && typeof value === 'number') window.__demoPos = value;
       });
       true`);
+    // A report at least as new as this round, rather than "any report" —
+    // the previous programme's duration is still sitting in the variable.
     const duration = await until(ws, 'mpv to report a duration',
-      'window.__demoDuration > 0 ? window.__demoDuration : 0', 30000);
+      `(window.__demoSeen > ${round === 1 ? -1 : seenBefore - 1} && window.__demoDuration > 0)
+        ? window.__demoDuration : 0`, 45000);
     const target = Math.max(0, Math.round(duration - 6));
     await evaluate(ws, `window.tv.mpvSeek(${target}); true`);
     await sleep(1500);

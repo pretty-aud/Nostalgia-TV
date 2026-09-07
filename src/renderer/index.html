@@ -352,25 +352,27 @@
       <div class="boxoffice__wash" aria-hidden="true"></div>
 
       <!--
-        ONE BLOCK at lower left, and the badge inside it TRAVELS.
-        The reference opens with the lockup centred on black, then carries it
-        down to where it will sit for the rest of the card. Two separate
-        elements fading in two places would read as two things appearing; one
-        element moving reads as the same thing arriving.
-      -->
-      <div class="boxoffice__block">
-        <p class="boxoffice__badge" id="boxofficeBadge">
-          <!-- The mark is REVEALED from behind the word, not faded: a mask
-               that opens outward, which is the entrance the reference uses. -->
-          <span class="boxoffice__mark" id="boxofficeMark" aria-hidden="true"></span>
-          <span class="boxoffice__word">Up next</span>
-        </p>
+        THE OPENER — centred, on its own black plate, and it never travels.
 
-        <div class="boxoffice__plate">
-          <h2 class="boxoffice__lead" id="boxofficeLead"></h2>
-          <p class="boxoffice__thenlabel">Followed by</p>
-          <ol class="boxoffice__list" id="boxofficeList"></ol>
-        </div>
+        Read frame by frame at 15fps, the reference does this: the lockup
+        UNFURLS HORIZONTALLY from a compressed sliver ("H t" -> "HB xt" ->
+        "HBO Next"), holds while a band of picture opens behind it, and is
+        then WIPED AWAY left to right along with its plate. It is not the same
+        object as the lower third, which fades up separately afterwards — an
+        earlier version had this one travel into the corner, a move the
+        reference never makes.
+      -->
+      <div class="boxoffice__opener" aria-hidden="true">
+        <span class="boxoffice__mark" id="boxofficeMark"></span>
+        <span class="boxoffice__word">Up next</span>
+      </div>
+
+      <!-- The lower third, which simply fades in where it belongs. -->
+      <div class="boxoffice__block">
+        <p class="boxoffice__badge">Up next</p>
+        <h2 class="boxoffice__lead" id="boxofficeLead"></h2>
+        <p class="boxoffice__thenlabel">Followed by</p>
+        <ol class="boxoffice__list" id="boxofficeList"></ol>
       </div>
     </section>
 

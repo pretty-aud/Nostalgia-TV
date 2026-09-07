@@ -1383,7 +1383,6 @@ async function showBoxOffice(onDone, leadOverride) {
    * fresh clone genuinely has none until scripts/vendor-audio.mjs runs.
    */
   const backdrop = state.settings.bumperBackground || 'still';
-  if (window.tv.bumperCue) window.tv.bumperCue(`diag-${backdrop}.mp3`).catch(() => {});
   const leadPath = lead.episode && lead.episode.absPath;
   const [cuePath, stillUrl, clipUrl] = await Promise.all([
     window.tv.bumperCue ? window.tv.bumperCue(BOX_OFFICE_CUE).catch(() => null) : null,
@@ -1419,8 +1418,7 @@ async function showBoxOffice(onDone, leadOverride) {
     list.append(row);
   }
   // Nothing after the lead: the heading would be introducing an empty list.
-  el('boxofficeBadge').parentElement
-    .querySelector('.boxoffice__thenlabel').hidden = rows.length < 2;
+  card.querySelector('.boxoffice__thenlabel').hidden = rows.length < 2;
 
   el('boxofficeMark').innerHTML = markSvg({ size: 58, title: null });
 
@@ -1461,24 +1459,6 @@ async function showBoxOffice(onDone, leadOverride) {
   card.dataset.beat = 'in';
   card.hidden = false;
 
-  /**
-   * MEASURE THE TRAVEL, once the card is laid out and before it animates.
-   *
-   * The badge opens in the middle of the screen and carries down to its
-   * resting place at lower left. CSS cannot express that offset: where the
-   * badge rests depends on its own size and on the block beneath it, so the
-   * distance to the centre is only knowable after layout. So it is measured
-   * here and handed to the stylesheet as two custom properties, and every
-   * beat that wants the badge centred just reads them.
-   *
-   * Read AFTER card.hidden = false — a hidden element measures zero, and the
-   * badge would open exactly where it ends, which is the version she saw and
-   * called not very dynamic.
-   */
-  const badge = el('boxofficeBadge');
-  const at = badge.getBoundingClientRect();
-  card.style.setProperty('--travel-x', `${Math.round((window.innerWidth / 2) - (at.x + at.width / 2))}px`);
-  card.style.setProperty('--travel-y', `${Math.round((window.innerHeight / 2) - (at.y + at.height / 2))}px`);
   app.dataset.bumperStyle = 'boxoffice';
   app.dataset.view = 'bumper';
   playingBumperClip = true;
@@ -1507,12 +1487,34 @@ async function showBoxOffice(onDone, leadOverride) {
    * around 8 — leaving it to the last moment would cut the collapse off
    * mid-move when the card ends.
    */
+  /**
+   * The beats, read off the reference at fifteen frames a second.
+   *
+   *   0.15  the lockup unfurls horizontally from a sliver   (unfurl)
+   *   0.95  a soft-edged band of picture opens behind it    (band)
+   *   2.10  the plate wipes away and the band opens out     (wipe)
+   *   2.10  ── THE PICTURE HAS THE FRAME TO ITSELF ──
+   *   4.30  the lower third fades in where it belongs       (titles)
+   *   7.60  it fades; the picture collapses to the band     (close)
+   *   9.00  the lockup compresses back to a sliver          (out)
+   *
+   * THE GAP BETWEEN 2.1 AND 4.3 IS THE POINT, and it was missing. The band
+   * takes about 900ms to open, so titles at 3.0s arrived while it was still
+   * opening — the picture never once had the frame to itself, and what she
+   * saw was a bar that never became anything. Two clear seconds of moving
+   * picture is what makes the reveal read as a reveal.
+   *
+   * The card runs 10.08s, the length of its cue, so the exit has to START
+   * near seven and a half — left later, the collapse is cut off mid-move.
+   */
   const BEATS = [
-    [300, () => { card.dataset.beat = 'open'; }],
-    [1500, () => { card.dataset.beat = 'titles'; }],
-    [2300, () => { card.dataset.beat = 'hold'; }],
-    [8200, () => { card.dataset.beat = 'close'; }],
-    [9300, () => { card.dataset.beat = 'out'; }],
+    [150, () => { card.dataset.beat = 'unfurl'; }],
+    [950, () => { card.dataset.beat = 'band'; }],
+    [2100, () => { card.dataset.beat = 'wipe'; }],
+    [4300, () => { card.dataset.beat = 'titles'; }],
+    [5200, () => { card.dataset.beat = 'hold'; }],
+    [7600, () => { card.dataset.beat = 'close'; }],
+    [9000, () => { card.dataset.beat = 'out'; }],
   ];
 
   const timers = BEATS.map(([at, run]) => setTimeout(run, at));
@@ -1556,6 +1558,80 @@ async function showBoxOffice(onDone, leadOverride) {
   card.addEventListener('click', onClick);
 
   endTimer = setTimeout(finish, secondsFor('boxoffice') * 1000);
+}
+
+/**
+ * DEBUG MODE — play an up-next card on its own, with footage, on demand.
+ *
+ * Reviewing one of these used to mean watching an episode to its end, then a
+ * sting, then a promo, then the card: about two minutes per look, and three
+ * looks in a row went past with nothing to show for them. That is not a review
+ * loop, it is a waiting room.
+ *
+ * So: raise the card directly, and — this is the part that matters — make sure
+ * there is REAL FOOTAGE behind it first. The whole question about this card is
+ * how it reads over moving picture, and a review that keeps landing on the
+ * still fallback answers nothing. It picks a real programme from the library,
+ * waits for the clip to be cut, and only then plays.
+ *
+ * Gated on NTV_DEBUG=1 in the environment, read in the preload where there is
+ * a process to read it from. Not a setting: a setting could be left switched
+ * on in a saved file, and this exposes an entry point into the renderer.
+ */
+if (window.tv.isDebug) {
+  window.__debug = {
+    /**
+     * Play one up-next card and resolve when it has finished.
+     *
+     * `wait` decides whether to hold for the moving backdrop. On by default,
+     * because a card that quietly used the still is the thing being debugged.
+     */
+    async playUpNext({ style = 'boxoffice', background = 'video', wait = true } = {}) {
+      state = applySettings(shows, state, { bumperStyle: style, bumperBackground: background }, {});
+
+      const lead = peek(shows, state, 1)[0];
+      const absPath = lead && lead.episode && lead.episode.absPath;
+      const report = { style, background, lead: lead ? lead.showName : null, backdrop: 'none' };
+
+      if (wait && background === 'video' && absPath && window.tv.prepareBumperClip) {
+        const seconds = secondsFor(style);
+        await window.tv.prepareBumperClip(absPath, seconds).catch(() => {});
+        // Poll rather than await the cut: the prepare call returns at once by
+        // design, and the point here is to find out WHEN footage is ready.
+        const until = performance.now() + 90000;
+        while (performance.now() < until) {
+          // eslint-disable-next-line no-await-in-loop
+          const ready = await window.tv.bumperClip(absPath, seconds).catch(() => null);
+          if (ready) { report.backdrop = 'moving clip'; break; }
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+
+      await new Promise((resolve) => {
+        if (style === 'boxoffice') showBoxOffice(resolve, null);
+        else if (isFixedLength(style)) showAdultSwimBumper(resolve, null);
+        else showBumper(resolve, null);
+      });
+      return report;
+    },
+
+    /** What the card is actually showing, for a script to check from outside. */
+    inspect() {
+      const card = el('boxoffice');
+      const clip = el('boxofficeClip');
+      const still = el('boxofficeStill');
+      return {
+        beat: card.dataset.beat || null,
+        band: getComputedStyle(card).getPropertyValue('--band-top').trim(),
+        clip: clip.hidden ? null : clip.getAttribute('src'),
+        clipPlaying: !clip.hidden && !clip.paused && clip.currentTime > 0,
+        clipTime: clip.currentTime,
+        clipSize: `${clip.videoWidth}x${clip.videoHeight}`,
+        still: still.hidden ? null : String(still.getAttribute('src')).slice(0, 24),
+      };
+    },
+  };
 }
 
 /**

@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
-  seekFor, clipArgs, FRACTION, FLOOR_SECONDS, CAP_SECONDS,
+  seekFor, clipArgs, clipPathFor, readyClip, clipFor, init,
+  FRACTION, FLOOR_SECONDS, CAP_SECONDS,
 } from '../electron/bumperClip.js';
 
 /**
@@ -134,5 +138,179 @@ describe('the ffmpeg call that cuts it', () => {
 
   it('writes a file a <video> can start before it has all of it', () => {
     expect(pair('-movflags')).toBe('+faststart');
+  });
+});
+
+/**
+ * CUTTING AND LOOKING UP MUST AGREE ABOUT THE FILENAME.
+ *
+ * They did not, and the way they failed is the reason this test exists rather
+ * than a comment. The duration is part of the key, through the seek. The
+ * lookup was called without one, computed a seek of zero, and asked for a file
+ * that had never been written — and "no file" is a LEGITIMATE answer meaning
+ * "not cut yet", so the card fell back to a still on every single card and
+ * nothing anywhere reported a fault. It was found by instrumenting the running
+ * app, not by any test, and it shipped through a full end-to-end run that
+ * reported "backdrop: still frame" as though that were fine.
+ *
+ * Both sides now derive the path from one function. These check that they
+ * still do, and that the arguments cannot quietly swap places.
+ */
+describe('finding the clip that was cut', () => {
+  const dir = path.join(os.tmpdir(), 'ntv-clip-key-test');
+
+  beforeEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    init({ dir, findFfmpeg: () => null });
+  });
+
+  /** A stand-in for a source file; only its size and mtime reach the key. */
+  const source = () => {
+    const file = path.join(dir, 'source.mkv');
+    fs.writeFileSync(file, 'x');
+    return file;
+  };
+
+  it('looks in exactly the place a cut would have written to', async () => {
+    const file = source();
+    const written = await clipPathFor(file, 1419, 10);
+    fs.writeFileSync(written, 'not really an mp4, but it has a size');
+    expect(await readyClip(file, 1419, 10)).toBe(written);
+  });
+
+  /**
+   * THE ACTUAL BUG, as a test. A lookup that forgets the duration must not
+   * silently answer "nothing is ready" — which is what made this invisible.
+   */
+  it('does not find the clip when the duration is left out', async () => {
+    const file = source();
+    fs.writeFileSync(await clipPathFor(file, 1419, 10), 'x');
+    // undefined duration -> seek 0 -> a different key entirely.
+    expect(await readyClip(file, undefined, 10)).toBe(null);
+    expect(await clipPathFor(file, undefined, 10)).not.toBe(await clipPathFor(file, 1419, 10));
+  });
+
+  it('takes its arguments in the same order as the cut does', async () => {
+    // Swapping duration and clip length gives a different file, so the two
+    // calls cannot drift into different orders without this failing.
+    const file = source();
+    expect(await clipPathFor(file, 1419, 10)).not.toBe(await clipPathFor(file, 10, 1419));
+  });
+
+  it('re-cuts when the source file changes under the same name', async () => {
+    const file = source();
+    const before = await clipPathFor(file, 1419, 10);
+    fs.writeFileSync(file, 'a different recording, same filename');
+    expect(await clipPathFor(file, 1419, 10)).not.toBe(before);
+  });
+
+  it('answers null rather than throwing when nothing has been cut', async () => {
+    expect(await readyClip(source(), 1419, 10)).toBe(null);
+  });
+});
+
+/**
+ * A CLIP ONLY EXISTS WHEN IT IS FINISHED.
+ *
+ * The readiness check asked whether the file was non-empty. ffmpeg writes an
+ * mp4 progressively, so a clip still being cut IS non-empty — the card was
+ * handed a truncated file, the <video> refused to decode it, and the still
+ * underneath showed through. On the first play of every session, with every
+ * report saying success.
+ *
+ * Measured with the debug preview: card one "clip decoding: NO", card two
+ * "yes, 1280x720, reached 7.5s". The only difference was that by the second
+ * card the cut had finished.
+ *
+ * So ffmpeg writes to a .part and the finished file is renamed into place.
+ * Existence and completeness become the same fact.
+ */
+describe('a half-written clip', () => {
+  const dir = path.join(os.tmpdir(), 'ntv-clip-partial-test');
+
+  beforeEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    init({ dir, findFfmpeg: () => null });
+  });
+
+  const source = () => {
+    const file = path.join(dir, 'source.mkv');
+    fs.writeFileSync(file, 'x');
+    return file;
+  };
+
+  it('is not reported as ready', async () => {
+    const file = source();
+    const target = await clipPathFor(file, 1419, 10);
+    // What a cut in progress looks like on disk: bytes under the .part name,
+    // nothing yet under the real one.
+    fs.writeFileSync(target.replace(/.mp4$/, '.part.mp4'), 'the first two seconds of an mp4');
+    expect(await readyClip(file, 1419, 10)).toBe(null);
+  });
+
+  it('is reported as ready once it has been renamed into place', async () => {
+    const file = source();
+    const target = await clipPathFor(file, 1419, 10);
+    const partial = target.replace(/.mp4$/, '.part.mp4');
+    fs.writeFileSync(partial, 'bytes');
+    fs.renameSync(partial, target);
+    expect(await readyClip(file, 1419, 10)).toBe(target);
+  });
+
+  /**
+   * WATCHING THE REAL CALL, not rebuilding it.
+   *
+   * The first version of this test built the argument list itself and checked
+   * that — which passed happily while clipFor wrote straight to the final
+   * filename, the exact bug it was written to catch. A test that constructs
+   * its own subject is testing its own arithmetic.
+   */
+  it('asks ffmpeg for a .part, and only renames when the cut succeeds', async () => {
+    const asked = [];
+    init({
+      dir,
+      findFfmpeg: () => 'ffmpeg',
+      run: (args, outPath) => {
+        asked.push(outPath);
+        fs.writeFileSync(outPath, 'a finished clip');
+        return Promise.resolve(outPath);
+      },
+    });
+
+    const file = source();
+    const target = await clipPathFor(file, 1419, 10);
+    await clipFor(file, 1419, 10);
+
+    /**
+     * ".part" BEFORE the extension. ffmpeg picks its output format from the
+     * extension, so "clip.mp4.part" is a file it cannot guess a format for and
+     * it writes nothing at all — which is what appending .part actually did,
+     * breaking the clip and the still at once.
+     */
+    const partial = target.replace(/\.mp4$/, '.part.mp4');
+    expect(asked, 'ffmpeg was pointed at the wrong name').toEqual([partial]);
+    expect(partial.endsWith('.mp4'), 'the temp name lost its extension').toBe(true);
+    expect(fs.existsSync(target), 'the finished clip was never renamed into place').toBe(true);
+    expect(fs.existsSync(partial), 'the part file was left behind').toBe(false);
+  });
+
+  it('leaves nothing behind when the cut fails', async () => {
+    init({
+      dir,
+      findFfmpeg: () => 'ffmpeg',
+      run: (args, outPath) => {
+        fs.writeFileSync(outPath, 'half of one');
+        return Promise.reject(new Error('ffmpeg died'));
+      },
+    });
+
+    const file = source();
+    const target = await clipPathFor(file, 1419, 10);
+    await expect(clipFor(file, 1419, 10)).rejects.toThrow('ffmpeg died');
+    // A half-cut file under the real name would be handed out for ever.
+    expect(fs.existsSync(target)).toBe(false);
+    expect(fs.existsSync(target.replace(/.mp4$/, '.part.mp4'))).toBe(false);
   });
 });

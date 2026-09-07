@@ -4863,165 +4863,230 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ══ THE BOX OFFICE ════════════════════════════════════════════════════════
 
-   After HBO's on-air package. Rebuilt against the reference bumper itself
-   rather than a description of it — 1280x720 at 60fps, ten seconds, read at
-   four frames a second as two contact sheets.
+   After HBO's on-air package, rebuilt frame by frame from her reference clip
+   at 15 frames a second rather than from a description of the era.
 
-   What that showed, and what the first version got wrong:
+   THE GRAMMAR, as the frames actually show it:
 
-     1. THE MARK IS REVEALED FROM BEHIND THE WORD. Not a fade. A mask opens
-        outward and the mark emerges from under the type beside it.
-     2. THE LOCKUP TRAVELS. It opens centred on black and carries down to the
-        lower left, where it stays. Two elements fading in two places reads as
-        two things appearing; one element moving reads as one thing arriving.
-     3. THE PICTURE OPENS AS A BAND. A letterbox slit grows vertically to full
-        frame — it is never crossfaded in.
-     4. IT IS A BOOKEND. The exit is the entrance backwards: titles out,
-        picture collapses to a band, lockup returns to centre, mark wipes out.
-     5. The settled position is LOWER LEFT, and the picture is BRIGHT. The
-        first version centred the type and dimmed the backdrop to 55 percent,
-        which is why it read as flat.
+     0.00-0.80  the lockup UNFURLS HORIZONTALLY from a compressed sliver.
+                "H t" -> "HB xt" -> "HBO Next": the mark and the word separate
+                as it widens. It is a scaleX, and it is the signature move.
+     0.80-2.20  a BAND of picture opens behind it, soft-edged — the picture
+                fades to black at top and bottom rather than being cut off.
+     2.20-2.80  a WIPE travels left to right through the middle bar, taking
+                the plate and the lockup with it and leaving full picture.
+     2.80-3.60  the LOWER THIRD fades in, on its own, where it belongs.
+     7.40-9.00  it fades; the picture collapses back into the band.
+     9.00-9.80  the lockup compresses back to a sliver and is gone.
 
-   Fixed colours, fenced to this prefix, for the reason the schedule card
-   gives at length. Sized in vh: broadcast type is sized against the frame,
-   and the frame is defined by its height. */
+   An earlier version had the lockup TRAVEL from centre to corner. The
+   reference never does that: the opener is wiped away and the lower third is
+   a different object that fades up. That mistake is why it read as flat.
+
+   The soft-edged band is what she meant by the gradient. A hard clip-path
+   edge is invisible against black; the feather is the whole look. */
+
+/*
+ * Percentages that can be TRANSITIONED. A mask gradient's stops are not
+ * interpolatable on their own, so the band could not open smoothly without
+ * registering them as typed custom properties first.
+ */
+/*
+ * inherits: TRUE, and that one word is the whole feature.
+ *
+ * The band is set on the card and READ by the child that carries the mask.
+ * Registered with inherits:false the child never sees the card's value — it
+ * gets the initial 50% for ever, so the mask stays a closed slit while the
+ * card's own computed value animates perfectly. Every measurement said the
+ * band was open because every measurement read the PARENT; the screen showed
+ * a bar because the mask reads the CHILD.
+ */
+@property --band-top { syntax: '<percentage>'; inherits: true; initial-value: 50%; }
+@property --band-bot { syntax: '<percentage>'; inherits: true; initial-value: 50%; }
 
 .boxoffice {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: #05070d;          /* opaque: the plane below is live video */
+  background: #000;
   overflow: hidden;
   text-shadow: none;
   font-family: Oswald, "Arial Narrow", sans-serif;
   color: #fff;
+  --band-top: 50%;
+  --band-bot: 50%;
+  transition: --band-top 900ms cubic-bezier(0.2, 0, 0, 1),
+              --band-bot 900ms cubic-bezier(0.2, 0, 0, 1);
 }
 .boxoffice[hidden] { display: none; }
 .boxoffice [hidden] { display: none; }
 
 /**
- * THE BAND. The backdrop is clipped to a horizontal slit and opens vertically.
+ * THE BAND, with soft edges. This is the gradient in her note.
  *
- * clip-path rather than height, so the picture never rescales as it opens — a
- * band that grows by changing height squashes the image, which is a different
- * effect and an obviously wrong one.
+ * The picture is masked to a horizontal band whose edges FEATHER into black
+ * over about seven percent of the frame, so it reads as light falling off
+ * rather than as a letterbox. Cut hard, the same move is invisible against a
+ * black ground — which is exactly what the previous version looked like.
+ *
+ * The stops come from the two registered properties above, so opening the
+ * band is one transition rather than a keyframe animation that would have to
+ * know the frame height.
  */
 .boxoffice__bg {
   position: absolute;
   inset: 0;
-  clip-path: inset(50% 0 50% 0);
-  transition: clip-path 760ms cubic-bezier(0.2, 0, 0, 1);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--band-top) - 7%),
+    #000 var(--band-top),
+    #000 var(--band-bot),
+    transparent calc(var(--band-bot) + 7%));
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--band-top) - 7%),
+    #000 var(--band-top),
+    #000 var(--band-bot),
+    transparent calc(var(--band-bot) + 7%));
 }
-.boxoffice[data-beat="titles"] .boxoffice__bg,
-.boxoffice[data-beat="hold"] .boxoffice__bg { clip-path: inset(0 0 0 0); }
+
+/**
+ * NO DWELL AT THE HALFWAY POINT.
+ *
+ * The band passes through a partly-open state on the way in and on the way
+ * out, and that state is wanted — it is the lockup sitting in a bar of
+ * picture. What is not wanted is the MOTION stopping there: at a flat 900ms
+ * the band reached the bar and then sat for another 1150ms doing nothing
+ * before the wipe opened it the rest of the way, which reads as an animation
+ * that stalled and restarted.
+ *
+ * So each leg lasts exactly as long as its beat, and arrives just as the next
+ * one begins. One continuous move in each direction, with the bar as a place
+ * it passes through rather than a place it waits.
+ */
+.boxoffice[data-beat=band] { transition-duration: 1150ms; }   /* 0.95 -> 2.10 */
+.boxoffice[data-beat=wipe] { transition-duration: 900ms; }
+.boxoffice[data-beat=close] { transition-duration: 1400ms; }  /* 7.60 -> 9.00 */
+.boxoffice[data-beat=out] { transition-duration: 700ms; }
+
+/* Open: the feather runs off the frame, so the picture is full bleed. */
+.boxoffice[data-beat="wipe"],
+.boxoffice[data-beat="titles"],
+.boxoffice[data-beat="hold"] { --band-top: -8%; --band-bot: 108%; }
+/* The band, on the way in and on the way out. */
+.boxoffice[data-beat="band"],
+.boxoffice[data-beat="close"] { --band-top: 33%; --band-bot: 67%; }
 
 .boxoffice__still,
 .boxoffice__clip {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  /* Barely touched. The reference plays its clip BRIGHT and puts the type on a
-     gradient in the corner instead of dimming the whole picture. */
-  filter: saturate(0.9) brightness(0.82);
+  /* Barely touched — the reference plays its picture bright, and darkens only
+     behind the words. Dimming the whole frame is what made this look flat. */
+  filter: saturate(0.92) brightness(0.86);
 }
 
-/**
- * The wash sits under the type, not over the whole picture.
- *
- * Directional and soft, per the era's language, but weighted to the bottom
- * left where the words are. Dimming the entire frame to make white type
- * legible is what made the first version look like a web page with a photo
- * behind it.
- */
+/* A soft floor under the lower third, so white type stays readable without
+   putting a scrim over the picture. */
 .boxoffice__wash {
   position: absolute;
   inset: 0;
   opacity: 0;
-  transition: opacity 700ms ease;
-  background:
-    linear-gradient(0deg, rgba(4, 6, 12, 0.92) 0%, rgba(4, 6, 12, 0.55) 22%, rgba(4, 6, 12, 0) 52%),
-    linear-gradient(75deg, rgba(10, 16, 40, 0.66) 0%, rgba(10, 16, 40, 0) 58%);
+  transition: opacity 600ms ease;
+  background: linear-gradient(0deg,
+    rgba(0, 0, 0, 0.86) 0%, rgba(0, 0, 0, 0.45) 20%, rgba(0, 0, 0, 0) 46%);
 }
 .boxoffice[data-beat="titles"] .boxoffice__wash,
 .boxoffice[data-beat="hold"] .boxoffice__wash { opacity: 1; }
 
-/* Everything readable lives here, at lower left — measured off the reference,
-   where the block's baseline sits at about 92 percent of frame height. */
+/* ── the opener: unfurl, hold, wipe ───────────────────────────────────── */
+
+.boxoffice__opener {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1vw, 18px);
+  /* Its own black plate, as in the reference — the lockup sits on solid black
+     even while picture is showing above and below it. */
+  background: #000;
+  padding: clamp(6px, 1.1vh, 16px) clamp(14px, 2vw, 34px);
+  text-transform: uppercase;
+  /*
+   * THE UNFURL. scaleX from a sliver, about the centre — which is what makes
+   * the mark and the word appear to separate as it opens, exactly as the
+   * frames show. transform-origin is the middle for the same reason.
+   */
+  transform: translate(-50%, -50%) scaleX(0.02);
+  opacity: 0;
+  transition: transform 720ms cubic-bezier(0.16, 0.84, 0.24, 1),
+              opacity 200ms ease,
+              clip-path 620ms cubic-bezier(0.4, 0, 0.2, 1);
+  clip-path: inset(0 0 0 0);
+}
+.boxoffice[data-beat="unfurl"] .boxoffice__opener,
+.boxoffice[data-beat="band"] .boxoffice__opener,
+.boxoffice[data-beat="close"] .boxoffice__opener {
+  transform: translate(-50%, -50%) scaleX(1);
+  opacity: 1;
+}
+/* THE WIPE, left to right, taking the plate and the lockup together. */
+.boxoffice[data-beat="wipe"] .boxoffice__opener,
+.boxoffice[data-beat="titles"] .boxoffice__opener,
+.boxoffice[data-beat="hold"] .boxoffice__opener {
+  transform: translate(-50%, -50%) scaleX(1);
+  opacity: 1;
+  clip-path: inset(0 0 0 100%);
+}
+/* And out: compressed back to a sliver, the entrance in reverse. */
+.boxoffice[data-beat="out"] .boxoffice__opener {
+  transform: translate(-50%, -50%) scaleX(0.02);
+  opacity: 0;
+  transition: transform 620ms cubic-bezier(0.7, 0, 0.84, 0), opacity 300ms ease 380ms;
+}
+
+.boxoffice__mark { display: block; }
+.boxoffice__mark svg {
+  display: block;
+  width: clamp(24px, 3.8vh, 52px);
+  height: auto;
+}
+.boxoffice__word {
+  font-weight: 600;
+  font-size: clamp(13px, 2vh, 28px);
+  letter-spacing: 0.3em;
+  margin-right: -0.3em;
+  color: #f2f4fa;
+  /* Counter the plate's horizontal squash so the letters do not smear while
+     it unfurls — the reference's type stays crisp throughout. */
+  white-space: nowrap;
+}
+
+/* ── the lower third: it simply fades in ──────────────────────────────── */
+
 .boxoffice__block {
   position: absolute;
   left: 7vw;
   bottom: 9vh;
   display: grid;
-  gap: clamp(4px, 0.8vh, 12px);
+  gap: clamp(2px, 0.4vh, 7px);
   text-transform: uppercase;
+  opacity: 0;
+  transform: translateY(0.4em);
+  transition: opacity 620ms ease, transform 620ms cubic-bezier(0.2, 0, 0, 1);
 }
-
-/* ── the badge, which travels ─────────────────────────────────────────── */
+.boxoffice[data-beat="titles"] .boxoffice__block,
+.boxoffice[data-beat="hold"] .boxoffice__block { opacity: 1; transform: none; }
 
 .boxoffice__badge {
   margin: 0;
-  display: flex;
-  align-items: center;
-  gap: clamp(6px, 0.9vw, 16px);
-  /*
-   * --travel-x and --travel-y are written by the renderer, which measures the
-   * distance from this element's resting place to the middle of the screen.
-   * It cannot be done in CSS: the badge's own position depends on its size and
-   * on the block below it, so the offset is only knowable once it is laid out.
-   */
-  transform: translate(var(--travel-x, 0px), var(--travel-y, 0px));
-  transition: transform 780ms cubic-bezier(0.22, 0.61, 0.24, 1);
-}
-.boxoffice[data-beat="titles"] .boxoffice__badge,
-.boxoffice[data-beat="hold"] .boxoffice__badge { transform: none; }
-
-/**
- * The mark, revealed rather than faded.
- *
- * A clip that opens from the right edge, so the mark appears to slide out from
- * under the word beside it — which is what the reference does with the HBO
- * logo against "Next".
- */
-.boxoffice__mark {
-  display: block;
-  clip-path: inset(0 100% 0 0);
-  transition: clip-path 560ms cubic-bezier(0.2, 0, 0, 1);
-}
-.boxoffice[data-beat="open"] .boxoffice__mark,
-.boxoffice[data-beat="titles"] .boxoffice__mark,
-.boxoffice[data-beat="hold"] .boxoffice__mark { clip-path: inset(0 0 0 0); }
-.boxoffice__mark svg {
-  display: block;
-  width: clamp(26px, 4.2vh, 58px);
-  height: auto;
-}
-
-.boxoffice__word {
   font-weight: 600;
-  font-size: clamp(13px, 1.9vh, 26px);
-  /* Tracked out. Hierarchy in this package is size and tracking, never weight
-     or colour, so a small line still has to read as deliberate. */
-  letter-spacing: 0.32em;
-  margin-right: -0.32em;        /* the tracking's trailing gap, pulled back */
-  color: #e6eaf5;
-  opacity: 0;
-  transition: opacity 420ms ease;
+  font-size: clamp(11px, 1.5vh, 19px);
+  letter-spacing: 0.3em;
+  color: #dfe4f2;
 }
-.boxoffice[data-beat="open"] .boxoffice__word,
-.boxoffice[data-beat="titles"] .boxoffice__word,
-.boxoffice[data-beat="hold"] .boxoffice__word { opacity: 1; }
-
-/* ── the titles ───────────────────────────────────────────────────────── */
-
-.boxoffice__plate {
-  display: grid;
-  gap: clamp(3px, 0.5vh, 9px);
-  opacity: 0;
-  transform: translateY(0.5em);
-  transition: opacity 560ms ease, transform 560ms cubic-bezier(0.2, 0, 0, 1);
-}
-.boxoffice[data-beat="titles"] .boxoffice__plate,
-.boxoffice[data-beat="hold"] .boxoffice__plate { opacity: 1; transform: none; }
 
 .boxoffice__lead {
   margin: 0;
@@ -5032,10 +5097,8 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 22ch;
 }
 
-/* Her ask: say plainly that these come AFTER the one above. Set like the
-   badge — small, tracked, quiet — so it reads as a label and not a title. */
 .boxoffice__thenlabel {
-  margin: clamp(4px, 0.9vh, 14px) 0 0;
+  margin: clamp(5px, 1vh, 15px) 0 0;
   font-weight: 600;
   font-size: clamp(10px, 1.35vh, 17px);
   letter-spacing: 0.3em;
@@ -5058,27 +5121,12 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 26ch;
 }
 
-/* ── the exit, which is the entrance backwards ────────────────────────── */
-
-.boxoffice[data-beat="close"] .boxoffice__plate { opacity: 0; transform: translateY(0.3em); }
-.boxoffice[data-beat="close"] .boxoffice__bg { clip-path: inset(46% 0 46% 0); }
-.boxoffice[data-beat="close"] .boxoffice__wash { opacity: 0; }
-.boxoffice[data-beat="close"] .boxoffice__badge { transform: translate(var(--travel-x, 0px), var(--travel-y, 0px)); }
-
-.boxoffice[data-beat="out"] .boxoffice__bg { clip-path: inset(50% 0 50% 0); }
-.boxoffice[data-beat="out"] .boxoffice__plate { opacity: 0; }
-.boxoffice[data-beat="out"] .boxoffice__badge { transform: translate(var(--travel-x, 0px), var(--travel-y, 0px)); }
-.boxoffice[data-beat="out"] .boxoffice__mark { clip-path: inset(0 100% 0 0); }
-.boxoffice[data-beat="out"] .boxoffice__word { opacity: 0; }
-
 @media (prefers-reduced-motion: reduce) {
-  .boxoffice__bg,
-  .boxoffice__wash,
-  .boxoffice__badge,
-  .boxoffice__mark,
-  .boxoffice__word,
-  .boxoffice__plate { transition-duration: 1ms; }
-  .boxoffice__badge { transform: none; }
+  .boxoffice,
+  .boxoffice__opener,
+  .boxoffice__block,
+  .boxoffice__wash { transition-duration: 1ms; }
+  .boxoffice__opener { transform: translate(-50%, -50%) scaleX(1); }
 }
 
 .app[data-bumper-style="boxoffice"] .bumper { display: none; }

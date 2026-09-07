@@ -79,10 +79,26 @@ function seekFor(durationSeconds, clipSeconds = 0) {
 let cacheDir = null;
 let findFfmpeg = () => null;
 
+/**
+ * How a cut is actually performed, injectable — the same seam planeManager
+ * takes its Window through, and for the same reason.
+ *
+ * Without it, nothing can observe WHAT this module asks ffmpeg to do without
+ * running ffmpeg. A test that builds the argument list itself and checks that
+ * instead is testing its own arithmetic: it passed while the module wrote
+ * straight to the final filename, which is the bug it was written for.
+ */
+let runner = null;
+
 function init(options = {}) {
   cacheDir = options.dir || null;
   if (typeof options.findFfmpeg === 'function') findFfmpeg = options.findFfmpeg;
+  runner = typeof options.run === 'function' ? options.run : null;
 }
+
+const perform = (args, outPath, timeoutMs) => (runner
+  ? runner(args, outPath, timeoutMs)
+  : run(args, outPath, timeoutMs));
 
 /** Somewhere to put it that changes when the file does. */
 function cacheKey(absPath, stat, kind, seek) {
@@ -138,6 +154,21 @@ function run(args, outPath, timeoutMs) {
 const jobs = new Map();
 
 /**
+ * The name a cut is written under before it is finished.
+ *
+ * ".part" goes BEFORE the extension, never after, and that is not cosmetic:
+ * ffmpeg chooses its output format from the extension, so "clip.mp4.part" is a
+ * file whose format it cannot guess and it writes nothing at all. Appending
+ * .part broke both the clip and the still at once — every card came back with
+ * no backdrop — and the only reason it took a minute rather than an evening is
+ * that the swallowed error in the handler had just been unmasked.
+ */
+function partialOf(outPath) {
+  const ext = path.extname(outPath);
+  return `${outPath.slice(0, -ext.length)}.part${ext}`;
+}
+
+/**
  * A still frame from the chosen point, as a jpeg.
  *
  * Cheap — one frame, no encoding of consequence — and it is what the card
@@ -159,7 +190,11 @@ async function stillFor(absPath, durationSeconds) {
    * the input it decodes every frame up to the offset — twelve minutes of a
    * film, for one picture.
    */
-  await run([
+  // Aside then renamed, for the reason clipFor gives at length: a file that is
+  // still being written is a real file with a real size, and any readiness
+  // check that asks only "does it exist" will hand out half a picture.
+  const partial = partialOf(out);
+  await perform([
     '-hide_banner', '-loglevel', 'error', '-y',
     '-ss', String(seek),
     '-i', absPath,
@@ -168,8 +203,12 @@ async function stillFor(absPath, durationSeconds) {
     // background, and it is the vertical that decides whether it looks soft.
     '-vf', "scale=-2:'min(1080,ih)'",
     '-q:v', '3',
-    out,
-  ], out, 45000);
+    partial,
+  ], partial, 45000).catch(async (error) => {
+    await fsp.rm(partial, { force: true }).catch(() => {});
+    throw error;
+  });
+  await fsp.rename(partial, out);
 
   return out;
 }
@@ -180,11 +219,29 @@ async function stillFor(absPath, durationSeconds) {
  * The audio is dropped because mpv is already playing the bumper's cue over
  * this; two soundtracks at once is not a subtle bug.
  */
-async function clipFor(absPath, durationSeconds, clipSeconds) {
+/**
+ * WHERE A CLIP LIVES — the one place that decides, used by both sides.
+ *
+ * Cutting and looking-up used to derive this separately, and they diverged
+ * the first time somebody called the lookup with one argument missing. The
+ * duration is part of the key (through the seek), so a lookup without it
+ * computed a seek of zero and asked for a file that had never been written —
+ * and since "no file" is a legitimate answer meaning "not cut yet", the card
+ * fell back to a still every single time and nothing was wrong anywhere.
+ *
+ * One function, so there is nothing to keep in step. Same argument order as
+ * clipFor for the same reason.
+ */
+async function clipPathFor(absPath, durationSeconds, clipSeconds) {
   if (!cacheDir) throw new Error('bumperClip.init was never called');
   const stat = await fsp.stat(absPath);
   const seek = seekFor(durationSeconds, clipSeconds);
-  const out = path.join(cacheDir, `${cacheKey(absPath, stat, `clip${clipSeconds}`, seek)}.mp4`);
+  return path.join(cacheDir, `${cacheKey(absPath, stat, `clip${clipSeconds}`, seek)}.mp4`);
+}
+
+async function clipFor(absPath, durationSeconds, clipSeconds) {
+  const out = await clipPathFor(absPath, durationSeconds, clipSeconds);
+  const seek = seekFor(durationSeconds, clipSeconds);
 
   try {
     if ((await fsp.stat(out)).size > 0) return out;
@@ -194,7 +251,34 @@ async function clipFor(absPath, durationSeconds, clipSeconds) {
   if (existing) return existing;
 
   await fsp.mkdir(cacheDir, { recursive: true });
-  const job = run(clipArgs(absPath, seek, clipSeconds, out), out, 120000)
+
+  /**
+   * WRITE ASIDE, THEN RENAME. A file only appears when it is finished.
+   *
+   * This is not tidiness. ffmpeg writes the mp4 progressively, so a clip that
+   * is still being cut is a real file with a real size — and the readiness
+   * check, which asked only whether the file was non-empty, said yes. The card
+   * got a truncated mp4, the <video> refused to decode it, and the still
+   * underneath showed through: "the background is still just stills", on the
+   * FIRST play of every session, with everything reporting success.
+   *
+   * Measured with the debug preview: card one "clip decoding: NO", card two
+   * "yes, 1280x720" — the difference being that by the second card the cut had
+   * long finished. Renaming on the same volume is atomic, so existence and
+   * completeness become the same fact, and it holds across restarts in a way
+   * an in-memory flag would not.
+   */
+  const partial = partialOf(out);
+  const job = perform(clipArgs(absPath, seek, clipSeconds, partial), partial, 120000)
+    .then(async () => {
+      await fsp.rename(partial, out);
+      return out;
+    })
+    .catch(async (error) => {
+      // Never leave a half-cut file behind to be retried around forever.
+      await fsp.rm(partial, { force: true }).catch(() => {});
+      throw error;
+    })
     .finally(() => jobs.delete(out));
 
   jobs.set(out, job);
@@ -264,12 +348,10 @@ function clipArgs(absPath, seek, clipSeconds, out) {
  * — cheap, because inspect() is memoised and prepare() has already probed this
  * file to play it.
  */
-async function readyClip(absPath, clipSeconds, durationSeconds) {
+async function readyClip(absPath, durationSeconds, clipSeconds) {
   if (!cacheDir) return null;
   try {
-    const stat = await fsp.stat(absPath);
-    const seek = seekFor(durationSeconds, clipSeconds);
-    const out = path.join(cacheDir, `${cacheKey(absPath, stat, `clip${clipSeconds}`, seek)}.mp4`);
+    const out = await clipPathFor(absPath, durationSeconds, clipSeconds);
     return (await fsp.stat(out)).size > 0 ? out : null;
   } catch {
     return null;
@@ -287,6 +369,7 @@ module.exports = {
   CAP_SECONDS,
   seekFor,
   clipArgs,
+  clipPathFor,
   init,
   directory,
   stillFor,
