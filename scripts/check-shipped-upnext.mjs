@@ -52,6 +52,8 @@ const css = read('src', 'renderer', 'styles.css');
 const styles = read('src', 'shared', 'bumperStyles.js');
 const music = read('electron', 'bumperMusic.js');
 const clipper = read('electron', 'bumperClip.js');
+const html = read('src', 'renderer', 'index.html');
+const sched = read('src', 'shared', 'scheduler.js');
 
 const checks = [
   ['the style registry ships, with the schedule card in it',
@@ -122,12 +124,27 @@ const checks = [
   ['the debug entry point is gated on the environment',
     Boolean(bundle) && /isDebug/.test(bundle)],
 
+  // ── the settings rearrangement ────────────────────────────────────────
+  ['the three interstitial sections shipped as one',
+    Boolean(html) && /<h4 class="setsub">Up next<\/h4>/.test(html)
+      && !/<h3[^>]*>Promos<\/h3>/.test(html)],
+  ['schedules got their own section, with the editor in it',
+    Boolean(html) && /<h3 class="setgroup__head mono">Schedules<\/h3>/.test(html)
+      && (html.match(/id="btnOpenSchedule"/g) || []).length === 1],
+  ['the opening-schedule settings ship, and remember by default',
+    Boolean(sched) && /rememberLastSchedule: true,/.test(sched)
+      && /defaultScheduleId: null,/.test(sched)
+      && /function openingScheduleId/.test(sched)],
   /**
-   * THE CUE IS NOT IN THE ASAR, and must not be: mpv is a separate process and
-   * cannot read an archive, so it rides in extraResources as a real file. That
-   * makes it the one part of this feature a package-contents check cannot see
-   * — it has to be looked for on disk, beside the asar rather than inside it.
+   * It has to reach the QUEUE, not just the setting. The first version changed
+   * activeScheduleId before the library loaded, where nothing rebuilds the
+   * queue — so the channel kept playing the old running order while every
+   * control said otherwise.
    */
+  ['the opening schedule is applied through applySettings, after the library',
+    Boolean(bundle) && /applyOpeningSchedule/.test(bundle)
+      && /openingScheduleId/.test(bundle)],
+
   ['the baked cue ships beside the asar, as a real file',
     // resources/audio/box-office.mp3 — extraResources copies INTO resources,
     // which is the directory the asar itself sits in, not its parent.
