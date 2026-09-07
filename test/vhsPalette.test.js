@@ -46,10 +46,25 @@ describe('the contrast maths', () => {
 });
 
 describe('every VHS pair is legible', () => {
-  it('has sixteen of them', () => {
-    expect(allPairs()).toHaveLength(16);
-    expect(Object.keys(GROUNDS)).toHaveLength(4);
-    expect(Object.keys(INK_NAMES)).toHaveLength(4);
+  /**
+   * THE GRID IS COMPLETE, whatever size it is.
+   *
+   * This asserted sixteen, four and four, which is three numbers that have to
+   * be re-typed every time a colour is added and say nothing about what
+   * actually matters — that every ground crosses every ink with no gaps. It is
+   * the product now, so adding red took the count from 16 to 25 without
+   * anybody editing a literal, and a MISSING pair still fails.
+   */
+  it('is every ground crossed with every ink, with no gaps', () => {
+    const grounds = Object.keys(GROUNDS);
+    const inks = Object.keys(INK_NAMES);
+    expect(allPairs()).toHaveLength(grounds.length * inks.length);
+
+    const missing = [];
+    for (const g of grounds) {
+      for (const i of inks) if (!INKS[g] || !INKS[g][i]) missing.push(`${i} on ${g}`);
+    }
+    expect(missing, 'pairs the table does not resolve').toEqual([]);
   });
 
   it('clears WCAG AA for body text, all sixteen', () => {
@@ -71,12 +86,13 @@ describe('every VHS pair is legible', () => {
     }
   });
 
-  it('keeps the four inks on a ground distinguishable from each other', () => {
-    // Four options that resolve to near-identical colours would make the
-    // control pointless even though every pair passed on its own.
+  it('keeps the inks on a ground distinguishable from each other', () => {
+    // Options that resolve to near-identical colours would make the control
+    // pointless even though every pair passed on its own.
+    const wanted = Object.keys(INK_NAMES).length;
     for (const ground of Object.keys(GROUNDS)) {
       const inks = Object.keys(INK_NAMES).map((i) => INKS[ground][i]);
-      expect(new Set(inks).size, `${ground} has duplicate inks`).toBe(4);
+      expect(new Set(inks).size, `${ground} has duplicate inks`).toBe(wanted);
     }
   });
 
@@ -117,10 +133,11 @@ describe('what the rails draw', () => {
     expect(inkOptionsFor('white').white.swatch).not.toBe(inkOptionsFor('blue').white.swatch);
   });
 
-  it('offers four of each, labelled', () => {
-    expect(Object.keys(inkOptionsFor('blue'))).toHaveLength(4);
-    expect(Object.keys(groundOptions())).toHaveLength(4);
+  it('offers every ink and every ground, labelled', () => {
+    expect(Object.keys(inkOptionsFor('blue'))).toEqual(Object.keys(INK_NAMES));
+    expect(Object.keys(groundOptions())).toEqual(Object.keys(GROUNDS));
     expect(groundOptions().black.label).toBe('BLACK');
+    expect(groundOptions().red.label).toBe('RED');
   });
 });
 

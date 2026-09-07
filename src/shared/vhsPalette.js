@@ -27,20 +27,22 @@
  * Every pair is measured by test/vhsPalette.test.js against WCAG AA.
  */
 
-/** The four grounds, in menu order. */
+/** The five grounds, in menu order. Red sits before white, with the darks. */
 const GROUNDS = {
   blue:  { label: 'BLUE',  paper: '#0b0bb4' },
   black: { label: 'BLACK', paper: '#050505' },
   green: { label: 'GREEN', paper: '#063a0c' },
+  red:   { label: 'RED',   paper: '#3a050a' },
   white: { label: 'WHITE', paper: '#f4f4f4' },
 };
 
-/** The four inks, in menu order. */
+/** The five inks, in menu order. */
 const INK_NAMES = {
   white:  'WHITE',
   blue:   'BLUE',
   green:  'GREEN',
   orange: 'ORANGE',
+  red:    'RED',
 };
 
 /**
@@ -58,24 +60,51 @@ const INKS = {
     blue:   '#b3d2ff',
     green:  '#66f066',
     orange: '#ffb454',
+    // The blue ground is the brightest of the darks, so red has to come up
+    // with it — a saturated red measures 3.27:1 here and is simply illegible.
+    red:    '#ff8f8f',
   },
   black: {
     white:  '#f4f1ea',
     blue:   '#7fb2ff',
     green:  '#5be85b',
     orange: '#ffa733',
+    // THE BRIGHT DEEP RED she asked for, and black is the ground that can
+    // carry it: 5.47:1. This is the pair most people will actually see.
+    red:    '#ff2b2b',
   },
   green: {
     white:  '#f4f1ea',
     blue:   '#8fc0ff',
     green:  '#a8f5a8',
     orange: '#ffb454',
+    red:    '#ff8f8f',
+  },
+  /**
+   * THE RED GROUND, and the one pair that cannot be saturated.
+   *
+   * Red on red is held above 7:1 like every other same-name pair, and that is
+   * not a shade a pure red can reach: luminance is dominated by the green
+   * channel, so #ff0000 tops out at 0.21 and needs 0.31 to clear the bar on a
+   * ground this dark. The ink therefore resolves to a pale phosphor red — the
+   * same thing that already happens to green, where bottle-green ground
+   * carries #a8f5a8 rather than a saturated green. It is what a monochrome
+   * monitor looked like, not a compromise.
+   */
+  red: {
+    white:  '#f4f1ea',
+    blue:   '#9dc6ff',
+    green:  '#7bef7b',
+    orange: '#ffb454',
+    red:    '#ff8f8f',
   },
   white: {
     white:  '#141414',
     blue:   '#0a1f8c',
     green:  '#0a5c12',
     orange: '#7a3b00',
+    // Inverted like the rest: on paper, deep red is the dark shade.
+    red:    '#8b0000',
   },
 };
 

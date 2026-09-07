@@ -32,6 +32,13 @@ const SHOTS = [
   'sched-editor',
   'sched-movies',
   'sched-movieblock',
+  'library-edges',
+  /**
+   * Sets its own theme, so it is NOT in the themed map below — running it
+   * under another skin would just have it switch to VHS anyway and photograph
+   * the same frame twice under two different names.
+   */
+  'vhs-red',
   'cewr-standby',
   'cewr-card',
   'cewr-signoff',
@@ -117,6 +124,10 @@ const THEMES = {
   'sched-drag': ['midnight', 'vhs'],
   'sched-gap': ['midnight', 'vhs'],
   'sched-movies': ['midnight', 'vhs'],
+  // Both skins, because the arrow's legibility is solved two different ways:
+  // a soft halo everywhere, and four hard one-pixel offsets under the VCR skin,
+  // which does not permit a soft edge anywhere.
+  'library-edges': ['midnight', 'vhs'],
   'sched-movieblock': ['midnight', 'vhs'],
 };
 

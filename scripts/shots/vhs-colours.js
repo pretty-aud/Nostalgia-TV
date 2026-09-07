@@ -21,15 +21,29 @@ out.defaultPair = `${root.dataset.osdInk} on ${root.dataset.osdGround}`;
 out.defaultIsWhiteOnBlue = root.dataset.osdInk === 'white' && root.dataset.osdGround === 'blue';
 out.inkCells = document.querySelectorAll('#vhsInkRail .osdcell').length;
 out.groundCells = document.querySelectorAll('#vhsGroundRail .osdcell').length;
-out.chipsDrawn = document.querySelectorAll('#vhsInkRail .osdcell__chip').length === 4;
+// One chip per option, however many options there are — a rail with a cell
+// that draws no swatch is the fault worth catching, not a particular count.
+out.chipsDrawn = document.querySelectorAll('#vhsInkRail .osdcell__chip').length
+  === document.querySelectorAll('#vhsInkRail [data-key]').length;
 
-// Walk all sixteen pairs and record what each resolves to.
+/**
+ * Walk every pair the RAILS OFFER, not a list typed in here.
+ *
+ * The two colour names were hardcoded, so adding RED left this walking the old
+ * sixteen and reporting them all fine — the nine new pairs were never clicked,
+ * and a missing CSS rule among them would have gone straight past. A probe
+ * that enumerates its own subject cannot be told about a new colour; it just
+ * tests it.
+ */
+const keysOf = (rail) => [...document.querySelectorAll(`${rail} .osdcell`)].map((c) => c.dataset.key);
 const pairs = {};
-for (const g of ['blue', 'black', 'green', 'white']) {
+for (const g of keysOf('#vhsGroundRail')) {
   const gc = [...document.querySelectorAll('#vhsGroundRail .osdcell')].find((c) => c.dataset.key === g);
   gc.click();
   await wait(280);
-  for (const i of ['white', 'blue', 'green', 'orange']) {
+  // Re-read the ink rail INSIDE the loop: it is rebuilt from the ground, so a
+  // list captured before the click describes the previous ground's cells.
+  for (const i of keysOf('#vhsInkRail')) {
     const ic = [...document.querySelectorAll('#vhsInkRail .osdcell')].find((c) => c.dataset.key === i);
     ic.click();
     await wait(240);
@@ -37,7 +51,7 @@ for (const g of ['blue', 'black', 'green', 'white']) {
   }
 }
 out.pairsResolved = Object.keys(pairs).length;
-out.allDistinctInks = new Set(Object.values(pairs)).size === 16;
+out.allDistinctInks = new Set(Object.values(pairs)).size === out.pairsResolved;
 out.sample = `${pairs['white/blue']} | ${pairs['green/green']} | ${pairs['white/white']}`;
 
 // The white ground must flip data-light, since fourteen rules depend on it.
@@ -89,7 +103,25 @@ await wait(600);
 out.attributesCleared = !root.dataset.osdInk && !root.dataset.osdGround && !root.dataset.skin;
 
 const bad = Object.entries(out).filter(([k, v]) => !['defaultPair', 'sample', 'inkCells', 'groundCells', 'pairsResolved', 'dropdownContrast'].includes(k) && !v);
-if (out.inkCells !== 4 || out.groundCells !== 4) throw new Error('rails not 4+4: ' + out.inkCells + '/' + out.groundCells);
-if (out.pairsResolved !== 16) throw new Error('only ' + out.pairsResolved + ' pairs walked');
+/**
+ * BOTH RAILS OFFER THE SAME NUMBER OF CHOICES, whatever that number is.
+ *
+ * This asserted 4 and 4, which is a count that has to be re-typed every time a
+ * colour is added and says nothing about what matters. Adding RED made it fail
+ * on code that was correct. What the rails must never do is disagree with each
+ * other — the pair table is square, so an ink with no matching ground (or the
+ * reverse) means a pair that resolves to nothing.
+ */
+if (out.inkCells !== out.groundCells) {
+  throw new Error('the two rails disagree: ' + out.inkCells + ' inks, ' + out.groundCells + ' grounds');
+}
+if (out.inkCells < 4) throw new Error('the rails lost options: only ' + out.inkCells);
+// The grid is square: every ink crossed with every ground. Derived, so adding
+// a colour moves it from 16 to 25 without anyone editing a literal — while a
+// pair that fails to resolve still fails here.
+const expectedPairs = out.inkCells * out.groundCells;
+if (out.pairsResolved !== expectedPairs) {
+  throw new Error('walked ' + out.pairsResolved + ' pairs, expected ' + expectedPairs);
+}
 if (bad.length) throw new Error(`colour rails: ${bad.map(([k]) => k).join(', ')} — ${JSON.stringify(out)}`);
 return out;

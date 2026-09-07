@@ -3535,29 +3535,52 @@ input[type="range"]::-webkit-slider-thumb {
   --paper-lift: #063a0c;
   --paper-high: #063a0c;
 }
+:root[data-theme="vhs"][data-osd-ground="red"] {
+  --paper:      #3a050a;
+  --paper-lift: #3a050a;
+  --paper-high: #3a050a;
+}
 :root[data-theme="vhs"][data-osd-ground="white"] {
   --paper:      #f4f4f4;
   --paper-lift: #f4f4f4;
   --paper-high: #f4f4f4;
 }
 
-/* The resolved ink for each of the sixteen pairs. */
+/* The resolved ink for each of the twenty-five pairs.
+
+   THIS TABLE IS A SECOND COPY OF vhsPalette.js AND IT KNOWS IT. Adding one
+   ground and one ink turned sixteen rules into twenty-five, all by hand, which
+   is exactly the shape that has bitten this project before — the theme menu
+   was a hand-written list beside a THEMES array and shipped five palettes
+   nobody could select. The reason it is survivable here is that
+   vhsPalette.test.js reads BOTH and fails on any pair present in one and not
+   the other; it caught all nine of the red rules missing before this line was
+   written. If a sixth colour is ever added, generate this block instead. */
 :root[data-theme="vhs"][data-osd-ground="blue"][data-osd-ink="white"] { --ink: #ffffff; }
 :root[data-theme="vhs"][data-osd-ground="blue"][data-osd-ink="blue"] { --ink: #b3d2ff; }
 :root[data-theme="vhs"][data-osd-ground="blue"][data-osd-ink="green"] { --ink: #66f066; }
 :root[data-theme="vhs"][data-osd-ground="blue"][data-osd-ink="orange"] { --ink: #ffb454; }
+:root[data-theme="vhs"][data-osd-ground="blue"][data-osd-ink="red"] { --ink: #ff8f8f; }
 :root[data-theme="vhs"][data-osd-ground="black"][data-osd-ink="white"] { --ink: #f4f1ea; }
 :root[data-theme="vhs"][data-osd-ground="black"][data-osd-ink="blue"] { --ink: #7fb2ff; }
 :root[data-theme="vhs"][data-osd-ground="black"][data-osd-ink="green"] { --ink: #5be85b; }
 :root[data-theme="vhs"][data-osd-ground="black"][data-osd-ink="orange"] { --ink: #ffa733; }
+:root[data-theme="vhs"][data-osd-ground="black"][data-osd-ink="red"] { --ink: #ff2b2b; }
 :root[data-theme="vhs"][data-osd-ground="green"][data-osd-ink="white"] { --ink: #f4f1ea; }
 :root[data-theme="vhs"][data-osd-ground="green"][data-osd-ink="blue"] { --ink: #8fc0ff; }
 :root[data-theme="vhs"][data-osd-ground="green"][data-osd-ink="green"] { --ink: #a8f5a8; }
 :root[data-theme="vhs"][data-osd-ground="green"][data-osd-ink="orange"] { --ink: #ffb454; }
+:root[data-theme="vhs"][data-osd-ground="green"][data-osd-ink="red"] { --ink: #ff8f8f; }
+:root[data-theme="vhs"][data-osd-ground="red"][data-osd-ink="white"] { --ink: #f4f1ea; }
+:root[data-theme="vhs"][data-osd-ground="red"][data-osd-ink="blue"] { --ink: #9dc6ff; }
+:root[data-theme="vhs"][data-osd-ground="red"][data-osd-ink="green"] { --ink: #7bef7b; }
+:root[data-theme="vhs"][data-osd-ground="red"][data-osd-ink="orange"] { --ink: #ffb454; }
+:root[data-theme="vhs"][data-osd-ground="red"][data-osd-ink="red"] { --ink: #ff8f8f; }
 :root[data-theme="vhs"][data-osd-ground="white"][data-osd-ink="white"] { --ink: #141414; }
 :root[data-theme="vhs"][data-osd-ground="white"][data-osd-ink="blue"] { --ink: #0a1f8c; }
 :root[data-theme="vhs"][data-osd-ground="white"][data-osd-ink="green"] { --ink: #0a5c12; }
 :root[data-theme="vhs"][data-osd-ground="white"][data-osd-ink="orange"] { --ink: #7a3b00; }
+:root[data-theme="vhs"][data-osd-ground="white"][data-osd-ink="red"] { --ink: #8b0000; }
 
 
 /* ── VHS: the skin half ───────────────────────────────────────────────────
@@ -4461,13 +4484,30 @@ input[type="range"]::-webkit-slider-thumb {
   opacity: 0;
   transition: opacity var(--fast);
 }
-.rail__arrow--prev {
-  left: 0;
-  background: linear-gradient(to right, var(--paper) 35%, transparent);
-}
-.rail__arrow--next {
-  right: 0;
-  background: linear-gradient(to left, var(--paper) 35%, transparent);
+/**
+ * NO GROUND UNDER THE ARROW — not a bar, not a gradient, not a scrim.
+ *
+ * The gradient here was `var(--paper) 35%, transparent`, which is a SOLID
+ * band for its first third and only fades after that. Against a dark theme
+ * that is a black bar sitting over the artwork, appearing the moment the
+ * pointer nears the edge, and it read as a rendering fault rather than as a
+ * control.
+ *
+ * The scrim was doing a real job — a stroked glyph over a bright frame is
+ * invisible — so it is replaced rather than deleted. A halo drawn in the page
+ * colour keeps the arrow legible over anything without putting a shape behind
+ * it: on a dark theme it is a dark glow under a light glyph, on a light theme
+ * the reverse, because both are the same custom property. Two passes because
+ * one soft shadow is not enough over a busy frame and a single hard one looks
+ * like an offset print.
+ */
+.rail__arrow--prev { left: 0; }
+.rail__arrow--next { right: 0; }
+.rail__arrow svg {
+  filter:
+    drop-shadow(0 0 3px var(--paper))
+    drop-shadow(0 0 7px var(--paper))
+    drop-shadow(0 1px 2px var(--paper));
 }
 /* Shown on hover, and ALWAYS on focus — a control that only exists under a
    pointer is a control a keyboard cannot find. */
@@ -4476,17 +4516,23 @@ input[type="range"]::-webkit-slider-thumb {
 .rail__arrow:hover { color: var(--signal); }
 
 /**
- * NO FADE UNDER THE SKIN.
- *
- * The arrows sit on a gradient that dissolves the tile beneath them. A
- * character generator drew a box or it drew nothing — there is no in-between
- * pixel, which is the same rule that kills every radius and shadow in this
- * skin. A solid ground rather than none: the arrow still has to be legible
- * over a bright frame, and hard-edged opacity is exactly how the hardware
- * would have done it.
+ * NO GLOW UNDER THE SKIN either — a character generator drew a hard pixel or
+ * it drew nothing, which is the same rule that kills every radius and shadow
+ * here. The glyph still has to survive a bright frame, so it gets four
+ * one-pixel offsets in the ground colour instead: an outline, which is
+ * precisely what the hardware did, and no soft edge anywhere.
  */
-:root[data-skin="vcr"] .rail__arrow--prev,
-:root[data-skin="vcr"] .rail__arrow--next { background: var(--paper); }
+:root[data-skin="vcr"] .rail__arrow svg {
+  /* Four ZERO-BLUR offsets, not a stroke. The glyph is a stroked path with
+     stroke="currentColor" and no fill, so setting `stroke` here would cascade
+     onto the path and repaint the arrow itself in the ground colour — an
+     outline that erases the thing it was meant to outline. */
+  filter:
+    drop-shadow(1px 0 0 var(--paper))
+    drop-shadow(-1px 0 0 var(--paper))
+    drop-shadow(0 1px 0 var(--paper))
+    drop-shadow(0 -1px 0 var(--paper));
+}
 
 @media (prefers-reduced-motion: reduce) {
   .rail { scroll-behavior: auto; }

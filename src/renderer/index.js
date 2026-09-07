@@ -3525,7 +3525,20 @@ function watchSettingsScroll() {
   }, { passive: true });
 }
 
-function openSettings() {
+/**
+ * WHICH BUTTON OPENED IT, so closing can put focus back on that one.
+ *
+ * There are two doors into this sheet now — the sidebar and the library
+ * header — and closeSettings always sent focus to the sidebar's. Opened from
+ * the library that lands focus on a control underneath a full-screen overlay:
+ * invisible, unreachable by pointer, and the next Tab starts from somewhere
+ * the person cannot see. A keyboard user would simply lose their place.
+ */
+let settingsOpener = null;
+
+function openSettings(event) {
+  const from = event && event.currentTarget;
+  settingsOpener = from instanceof HTMLElement ? from : null;
   el('settingsModal').hidden = false;
   renderSettings();
   renderSettingsNav();
@@ -3537,7 +3550,17 @@ function openSettings() {
 
 function closeSettings() {
   el('settingsModal').hidden = true;
-  el('btnSettings').focus();
+  /**
+   * Back to the button that opened it — but only if that button is still a
+   * real, visible target. The library can be closed while the sheet is open,
+   * which would leave its header button hidden; focusing a hidden element is
+   * a silent no-op that drops focus to <body>, so the sidebar's is the
+   * fallback rather than an assumption.
+   */
+  const opener = settingsOpener;
+  settingsOpener = null;
+  const usable = opener && opener.isConnected && opener.offsetParent !== null;
+  (usable ? opener : el('btnSettings')).focus();
 }
 
 function settingsOpen() {
@@ -6134,6 +6157,10 @@ The channel keeps its own place.`)) return;
   // -- settings modal -------------------------------------------------------
 
   el('btnSettings').addEventListener('click', openSettings);
+  // The same door from the library. openSettings, not a copy of it — the sheet
+  // has a focus trap and a close path that put focus back on #btnSettings, and
+  // a second opener that skipped any of that would be a second set of bugs.
+  el('btnBrowseSettings').addEventListener('click', openSettings);
   watchSettingsScroll();
   el('btnCloseSettings').addEventListener('click', closeSettings);
   el('settingsBackdrop').addEventListener('click', closeSettings);
