@@ -5850,16 +5850,36 @@ input[type="range"]::-webkit-slider-thumb {
    * wide ones are the falloff, and the last is 40px across at 18%: far too soft
    * to notice as a shape, and enough to sit the whole block off the picture.
    */
+  /**
+   * TWO JOBS, TWO MECHANISMS.
+   *
+   * text-shadow draws per GLYPH, so it can tighten an outline but it can never
+   * make one pool of shade under a block — five stacked stops was five outlines
+   * of increasing size, which is why it read as strength on the letters rather
+   * than as contrast behind them.
+   *
+   * So the outline stays here, a little thicker than it was, and the large soft
+   * shadow moves to a filter on the group below. That one is drawn from the
+   * whole group's silhouette at once, which is what "one large shadow that sits
+   * under all of the text" actually needs.
+   */
   text-shadow:
-    0 0 3px rgba(0, 0, 0, 0.92),
-    0 1px 5px rgba(0, 0, 0, 0.78),
-    2px 3px 12px rgba(0, 0, 0, 0.55),
-    3px 4px 24px rgba(0, 0, 0, 0.34),
-    4px 6px 40px rgba(0, 0, 0, 0.18);
+    0 0 2px rgba(0, 0, 0, 0.9),
+    0 0 5px rgba(0, 0, 0, 0.72),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+
+  /**
+   * The pool. 48px of blur at 55% is a lot of shadow and still reads as almost
+   * nothing, because it is spread far enough to have no edge anywhere — it
+   * darkens the picture under the block rather than outlining it. Offset down
+   * so the type sits above its own shade rather than in the middle of it.
+   */
+  filter: drop-shadow(0 7px 48px rgba(0, 0, 0, 0.55));
 }
 .lofi__label {
   margin: 0;
-  font-size: 1.55vh;
+  /* 1.55vh + 4%, her adjustment. */
+  font-size: 1.61vh;
   letter-spacing: 0.12em;
 }
 /* Indented under the label, as "3. 45 P . M" sits under "//SHIBUYA-KU// TOKYO"
@@ -5867,7 +5887,8 @@ input[type="range"]::-webkit-slider-thumb {
    particular pair of strings happens to be about that wide. */
 .lofi__title {
   margin: 0.35vh 0 0 1.6em;
-  font-size: 1.9vh;
+  /* 1.9vh + 4%. */
+  font-size: 1.98vh;
   letter-spacing: 0.16em;
 }
 
@@ -5877,24 +5898,6 @@ input[type="range"]::-webkit-slider-thumb {
 .lofi__group[data-bias="right"] { text-align: right; }
 .lofi__group[data-bias="right"] .lofi__title { margin-left: 0; margin-right: 1.6em; }
 
-.lofi__corner {
-  position: absolute;
-  top: 4.5vh;
-  right: 5vw;
-  font-family: "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
-  font-size: 2.6vh;
-  font-weight: 400;
-  color: #fff;
-  letter-spacing: 0.5em;
-  text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
-}
-.lofi__corner-dot {
-  display: inline-block;
-  width: 0.42em;
-  height: 0.42em;
-  background: #fff;
-  vertical-align: middle;
-}
 
 .lofi__sign {
   position: absolute;
@@ -5927,16 +5930,6 @@ input[type="range"]::-webkit-slider-thumb {
    is said here where nothing else in the block can win. */
 .lofi [hidden] { display: none !important; }
 
-/* The run length. text-transform: none is the whole point of it being its own
-   node — "x2" glued into the title came out as "X2", because the group
-   upper-cases everything inside it. */
-.lofi__times {
-  text-transform: none;
-  margin-left: 0.8em;
-  font-weight: 400;
-  letter-spacing: 0.04em;
-  opacity: 0.75;
-}
 
 /* The episode code, on the title's line rather than the label's.
    Quieter than the name it follows: at one weight on one line the two compete,

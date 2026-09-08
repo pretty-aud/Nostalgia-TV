@@ -33,12 +33,11 @@ describe('the card vocabulary', () => {
     expect(codeOf({ showId: 'a', showName: 'A', episode: {} })).toBe('');
   });
 
-  it('never carries the count itself', () => {
+  it('is just the name — no run count', () => {
+    // "x2" beside the title is gone by her decision. runLength survives because
+    // the DEDUP search needs it, but nothing on the card shows a count.
     expect(titleOf('Scavengers Reign')).toBe('SCAVENGERS REIGN');
-    // The count is NOT part of the title. Glued on it came out as X2, because
-    // the card upper-cases the whole group — it has to be a separate node so
-    // CSS can leave it alone.
-    expect(titleOf('Scavengers Reign')).not.toMatch(/x/);
+    expect(titleOf('Scavengers Reign')).not.toMatch(/x\d/);
   });
 });
 
@@ -86,7 +85,6 @@ describe('the two lines', () => {
       ep('b', 'Beta', 1, 1),
     ]);
     expect(lines.first.title).toBe('ALPHA');
-    expect(lines.first.count).toBe(3);
     expect(lines.second.title).toBe('BETA');
     expect(lines.deduped).toBe(true);
   });
@@ -99,7 +97,6 @@ describe('the two lines', () => {
     ]);
     expect(lines.first.title).toBe('ALPHA');
     expect(lines.second.title).toBe('BETA');
-    expect(lines.second.count).toBe(2);
   });
 
   /**
@@ -112,7 +109,6 @@ describe('the two lines', () => {
       ep('a', 'Alpha', 1, 1), ep('a', 'Alpha', 1, 2), ep('a', 'Alpha', 1, 3),
     ]);
     expect(lines.first.title).toBe('ALPHA');
-    expect(lines.first.count).toBe(3);
     expect(lines.second.label).toBe('//THEN//');
     expect(lines.second.title).not.toMatch(/ALPHA/);
     expect(lines.second.title).toBe('S01 . E02');
@@ -122,6 +118,12 @@ describe('the two lines', () => {
     const lines = linesFor([ep('a', 'Alpha', 1, 1)]);
     expect(lines.first.title).toBe('ALPHA');
     expect(lines.second.title).toBe('CONTINUES');
+  });
+
+  it('carries no count field at all, so nothing can start drawing one', () => {
+    const lines = linesFor([ep('a', 'Alpha', 1, 1), ep('a', 'Alpha', 1, 2), ep('b', 'Beta', 1, 1)]);
+    expect(lines.first).not.toHaveProperty('count');
+    expect(lines.second).not.toHaveProperty('count');
   });
 
   it('has nothing to say about an empty queue', () => {
@@ -156,12 +158,46 @@ describe('the two lines', () => {
 });
 
 describe('where it sits in the frame', () => {
-  it('covers the whole thirds grid, not just two edges', () => {
+  it('covers a five-by-three grid, not just two edges', () => {
     // It landed in the same two places because every anchor was pinned to the
-    // far left or far right. Three columns and three rows, all present.
-    expect(new Set(ANCHORS.map((a) => a.col))).toEqual(new Set(['left', 'mid', 'right']));
+    // far left or far right. The two third-columns are what opened it up.
+    expect(new Set(ANCHORS.map((a) => a.col)))
+      .toEqual(new Set(['left', 'left-third', 'mid', 'right-third', 'right']));
     expect(new Set(ANCHORS.map((a) => a.row))).toEqual(new Set(['top', 'mid', 'low']));
-    expect(ANCHORS).toHaveLength(9);
+    expect(ANCHORS).toHaveLength(15);
+  });
+
+  /**
+   * HOW OFTEN IT LANDS DEAD CENTRE, measured rather than reasoned about.
+   *
+   * She reported the title going centre "a lot", and it was arithmetic: the
+   * second group has to differ in column AND row, which with three columns left
+   * four candidates of which two were centre — half of all second groups,
+   * whatever the first did. Counting both groups across a long run is the only
+   * way to know that is actually fixed, and the only way to notice if a later
+   * change to the anchor list quietly undoes it.
+   */
+  it('puts text dead centre only occasionally, counted across many cards', () => {
+    let centre = 0;
+    let total = 0;
+    for (let seed = 0; seed < 600; seed += 1) {
+      const { first, second } = placementFor(seed);
+      for (const anchor of [first, second]) {
+        total += 1;
+        if (anchor.col === 'mid') centre += 1;
+      }
+    }
+    const share = centre / total;
+    expect(share, `dead centre ${(share * 100).toFixed(0)}% of the time`).toBeLessThan(0.15);
+    // ...but not never. It is a weighted choice, not a removed one.
+    expect(share).toBeGreaterThan(0);
+  });
+
+  it('weights the centre column below the others', () => {
+    for (const anchor of ANCHORS) {
+      if (anchor.col === 'mid') expect(anchor.weight, anchor.id).toBeLessThan(3);
+      else expect(anchor.weight, anchor.id).toBe(3);
+    }
   });
 
   it('keeps every anchor inside a safe margin', () => {
@@ -210,7 +246,7 @@ describe('where it sits in the frame', () => {
       const seed = card * 7 + [...'TRIGUN'].reduce((a, c) => a + c.charCodeAt(0), 0);
       seen.add(placementFor(seed).first.id);
     }
-    expect(seen.size, `only reached ${[...seen].join(', ')}`).toBeGreaterThanOrEqual(6);
+    expect(seen.size, `only reached ${[...seen].join(', ')}`).toBeGreaterThanOrEqual(7);
   });
 
   it('does not put the same show in the same place every time', () => {

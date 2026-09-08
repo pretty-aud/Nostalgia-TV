@@ -50,26 +50,17 @@ function codeOf(entry) {
   return `S${String(s).padStart(2, '0')} . E${String(e).padStart(2, '0')}`;
 }
 
-/**
- * A title, upper-cased. The run length is returned SEPARATELY, never glued on.
- *
- * `x2`, not `X2` — the multiplication sign as an editor would type it, and the
- * one lowercase thing on the card, which is what makes it read as a quantity
- * rather than as part of the name.
- *
- * It has to be its own node to stay that way. The card sets
- * text-transform: uppercase on the whole group, so a suffix concatenated into
- * this string comes out as X2 however it was written here — which is exactly
- * what shipped in the first frame of this card. A value that can be silently
- * transformed by a rule somewhere else is not a value, and gluing it on made it
- * impossible for CSS to treat it differently from the words around it.
- */
+/** A title, upper-cased. Just the name — no run count, by her decision. */
 function titleOf(name) {
   return String(name || '').toUpperCase();
 }
 
 /**
  * How many of the SAME show sit consecutively at the front of a list.
+ *
+ * Used by the DEDUP search rather than shown: the card no longer prints "x2",
+ * but knowing how long a run is remains how it finds where the next different
+ * programme begins.
  *
  * Counted from the queue as built, not from the block-size setting, and those
  * genuinely differ: a block is cut short when a show runs out of episodes, and
@@ -122,7 +113,6 @@ function linesFor(upcoming) {
     label: wrap('up next'),
     code: codeOf(next),
     title: titleOf(next.movieBlock ? 'MOVIE' : next.showName),
-    count: nextCount,
   };
 
   /**
@@ -157,7 +147,6 @@ function linesFor(upcoming) {
         label: wrap('then'),
         code: '',
         title: following ? (codeOf(following) || 'CONTINUES') : 'CONTINUES',
-        count: 1,
       },
       deduped,
     };
@@ -169,7 +158,6 @@ function linesFor(upcoming) {
       label: wrap('followed by'),
       code: codeOf(after.entry),
       title: titleOf(after.entry.movieBlock ? 'MOVIE' : after.entry.showName),
-      count: runLength(items, after.at),
     },
     deduped,
   };
@@ -178,9 +166,10 @@ function linesFor(upcoming) {
 /**
  * WHERE THE TEXT SITS, on the thirds.
  *
- * Six anchors, all of them on a third rather than at a corner or the centre —
- * the reference frame puts its block at the lower-left third and lets the
- * picture have the rest, and that is the composition being followed.
+ * The full thirds grid: three columns by three rows, nine positions. It began
+ * as six, all pinned to the far left or far right edge, and the text visibly
+ * only ever appeared in two places — "dynamic placement" that had two columns
+ * to be dynamic across. The centre column is what actually opened it up.
  *
  * Both lines of a group share an anchor, because they are one block of
  * information; the second is indented under the first exactly as `3. 45 P . M`
@@ -189,17 +178,59 @@ function linesFor(upcoming) {
  * `bias` is which way the block grows, so text near the right edge is set
  * right-aligned and never runs off.
  */
+/**
+ * FIVE COLUMNS, and the middle one is rare.
+ *
+ * It was three, and the text kept landing dead centre. Two causes, and the
+ * second is the one that did the damage: the first group picks evenly across
+ * the grid, so a third of cards started centre — but the SECOND group must sit
+ * in a different column and row, which left only four candidates, and two of
+ * those four were centre. Half of all second groups, by construction.
+ *
+ * Adding the two third-columns fixes the arithmetic, since there are now more
+ * off-centre places to land than centre ones at every stage. The weight makes
+ * it deliberate rather than merely diluted: dead centre is a strong, static
+ * place to put type and it should be an occasional choice, not the default one.
+ *
+ * 0.33 and 0.67 are the actual thirds — the reference frame sets its block at
+ * one — while 0.08 and 0.92 are the safe margins.
+ */
 const ANCHORS = [
-  { id: 'upper-left', x: 0.08, y: 0.17, bias: 'left', col: 'left', row: 'top' },
-  { id: 'upper-centre', x: 0.50, y: 0.17, bias: 'centre', col: 'mid', row: 'top' },
-  { id: 'upper-right', x: 0.92, y: 0.17, bias: 'right', col: 'right', row: 'top' },
-  { id: 'mid-left', x: 0.08, y: 0.45, bias: 'left', col: 'left', row: 'mid' },
-  { id: 'mid-centre', x: 0.50, y: 0.45, bias: 'centre', col: 'mid', row: 'mid' },
-  { id: 'mid-right', x: 0.92, y: 0.45, bias: 'right', col: 'right', row: 'mid' },
-  { id: 'lower-left', x: 0.08, y: 0.76, bias: 'left', col: 'left', row: 'low' },
-  { id: 'lower-centre', x: 0.50, y: 0.76, bias: 'centre', col: 'mid', row: 'low' },
-  { id: 'lower-right', x: 0.92, y: 0.76, bias: 'right', col: 'right', row: 'low' },
+  { id: 'upper-left', x: 0.08, y: 0.17, bias: 'left', col: 'left', row: 'top', weight: 3 },
+  { id: 'upper-third-left', x: 0.33, y: 0.17, bias: 'left', col: 'left-third', row: 'top', weight: 3 },
+  { id: 'upper-centre', x: 0.50, y: 0.17, bias: 'centre', col: 'mid', row: 'top', weight: 1 },
+  { id: 'upper-third-right', x: 0.67, y: 0.17, bias: 'right', col: 'right-third', row: 'top', weight: 3 },
+  { id: 'upper-right', x: 0.92, y: 0.17, bias: 'right', col: 'right', row: 'top', weight: 3 },
+
+  { id: 'mid-left', x: 0.08, y: 0.45, bias: 'left', col: 'left', row: 'mid', weight: 3 },
+  { id: 'mid-third-left', x: 0.33, y: 0.45, bias: 'left', col: 'left-third', row: 'mid', weight: 3 },
+  { id: 'mid-centre', x: 0.50, y: 0.45, bias: 'centre', col: 'mid', row: 'mid', weight: 1 },
+  { id: 'mid-third-right', x: 0.67, y: 0.45, bias: 'right', col: 'right-third', row: 'mid', weight: 3 },
+  { id: 'mid-right', x: 0.92, y: 0.45, bias: 'right', col: 'right', row: 'mid', weight: 3 },
+
+  { id: 'lower-left', x: 0.08, y: 0.76, bias: 'left', col: 'left', row: 'low', weight: 3 },
+  { id: 'lower-third-left', x: 0.33, y: 0.76, bias: 'left', col: 'left-third', row: 'low', weight: 3 },
+  { id: 'lower-centre', x: 0.50, y: 0.76, bias: 'centre', col: 'mid', row: 'low', weight: 1 },
+  { id: 'lower-third-right', x: 0.67, y: 0.76, bias: 'right', col: 'right-third', row: 'low', weight: 3 },
+  { id: 'lower-right', x: 0.92, y: 0.76, bias: 'right', col: 'right', row: 'low', weight: 3 },
 ];
+
+/**
+ * Pick from a list by weight, deterministically.
+ *
+ * A plain `list[n % list.length]` cannot express "this one less often", and
+ * repeating an anchor in the array to fake a weight would mean the same
+ * position appearing twice in any count of what the grid covers.
+ */
+function weightedPick(list, n) {
+  const total = list.reduce((sum, a) => sum + (a.weight || 1), 0);
+  let at = n % total;
+  for (const anchor of list) {
+    at -= (anchor.weight || 1);
+    if (at < 0) return anchor;
+  }
+  return list[list.length - 1];
+}
 
 /**
  * Two anchors for one card: one per group, and never the same one twice.
@@ -216,7 +247,7 @@ const ANCHORS = [
  */
 function placementFor(seed) {
   const n = Math.abs(Math.trunc(seed)) || 0;
-  const first = ANCHORS[n % ANCHORS.length];
+  const first = weightedPick(ANCHORS, n);
 
   /**
    * A DIFFERENT COLUMN AND A DIFFERENT ROW, not merely a different side.
@@ -228,7 +259,10 @@ function placementFor(seed) {
    * since a long show name is wide — while leaving four genuine choices.
    */
   const apart = ANCHORS.filter((a) => a.col !== first.col && a.row !== first.row);
-  const second = apart[Math.trunc(n / ANCHORS.length) % apart.length];
+  // Weighted here too. This was the worse half of the problem: with three
+  // columns the filter left four candidates, two of them centre, so half of all
+  // second groups were centred no matter what the first group did.
+  const second = weightedPick(apart, Math.trunc(n / ANCHORS.length));
   return { first, second };
 }
 

@@ -2036,22 +2036,17 @@ async function showMinimalLofi(onDone, leadOverride, options = {}) {
     el(labelId).textContent = line.label;
 
     /**
-     * Title, count, code — each its own node.
+     * Title and code, each its own node — the code separate so it can be set
+     * quieter than the name it follows. On one line at one weight the two would
+     * compete, and the name is what she is reading.
      *
-     * The count has to be separate because the group is text-transform:
-     * uppercase and a glued-on "x2" came out as "X2" however it was written.
-     * The code is separate so it can be set quieter than the name it follows:
-     * on one line at one weight the two would compete, and the name is what she
-     * is reading.
+     * There is no run count here any more. It was "x2" beside the title, she
+     * did not like it, and the counting behind it stays only because the
+     * DEDUP rule needs it — a run of one show has to be measured to know where
+     * the next different one begins.
      */
     const titleNode = el(titleId);
     titleNode.textContent = line.title;
-    if (line.count > 1) {
-      const times = document.createElement('span');
-      times.className = 'lofi__times';
-      times.textContent = `x${line.count}`;
-      titleNode.append(times);
-    }
     if (line.code) {
       const code = document.createElement('span');
       code.className = 'lofi__code';
