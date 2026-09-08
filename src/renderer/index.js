@@ -982,6 +982,26 @@ function renderSettings() {
     ? `${bumperMusicCount} track${bumperMusicCount === 1 ? '' : 's'}`
     : '';
 
+  /**
+   * Minimal Lofi's two folders, drawn the same way: the button carries the
+   * folder NAME and the note under it carries the path. A bare path is
+   * unreadable at settings width; a bare name is ambiguous the moment there are
+   * two folders called "stock footage" on different drives.
+   */
+  for (const [key, ids, unit] of [
+    ['lofiFootageDir', ['lofiFootagePick', 'lofiFootagePath', 'lofiFootageCount'], 'file'],
+    ['lofiMusicDir', ['lofiMusicPick', 'lofiMusicPath', 'lofiMusicCount'], 'track'],
+  ]) {
+    const dir = state.settings[key] || '';
+    const [pick, note, count] = ids;
+    el(pick).textContent = dir ? (dir.split(/[\\/]/).filter(Boolean).pop() || dir) : 'Choose folder…';
+    el(note).textContent = dir;
+    const n = lofiCounts[key];
+    el(count).textContent = dir && n !== null && n !== undefined
+      ? `${n} ${unit}${n === 1 ? '' : 's'}`
+      : '';
+  }
+
   el('loopToggle').checked = Boolean(state.settings.loopWhenExhausted);
 
   /**
@@ -1191,6 +1211,17 @@ let lastBumperTrack = null;
  * and renderSettings runs on every keystroke of every other control.
  */
 let bumperMusicCount = null;
+
+/**
+ * How many files Minimal Lofi's two folders hold, as last counted.
+ *
+ * Only ever filled by the folder picker, which returns the count with the path
+ * — so it says nothing until she chooses, and it does not go to disk on every
+ * settings render. Null means "not counted", which the row draws as blank
+ * rather than as "0 files": those are different statements, and the second one
+ * would be a lie about a folder nobody has looked in.
+ */
+const lofiCounts = { lofiFootageDir: null, lofiMusicDir: null };
 
 /**
  * CHILD EXCLUSIVE WATER RECREATION — the schedule card on black.
@@ -6118,6 +6149,25 @@ The channel keeps its own place.`)) return;
   el('bumperBgSelect').addEventListener('change', (event) => {
     setSetting({ bumperBackground: event.target.value });
   });
+
+  /**
+   * One listener shape, two folders. The `kind` goes to the main process, which
+   * uses it only to choose the dialog title and the lister — never as a path —
+   * so allowedRoots still means "somewhere she picked in a dialog".
+   */
+  for (const [kind, button, key] of [
+    ['footage', 'lofiFootagePick', 'lofiFootageDir'],
+    ['music', 'lofiMusicPick', 'lofiMusicDir'],
+  ]) {
+    el(button).addEventListener('click', async () => {
+      const picked = await window.tv.pickLofiFolder(kind);
+      if (!picked) return;                    // cancelled — keep what she had
+      lofiCounts[key] = picked.count;
+      state = applySettings(shows, state, { [key]: picked.dir }, {});
+      renderSettings();
+      persist();
+    });
+  }
 
   el('bumperMusicPick').addEventListener('click', async () => {
     const picked = await window.tv.pickBumperMusic();

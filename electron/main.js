@@ -18,6 +18,7 @@ const { createMpvHost } = require('./mpvHost.js');
 const artwork = require('./artwork.js');
 const ingest = require('./ingest.js');
 const bumperMusic = require('./bumperMusic.js');
+const bumperFootage = require('./bumperFootage.js');
 const bumperClip = require('./bumperClip.js');
 
 /**
@@ -468,9 +469,16 @@ async function loadState() {
        * it was handed would let a compromised renderer allowlist C:\ by
        * asking politely.
        */
-      if (parsed.settings && typeof parsed.settings.bumperMusicDir === 'string'
-        && parsed.settings.bumperMusicDir) {
-        allowedRoots.add(parsed.settings.bumperMusicDir);
+      /**
+       * EVERY chosen folder, by key. Started as one line for bumperMusicDir;
+       * Minimal Lofi added two more, and a second hand-written line would be a
+       * third chance to forget one — a folder that works for the session it was
+       * picked in and 403s on every launch after, which reads as the feature
+       * breaking itself overnight.
+       */
+      for (const key of ['bumperMusicDir', 'lofiFootageDir', 'lofiMusicDir']) {
+        const dir = parsed.settings && parsed.settings[key];
+        if (typeof dir === 'string' && dir) allowedRoots.add(dir);
       }
       lastState = parsed;
       return parsed;
@@ -954,6 +962,40 @@ function registerIpc() {
     // there. An empty folder is a thing she should find out about here, not
     // by watching a bumper play in silence.
     return { dir, count: (await bumperMusic.listTracks(dir)).length };
+  });
+
+  /**
+   * Minimal Lofi's two folders, through one handler.
+   *
+   * `kind` selects the dialog wording and which lister counts the result — it
+   * does NOT come from a path the renderer supplies, so this is still "a folder
+   * she chose in a dialog" and allowedRoots still means what it says. An
+   * unrecognised kind is refused rather than defaulted, because defaulting
+   * would silently open the wrong picker.
+   */
+  ipcMain.handle('lofi:pickFolder', async (_event, kind) => {
+    const KINDS = {
+      footage: {
+        title: 'Choose a folder of footage and stills',
+        count: (dir) => bumperFootage.listSources(dir),
+      },
+      music: {
+        title: 'Choose a folder of music for Minimal Lofi',
+        count: (dir) => bumperMusic.listTracks(dir),
+      },
+    };
+    const spec = KINDS[kind];
+    if (!spec) return null;
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: spec.title,
+      properties: ['openDirectory'],
+      buttonLabel: 'Use this folder',
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const dir = result.filePaths[0];
+    allowedRoots.add(dir);
+    return { dir, count: (await spec.count(dir)).length };
   });
 
   /**

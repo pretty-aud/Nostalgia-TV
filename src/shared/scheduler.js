@@ -55,6 +55,14 @@ const DEFAULT_SETTINGS = {
    * mpv will refuse to open.
    */
   bumperMusicDir: '',
+
+  /**
+   * Minimal Lofi's own two folders. Separate from bumperMusicDir on purpose:
+   * two styles sharing one setting means repointing either one silently
+   * repoints the other, with nothing on screen to say so.
+   */
+  lofiFootageDir: '',
+  lofiMusicDir: '',
   /**
    * Whether a card that has a backdrop moves it or holds a frame. Flat, like
    * every other per-style key — boot() merges saved settings one level deep.

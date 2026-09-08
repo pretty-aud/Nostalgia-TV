@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('tv', {
   // The folder of music the video up-next styles deal from, and one deal from it.
   pickBumperMusic: () => ipcRenderer.invoke('bumperMusic:pick'),
   nextBumperMusic: (dir, lastPath) => ipcRenderer.invoke('bumperMusic:next', dir, lastPath),
+  /** Minimal Lofi's folder pickers. The kind is 'footage' or 'music'. */
+  pickLofiFolder: (kind) => ipcRenderer.invoke('lofi:pickFolder', kind),
   // The cue a style bakes in, and a still from what is coming next.
   bumperCue: (name) => ipcRenderer.invoke('bumperMusic:cue', name),
   bumperStill: (absPath) => ipcRenderer.invoke('bumperBg:still', absPath),

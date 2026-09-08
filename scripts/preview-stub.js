@@ -40,6 +40,9 @@
     isDebug: false,
     pickFolder: async () => null,
     pickBumperMusic: async () => null,
+    // Null, like the picker above: a stub that "chose" a folder would put a
+    // path into settings that exists on nobody's disk.
+    pickLofiFolder: async () => null,
     // A track the preview cannot actually play — the shots that exercise the
     // schedule card care about its beats and its type, not its sound, and the
     // card is driven by its own timers rather than by anything mpv reports.

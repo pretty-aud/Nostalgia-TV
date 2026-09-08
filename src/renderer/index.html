@@ -963,6 +963,35 @@
             </span>
           </label>
 
+          <!--
+            MINIMAL LOFI'S TWO FOLDERS, and its own rather than the schedule
+            card's. Sharing one music setting between two styles would mean
+            that repointing one silently repointed the other.
+
+            Buttons, not text boxes, for the same reason the music folder above
+            is one: the dialog is what puts a folder on the main process's
+            allowedRoots, and a typed path would have to be allowlisted on the
+            renderer's say-so — the one thing that list exists to prevent. A
+            typed path would simply never play.
+          -->
+          <div class="field" id="lofiFootageField" hidden>
+            <span class="field__label mono">Footage from</span>
+            <span class="field__control">
+              <button class="btn" type="button" id="lofiFootagePick">Choose folder…</button>
+              <span class="mono" id="lofiFootageCount"></span>
+            </span>
+          </div>
+          <p class="modes__note" id="lofiFootagePath"></p>
+
+          <div class="field" id="lofiMusicField" hidden>
+            <span class="field__label mono">Music from</span>
+            <span class="field__control">
+              <button class="btn" type="button" id="lofiMusicPick">Choose folder…</button>
+              <span class="mono" id="lofiMusicCount"></span>
+            </span>
+          </div>
+          <p class="modes__note" id="lofiMusicPath"></p>
+
           <h4 class="setsub">Between episodes</h4>
 
           <label class="check" id="bumperClipRow" hidden>

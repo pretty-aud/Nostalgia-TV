@@ -60,6 +60,18 @@ const FIELD_ELEMENTS = {
   musicDir: 'bumperMusicField',
   /** Whether a card's backdrop moves or holds still. */
   background: 'bumperBgField',
+
+  /**
+   * Minimal Lofi's two folders, and its OWN two rather than the ones above.
+   *
+   * It would have been half the work to let it declare `musicDir` and share
+   * bumperMusicDir with the schedule card. It would also mean that pointing one
+   * style at a new folder silently repointed the other — two styles quietly
+   * fighting over one setting, with nothing on screen to say so. A style's
+   * sources belong to the style.
+   */
+  lofiMusic: 'lofiMusicField',
+  lofiFootage: 'lofiFootageField',
 };
 
 /**
@@ -104,6 +116,32 @@ const BUILTIN_STYLES = [
     seconds: 10,
     note: 'The mark, then the next three programmes, over a gradient and a frame '
       + 'from what is coming. One fixed piece of music.',
+  },
+  {
+    id: 'lofi',
+    label: 'Minimal Lofi',
+    kind: 'video',
+    fields: ['lofiFootage', 'lofiMusic'],
+    /**
+     * THE CEILING, NOT THE LENGTH.
+     *
+     * Every other style runs for exactly its `seconds`. This one runs for a
+     * whole number of BARS of whatever track was dealt, which is the only way
+     * text cut to the beat can also stop on the beat — so its real length is
+     * somewhere in 12 to 15 seconds and is not known until the tempo is.
+     *
+     * Fifteen is what gets provisioned: the clip cut, the music read, the
+     * watchdog armed. The card then ends on the last bar boundary that fits,
+     * which is why this is declared as the maximum rather than the duration.
+     *
+     * It also dissolves the octave question. A track read at 145 BPM and the
+     * same track read at 72.5 differ only in how many bars fit — eight against
+     * four — and both land at 13.2 seconds. Cutting on bars means being wrong
+     * about the octave costs nothing.
+     */
+    seconds: 15,
+    note: 'Text popping on and off over your own footage, cut to the beat of the '
+      + 'track. Twelve to fifteen seconds, however the bars fall.',
   },
 ];
 
