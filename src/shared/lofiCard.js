@@ -190,12 +190,15 @@ function linesFor(upcoming) {
  * right-aligned and never runs off.
  */
 const ANCHORS = [
-  { id: 'lower-left', x: 0.06, y: 0.78, bias: 'left' },
-  { id: 'lower-right', x: 0.94, y: 0.78, bias: 'right' },
-  { id: 'upper-left', x: 0.06, y: 0.18, bias: 'left' },
-  { id: 'upper-right', x: 0.94, y: 0.18, bias: 'right' },
-  { id: 'mid-left', x: 0.06, y: 0.46, bias: 'left' },
-  { id: 'mid-right', x: 0.94, y: 0.46, bias: 'right' },
+  { id: 'upper-left', x: 0.08, y: 0.17, bias: 'left', col: 'left', row: 'top' },
+  { id: 'upper-centre', x: 0.50, y: 0.17, bias: 'centre', col: 'mid', row: 'top' },
+  { id: 'upper-right', x: 0.92, y: 0.17, bias: 'right', col: 'right', row: 'top' },
+  { id: 'mid-left', x: 0.08, y: 0.45, bias: 'left', col: 'left', row: 'mid' },
+  { id: 'mid-centre', x: 0.50, y: 0.45, bias: 'centre', col: 'mid', row: 'mid' },
+  { id: 'mid-right', x: 0.92, y: 0.45, bias: 'right', col: 'right', row: 'mid' },
+  { id: 'lower-left', x: 0.08, y: 0.76, bias: 'left', col: 'left', row: 'low' },
+  { id: 'lower-centre', x: 0.50, y: 0.76, bias: 'centre', col: 'mid', row: 'low' },
+  { id: 'lower-right', x: 0.92, y: 0.76, bias: 'right', col: 'right', row: 'low' },
 ];
 
 /**
@@ -214,8 +217,18 @@ const ANCHORS = [
 function placementFor(seed) {
   const n = Math.abs(Math.trunc(seed)) || 0;
   const first = ANCHORS[n % ANCHORS.length];
-  const opposite = ANCHORS.filter((a) => a.bias !== first.bias);
-  const second = opposite[Math.trunc(n / ANCHORS.length) % opposite.length];
+
+  /**
+   * A DIFFERENT COLUMN AND A DIFFERENT ROW, not merely a different side.
+   *
+   * The rule used to be "opposite bias", which with six edge-pinned anchors
+   * left only three candidates and made the second group predictable from the
+   * first. Requiring both coordinates to differ keeps the two blocks from ever
+   * sharing a line or a column — which is what actually prevents a collision,
+   * since a long show name is wide — while leaving four genuine choices.
+   */
+  const apart = ANCHORS.filter((a) => a.col !== first.col && a.row !== first.row);
+  const second = apart[Math.trunc(n / ANCHORS.length) % apart.length];
   return { first, second };
 }
 

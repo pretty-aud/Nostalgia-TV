@@ -5823,10 +5823,39 @@ input[type="range"]::-webkit-slider-thumb {
   /* No plate, no scrim, no gradient — the reference has none. A halo in the
      card's own black keeps the type legible over a bright frame without
      putting a shape behind it, the same answer the library rail arrows use. */
+  /**
+   * A HALO, AND THEN A HINT OF A DROP SHADOW.
+   *
+   * The first three are the halo: legibility over an unknown frame, spread
+   * evenly so it reads as nothing at all. The fourth is the one she asked for —
+   * offset down and right so the type sits slightly OFF the picture rather than
+   * on it.
+   *
+   * 2px at 30% is deliberately near the threshold of noticing. Her words were
+   * "very subtle, I want to barely notice the shadow", so it is sized to be
+   * felt as depth rather than seen as a shadow; anything heavier turns minimal
+   * type into a lower third.
+   */
+  /**
+   * A RAMP, not a shadow.
+   *
+   * Five stops at growing blur and falling opacity. Each one alone would read
+   * as an edge; stacked, the steps are closer together than the eye resolves,
+   * so what registers is a pool of shade under the type that fades out with no
+   * visible boundary anywhere. That is what makes it carry real weight — she
+   * asked for more opacity and more width — while still being something you
+   * feel rather than see.
+   *
+   * The two tight stops do the legibility work over a bright frame. The three
+   * wide ones are the falloff, and the last is 40px across at 18%: far too soft
+   * to notice as a shape, and enough to sit the whole block off the picture.
+   */
   text-shadow:
-    0 0 4px rgba(0, 0, 0, 0.85),
-    0 0 12px rgba(0, 0, 0, 0.7),
-    0 1px 2px rgba(0, 0, 0, 0.9);
+    0 0 3px rgba(0, 0, 0, 0.92),
+    0 1px 5px rgba(0, 0, 0, 0.78),
+    2px 3px 12px rgba(0, 0, 0, 0.55),
+    3px 4px 24px rgba(0, 0, 0, 0.34),
+    4px 6px 40px rgba(0, 0, 0, 0.18);
 }
 .lofi__label {
   margin: 0;
@@ -5908,3 +5937,22 @@ input[type="range"]::-webkit-slider-thumb {
   letter-spacing: 0.04em;
   opacity: 0.75;
 }
+
+/* The episode code, on the title's line rather than the label's.
+   Quieter than the name it follows: at one weight on one line the two compete,
+   and the name is the thing being read. */
+.lofi__code {
+  margin-left: 1.4em;
+  font-size: 0.78em;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  opacity: 0.72;
+}
+
+/* A centre anchor names the block's MIDDLE. Without the pull-back every centred
+   group would start at the centre line and run off to the right of it. */
+.lofi__group[data-bias="centre"] {
+  transform: translateX(-50%);
+  text-align: center;
+}
+.lofi__group[data-bias="centre"] .lofi__title { margin-left: 0; margin-right: 0; }

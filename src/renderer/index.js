@@ -1225,6 +1225,8 @@ const LOFI_PEEK = 8;
 /** So the same track and the same shot are not dealt twice in a row. */
 let lastLofiTrack = null;
 let lastLofiClip = null;
+/** Advances the placement seed, so two cards in a row are not in one spot. */
+let lofiCardsShown = 0;
 
 let bumperMusicCount = null;
 
@@ -1998,9 +2000,22 @@ async function showMinimalLofi(onDone, leadOverride, options = {}) {
   lofiPrepared = null;
   if (backdrop) lastLofiClip = backdrop.source;
 
-  // Placement is chosen per card and must be reproducible, so the seed comes
-  // from what is playing rather than from a clock or a random number.
-  const seed = [...String(lines.first.title)].reduce((a, c) => a + c.charCodeAt(0), 0);
+  /**
+   * THE SEED MOVES BETWEEN CARDS, and that was the whole problem.
+   *
+   * It was the title's character sum, which is stable for a given show — so
+   * every card for Trigun landed in exactly the same corner, and with a handful
+   * of shows in rotation the text only ever appeared in two or three places.
+   * Deterministic, and far too deterministic to look composed.
+   *
+   * The card counter moves it on every card while keeping it reproducible: the
+   * nth card of a session always places the same way, so a probe can still
+   * assert what it photographed. The title stays in the mix so two cards in a
+   * row for different shows do not merely walk the list in order.
+   */
+  lofiCardsShown += 1;
+  const seed = lofiCardsShown * 7
+    + [...String(lines.first.title)].reduce((a, c) => a + c.charCodeAt(0), 0);
   const place = placementFor(seed);
 
   const card = el('lofi');
@@ -2011,13 +2026,23 @@ async function showMinimalLofi(onDone, leadOverride, options = {}) {
   for (const [groupId, labelId, titleId, line, anchor] of groups) {
     const group = el(groupId);
     // The label carries the second token beside it, as //SHIBUYA-KU// TOKYO does.
-    el(labelId).textContent = line.code ? `${line.label} ${line.code}` : line.label;
     /**
-     * The count is its OWN node, never concatenated into the title. The group
-     * is text-transform: uppercase, so a glued-on suffix comes out as X2 no
-     * matter how it was written — which is what the first frame of this card
-     * showed. As a separate span it can opt out of the transform and stay the
-     * lowercase quantity she asked for.
+     * THE LABEL IS THE LABEL, AND NOTHING ELSE.
+     *
+     * The episode code used to sit beside it — "//UP NEXT// S01 . E01" — which
+     * put a fact about the programme on the line that names the SLOT. Her call:
+     * it belongs with the title it describes.
+     */
+    el(labelId).textContent = line.label;
+
+    /**
+     * Title, count, code — each its own node.
+     *
+     * The count has to be separate because the group is text-transform:
+     * uppercase and a glued-on "x2" came out as "X2" however it was written.
+     * The code is separate so it can be set quieter than the name it follows:
+     * on one line at one weight the two would compete, and the name is what she
+     * is reading.
      */
     const titleNode = el(titleId);
     titleNode.textContent = line.title;
@@ -2027,12 +2052,21 @@ async function showMinimalLofi(onDone, leadOverride, options = {}) {
       times.textContent = `x${line.count}`;
       titleNode.append(times);
     }
+    if (line.code) {
+      const code = document.createElement('span');
+      code.className = 'lofi__code';
+      code.textContent = line.code;
+      titleNode.append(code);
+    }
     group.dataset.bias = anchor.bias;
     group.style.top = `${(anchor.y * 100).toFixed(2)}%`;
     if (anchor.bias === 'right') {
       group.style.right = `${((1 - anchor.x) * 100).toFixed(2)}%`;
       group.style.left = 'auto';
     } else {
+      // A centre anchor is the block's MIDDLE, not its left edge; the CSS pulls
+      // it back by half its own width. Setting left alone would hang every
+      // centred block off to the right of where it was asked to sit.
       group.style.left = `${(anchor.x * 100).toFixed(2)}%`;
       group.style.right = 'auto';
     }

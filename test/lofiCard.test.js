@@ -156,10 +156,20 @@ describe('the two lines', () => {
 });
 
 describe('where it sits in the frame', () => {
-  it('puts every anchor on a third, never a corner or the centre', () => {
+  it('covers the whole thirds grid, not just two edges', () => {
+    // It landed in the same two places because every anchor was pinned to the
+    // far left or far right. Three columns and three rows, all present.
+    expect(new Set(ANCHORS.map((a) => a.col))).toEqual(new Set(['left', 'mid', 'right']));
+    expect(new Set(ANCHORS.map((a) => a.row))).toEqual(new Set(['top', 'mid', 'low']));
+    expect(ANCHORS).toHaveLength(9);
+  });
+
+  it('keeps every anchor inside a safe margin', () => {
     for (const a of ANCHORS) {
-      expect(a.x === 0.06 || a.x === 0.94, `${a.id} x`).toBe(true);
-      expect(a.y > 0.1 && a.y < 0.9, `${a.id} y`).toBe(true);
+      expect(a.x, `${a.id} x`).toBeGreaterThanOrEqual(0.08);
+      expect(a.x, `${a.id} x`).toBeLessThanOrEqual(0.92);
+      expect(a.y, `${a.id} y`).toBeGreaterThan(0.1);
+      expect(a.y, `${a.id} y`).toBeLessThan(0.85);
     }
   });
 
@@ -175,20 +185,38 @@ describe('where it sits in the frame', () => {
   });
 
   /**
-   * OPPOSITE SIDES, as a rule rather than a hope. A long show name plus a code
-   * is wide; two blocks on the same side would collide, and only some seeds
-   * would ever reveal it.
+   * A DIFFERENT COLUMN AND A DIFFERENT ROW, which is what actually stops a
+   * collision — a long show name is wide, so two blocks sharing a row would
+   * overlap even from opposite sides, and only some seeds would reveal it.
    */
-  it('never puts both groups on the same side', () => {
-    for (let seed = 0; seed < 60; seed += 1) {
+  it('never puts the two groups in the same row or column', () => {
+    for (let seed = 0; seed < 200; seed += 1) {
       const { first, second } = placementFor(seed);
-      expect(first.bias, `seed ${seed}`).not.toBe(second.bias);
+      expect(first.col, `seed ${seed} column`).not.toBe(second.col);
+      expect(first.row, `seed ${seed} row`).not.toBe(second.row);
     }
   });
 
-  it('uses more than one anchor across seeds, or the placement is not dynamic', () => {
+  /**
+   * THE COMPLAINT THAT PROMPTED THIS. Six anchors existed and the text still
+   * only ever appeared in two places, because the seed was the show's title —
+   * stable per show — and the anchors were all on two edges. Both are fixed, so
+   * the test asks for real spread rather than for the list to be long.
+   */
+  it('actually reaches most of the grid across a run of cards', () => {
     const seen = new Set();
-    for (let seed = 0; seed < 60; seed += 1) seen.add(placementFor(seed).first.id);
-    expect(seen.size).toBeGreaterThan(2);
+    for (let card = 1; card <= 12; card += 1) {
+      // The renderer's seed: a card counter plus the title's characters.
+      const seed = card * 7 + [...'TRIGUN'].reduce((a, c) => a + c.charCodeAt(0), 0);
+      seen.add(placementFor(seed).first.id);
+    }
+    expect(seen.size, `only reached ${[...seen].join(', ')}`).toBeGreaterThanOrEqual(6);
+  });
+
+  it('does not put the same show in the same place every time', () => {
+    const title = [...'SCAVENGERS REIGN'].reduce((a, c) => a + c.charCodeAt(0), 0);
+    const first = placementFor(1 * 7 + title).first.id;
+    const second = placementFor(2 * 7 + title).first.id;
+    expect(second).not.toBe(first);
   });
 });
