@@ -5863,10 +5863,20 @@ input[type="range"]::-webkit-slider-thumb {
    * whole group's silhouette at once, which is what "one large shadow that sits
    * under all of the text" actually needs.
    */
+  /**
+   * LEGIBILITY OVER SUBTLETY, because she could not always read it.
+   *
+   * A blown-out sky is near-white at full brightness, and white type on it has
+   * no contrast at all — no amount of "tasteful" gets round that. The first two
+   * stops are effectively opaque and sit tight to the glyph, which is what
+   * actually separates a letter from the picture; the third and fourth carry it
+   * out far enough that the separation does not look like a sticker.
+   */
   text-shadow:
-    0 0 2px rgba(0, 0, 0, 0.9),
-    0 0 5px rgba(0, 0, 0, 0.72),
-    0 1px 3px rgba(0, 0, 0, 0.6);
+    0 0 2px rgba(0, 0, 0, 1),
+    0 0 4px rgba(0, 0, 0, 0.95),
+    0 1px 3px rgba(0, 0, 0, 0.9),
+    0 0 9px rgba(0, 0, 0, 0.78);
 
   /**
    * The pool. 48px of blur at 55% is a lot of shadow and still reads as almost
@@ -5874,11 +5884,20 @@ input[type="range"]::-webkit-slider-thumb {
    * darkens the picture under the block rather than outlining it. Offset down
    * so the type sits above its own shade rather than in the middle of it.
    */
-  filter: drop-shadow(0 7px 48px rgba(0, 0, 0, 0.55));
+  /**
+   * TWO POOLS, CHAINED. A drop-shadow filter applies to the result of the one
+   * before it, so a tight one followed by a wide one compounds: the first sits
+   * a real darkness immediately around the block, the second spreads it out
+   * with no edge. One wide shadow alone was too diffuse to lift white type off
+   * a blown-out sky, which is exactly where she was losing it.
+   */
+  filter:
+    drop-shadow(0 2px 10px rgba(0, 0, 0, 0.8))
+    drop-shadow(0 8px 54px rgba(0, 0, 0, 0.8));
 }
 .lofi__label {
   margin: 0;
-  /* 1.55vh + 4%, her adjustment. */
+  /* 1.55vh, +4%, +3%, then -3%. Her adjustments, in order. */
   font-size: 1.61vh;
   letter-spacing: 0.12em;
 }
@@ -5887,7 +5906,7 @@ input[type="range"]::-webkit-slider-thumb {
    particular pair of strings happens to be about that wide. */
 .lofi__title {
   margin: 0.35vh 0 0 1.6em;
-  /* 1.9vh + 4%. */
+  /* 1.9vh, +4%, +3%, then -3%. */
   font-size: 1.98vh;
   letter-spacing: 0.16em;
 }
@@ -5934,12 +5953,24 @@ input[type="range"]::-webkit-slider-thumb {
 /* The episode code, on the title's line rather than the label's.
    Quieter than the name it follows: at one weight on one line the two compete,
    and the name is the thing being read. */
+/**
+ * The episode code. NO OPACITY.
+ *
+ * It was set at 0.72 to sit quieter than the name, and quieter turned out to
+ * mean unreadable — she reported it as the one thing she still could not make
+ * out. Opacity fades the text and its shadow TOGETHER, so the very thing
+ * keeping it off the picture was being dimmed along with it, and over a bright
+ * frame that leaves grey type on grey.
+ *
+ * The hierarchy comes from size and weight instead, which cost nothing in
+ * contrast: it is smaller and lighter than the name, and just as legible. Size
+ * deliberately unchanged — she asked for no other scale changes this round.
+ */
 .lofi__code {
   margin-left: 1.4em;
   font-size: 0.78em;
   font-weight: 400;
   letter-spacing: 0.18em;
-  opacity: 0.72;
 }
 
 /* A centre anchor names the block's MIDDLE. Without the pull-back every centred
