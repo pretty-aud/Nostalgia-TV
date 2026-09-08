@@ -180,8 +180,70 @@ function keyFor(absPath, stat, wanted) {
   return `lofi-${base}-${stamp}-${Math.round(wanted * 1000)}.mp4`;
 }
 
+/**
+ * Deal a backdrop: pick a source, cut it to length, hand back a media URL.
+ *
+ * WRITE ASIDE AND RENAME. A half-written mp4 is indistinguishable from a
+ * finished one to every later existence check, so an ffmpeg killed partway
+ * through — the app closing mid-card — would poison that cache entry for good
+ * and the card would fall back to black for ever after.
+ */
+async function readyBackdrop(dir, seconds, lastSource) {
+  const sources = await listSources(dir);
+  if (!sources.length) return null;
+
+  // Avoid an immediate repeat unless the folder genuinely holds one file.
+  const pool = sources.length > 1 ? sources.filter((s) => s !== lastSource) : sources;
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+
+  if (isStill(chosen)) return { kind: 'still', source: chosen, absPath: chosen };
+
+  const ffmpeg = deps.findFfmpeg ? await deps.findFfmpeg() : null;
+  const ffprobe = deps.findFfprobe ? await deps.findFfprobe() : null;
+  if (!ffmpeg || !ffprobe || !deps.dir) return null;
+
+  await fsp.mkdir(deps.dir, { recursive: true });
+  const stat = await fsp.stat(chosen).catch(() => null);
+  const out = path.join(deps.dir, keyFor(chosen, stat, seconds));
+  if (fs.existsSync(out)) return { kind: 'video', source: chosen, absPath: out };
+
+  const duration = await probeDuration(ffprobe, chosen);
+  const plan = planFor(duration, seconds);
+  if (!plan) return null;                    // too short to stretch without it showing
+
+  const partial = partialOf(out);
+  await new Promise((resolve, reject) => {
+    const child = (deps.run || require('child_process').spawn)(
+      ffmpeg, clipArgs(chosen, plan, seconds, partial),
+    );
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg ${code}`))));
+  });
+  await fsp.rename(partial, out);
+  return { kind: 'video', source: chosen, absPath: out };
+}
+
+function probeDuration(ffprobe, absPath) {
+  return new Promise((resolve) => {
+    const child = (deps.run || require('child_process').spawn)(ffprobe, [
+      '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', absPath,
+    ]);
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('error', () => resolve(0));
+    child.on('close', () => resolve(Number(String(out).trim()) || 0));
+  });
+}
+
+/** Where the cut clips live, so main can put it on allowedRoots. */
+function directory() {
+  return deps.dir;
+}
+
 module.exports = {
   init,
+  directory,
+  readyBackdrop,
   listSources,
   isStill,
   planFor,

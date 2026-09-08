@@ -47,6 +47,8 @@ import {
   isFixedLength,
 } from '../shared/bumperStyles.js';
 import { markSvg } from '../shared/nostalgiaMark.js';
+import { linesFor, placementFor } from '../shared/lofiCard.js';
+import { gridFrom } from '../shared/beatGrid.js';
 import {
   readyCopy,
   seedFromCursors,
@@ -1210,6 +1212,20 @@ let lastBumperTrack = null;
  * counted. Held rather than derived because counting means a directory read,
  * and renderSettings runs on every keystroke of every other control.
  */
+/**
+ * How far down the queue Minimal Lofi looks.
+ *
+ * Deeper than the other cards, which show what is next and stop. This one must
+ * find a DIFFERENT show to follow with, and a block of one show can be several
+ * episodes — so a peek of three would often see nothing but the programme it is
+ * already naming. Matches LOOK_AHEAD in lofiCard.js, which does the searching.
+ */
+const LOFI_PEEK = 8;
+
+/** So the same track and the same shot are not dealt twice in a row. */
+let lastLofiTrack = null;
+let lastLofiClip = null;
+
 let bumperMusicCount = null;
 
 /**
@@ -1751,6 +1767,31 @@ if (window.__tvCalls) {
   window.__preview = {
     showAdultSwimBumper: (onDone, leadOverride) => showAdultSwimBumper(onDone, leadOverride),
     showBoxOffice: (onDone, leadOverride) => showBoxOffice(onDone, leadOverride),
+    /**
+     * Draws the lofi card and RESOLVES ONCE ITS SECOND GROUP IS UP, rather than
+     * when the card finishes. A probe that awaited the whole card would be
+     * photographing the sign-off every time — the one beat where there is no
+     * type on screen at all.
+     */
+    /**
+     * Draws the lofi card and HOLDS IT at the beat where its second group is up.
+     *
+     * The hold is the point. Without it the card runs its full length and tears
+     * itself down on schedule, and a probe that took a moment longer than
+     * expected photographed the ready screen instead — while passing every one
+     * of its own checks, because those ran while the card was still there. A
+     * frame of the wrong thing that reports success is worse than a failure.
+     *
+     * `bumperCleanup` is cleared rather than left, so the held card cannot be
+     * torn down underneath the shot by the next transition either.
+     */
+    lofi: () => new Promise((resolve) => {
+      showMinimalLofi(() => {}, null, { hold: true });
+      const ready = setInterval(() => {
+        if (!el('lofiSecond').hidden) { clearInterval(ready); resolve(); }
+      }, 60);
+      setTimeout(() => { clearInterval(ready); resolve(); }, 12000);
+    }),
     settings: () => state.settings,
   };
 }
@@ -1782,7 +1823,243 @@ if (window.__tvCalls) {
 const CARD_DRIVERS = {
   cewr: (done, lead) => showAdultSwimBumper(done, lead),
   boxoffice: (done, lead) => showBoxOffice(done, lead),
+  lofi: (done, lead) => showMinimalLofi(done, lead),
 };
+
+/**
+ * WHERE THE CUTS LAND, as fractions of the card, snapped to real beats.
+ *
+ * Not beat indices. A card built as "beat 4, beat 6, beat 12" has a length that
+ * depends entirely on the tempo — twenty-four beats is 12.0s at 120 BPM and
+ * 16.0s at 90, so the same card would run past its own ceiling on half her
+ * folder. Fractions fix the shape, and snapping each one to the nearest
+ * predicted beat puts it on the music.
+ *
+ * That also degrades honestly. When the tempo is not trusted the grid is a
+ * plain 90 BPM pulse, the snapping moves each cue by at most a third of a
+ * second, and what plays is still her brief: text popping on and off at a
+ * steady rhythm.
+ */
+const LOFI_CUES = {
+  firstLabel: 0.10,
+  firstTitle: 0.22,
+  secondLabel: 0.45,
+  secondTitle: 0.57,
+  sign: 0.80,
+};
+
+/** The whole number of bars closest to this, within the style's 12-15s window. */
+const LOFI_TARGET_SECONDS = 13.5;
+const LOFI_MIN_SECONDS = 12;
+
+/**
+ * A whole number of bars, so the card starts and stops on the music.
+ *
+ * Falls back to the target rather than to a bar count when a bar is longer than
+ * the window allows — at 40 BPM a bar is six seconds and two of them overshoot,
+ * which is a real possibility for the fallback pulse on an ambient track.
+ */
+function lofiDuration(barLength, ceiling) {
+  if (!(barLength > 0)) return Math.min(LOFI_TARGET_SECONDS, ceiling);
+  const bars = Math.max(1, Math.round(LOFI_TARGET_SECONDS / barLength));
+  for (const n of [bars, bars - 1, bars + 1]) {
+    const seconds = n * barLength;
+    if (n >= 1 && seconds >= LOFI_MIN_SECONDS && seconds <= ceiling) return seconds;
+  }
+  return Math.min(LOFI_TARGET_SECONDS, ceiling);
+}
+
+/** The beat nearest a wanted time — the snap that puts a designed cue on the music. */
+function snapToBeat(seconds, beats) {
+  if (!beats || !beats.length) return seconds;
+  let best = beats[0];
+  for (const b of beats) {
+    if (Math.abs(b - seconds) < Math.abs(best - seconds)) best = b;
+  }
+  /**
+   * REFUSE A PULL OVER HALF A BEAT. If the nearest beat is further away than
+   * that, the grid does not have one where this cue belongs, and dragging the
+   * cue to it would distort the card's shape to obey a beat nobody can hear
+   * against a cut that is now in the wrong place.
+   */
+  const period = beats.length > 1 ? beats[1] - beats[0] : 0;
+  if (period && Math.abs(best - seconds) > period * 0.5) return seconds;
+  return best;
+}
+
+/**
+ * MINIMAL LOFI: her footage, her music, text popping on and off in time.
+ *
+ * The whole card is visibility changes on a timer. No element moves, fades or
+ * scales at any point — that is the brief, and the stylesheet closes the two
+ * routes a transition could leak in from.
+ */
+async function showMinimalLofi(onDone, leadOverride, options = {}) {
+  const upcoming = peek(shows, state, LOFI_PEEK);
+  const lead = leadOverride ? [leadOverride, ...upcoming] : upcoming;
+  const lines = linesFor(lead);
+  if (!lines) { onDone(); return; }
+
+  /**
+   * MUSIC AND FOOTAGE BOTH BEFORE ANYTHING IS ON SCREEN.
+   *
+   * The tempo analysis is ~55ms warm and the clip is usually already cut, but
+   * either can be cold — and a card that started and then waited would be her
+   * footage sitting silent with no text, which is worse than the half-second
+   * this costs at the end of the outgoing programme.
+   */
+  let music = null;
+  if (window.tv.nextBumperMusic && state.settings.lofiMusicDir) {
+    try {
+      music = await window.tv.nextBumperMusic(state.settings.lofiMusicDir, lastLofiTrack);
+      if (music) lastLofiTrack = music.relPath;
+    } catch (error) {
+      console.error('[lofi] no music:', error && error.message);
+    }
+  }
+
+  const tempo = music && music.tempo ? music.tempo : { bpm: 90, confident: false };
+  const period = 60 / (tempo.bpm || 90);
+  const ceiling = secondsFor('lofi', BUILTIN_STYLES);
+  const duration = lofiDuration(period * 4, ceiling);
+  const grid = music
+    ? gridFrom(tempo, music.startSeconds || 0, duration).beats
+    : [];
+
+  let backdrop = null;
+  if (window.tv.nextLofiFootage && state.settings.lofiFootageDir) {
+    try {
+      backdrop = await window.tv.nextLofiFootage(
+        state.settings.lofiFootageDir, duration, lastLofiClip,
+      );
+      if (backdrop) lastLofiClip = backdrop.source;
+    } catch (error) {
+      console.error('[lofi] no footage:', error && error.message);
+    }
+  }
+
+  // Placement is chosen per card and must be reproducible, so the seed comes
+  // from what is playing rather than from a clock or a random number.
+  const seed = [...String(lines.first.title)].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const place = placementFor(seed);
+
+  const card = el('lofi');
+  const groups = [
+    ['lofiFirst', 'lofiFirstLabel', 'lofiFirstTitle', lines.first, place.first],
+    ['lofiSecond', 'lofiSecondLabel', 'lofiSecondTitle', lines.second, place.second],
+  ];
+  for (const [groupId, labelId, titleId, line, anchor] of groups) {
+    const group = el(groupId);
+    // The label carries the second token beside it, as //SHIBUYA-KU// TOKYO does.
+    el(labelId).textContent = line.code ? `${line.label} ${line.code}` : line.label;
+    /**
+     * The count is its OWN node, never concatenated into the title. The group
+     * is text-transform: uppercase, so a glued-on suffix comes out as X2 no
+     * matter how it was written — which is what the first frame of this card
+     * showed. As a separate span it can opt out of the transform and stay the
+     * lowercase quantity she asked for.
+     */
+    const titleNode = el(titleId);
+    titleNode.textContent = line.title;
+    if (line.count > 1) {
+      const times = document.createElement('span');
+      times.className = 'lofi__times';
+      times.textContent = `x${line.count}`;
+      titleNode.append(times);
+    }
+    group.dataset.bias = anchor.bias;
+    group.style.top = `${(anchor.y * 100).toFixed(2)}%`;
+    if (anchor.bias === 'right') {
+      group.style.right = `${((1 - anchor.x) * 100).toFixed(2)}%`;
+      group.style.left = 'auto';
+    } else {
+      group.style.left = `${(anchor.x * 100).toFixed(2)}%`;
+      group.style.right = 'auto';
+    }
+    group.hidden = true;
+    el(titleId).hidden = true;
+  }
+
+  const sign = el('lofiSign');
+  sign.innerHTML = markSvg({ size: 160, title: null });
+  sign.hidden = true;
+
+  const video = el('lofiBg');
+  const still = el('lofiStill');
+  video.hidden = true;
+  still.hidden = true;
+  if (backdrop && backdrop.kind === 'still') {
+    still.src = backdrop.mediaUrl;
+    still.hidden = false;
+  } else if (backdrop) {
+    video.src = backdrop.mediaUrl;
+    video.currentTime = 0;
+    video.hidden = false;
+    video.play().catch(() => { /* a backdrop that will not start is not fatal */ });
+  }
+
+  app.dataset.bumperStyle = 'lofi';
+  app.dataset.view = 'bumper';
+  card.hidden = false;
+  // Same flag as every other card: without it the finished episode's resume
+  // point is written at the CARD's timestamp and the show reopens seconds in.
+  playingBumperClip = true;
+
+  if (music) {
+    window.tv.mpvOpen(music.absPath, { startSeconds: music.startSeconds })
+      .catch((error) => console.error('[lofi] music would not play:', error && error.message));
+  }
+
+  const at = (fraction) => Math.round(snapToBeat(duration * fraction, grid) * 1000);
+  const BEATS = [
+    [at(LOFI_CUES.firstLabel), () => { el('lofiFirst').hidden = false; }],
+    [at(LOFI_CUES.firstTitle), () => { el('lofiFirstTitle').hidden = false; }],
+    [at(LOFI_CUES.secondLabel), () => {
+      el('lofiFirst').hidden = true;
+      el('lofiSecond').hidden = false;
+    }],
+    [at(LOFI_CUES.secondTitle), () => { el('lofiSecondTitle').hidden = false; }],
+    [at(LOFI_CUES.sign), () => {
+      el('lofiSecond').hidden = true;
+      sign.hidden = false;
+    }],
+  ];
+
+  const timers = BEATS.map(([ms, run]) => setTimeout(run, ms));
+  let done = false;
+  let endTimer = null;
+
+  const teardown = () => {
+    for (const timer of timers) clearTimeout(timer);
+    clearTimeout(endTimer);
+    bumperCleanup = null;
+    card.hidden = true;
+    video.pause();
+    video.removeAttribute('src');
+    video.load();          // or the last frame is still in memory next time
+    still.removeAttribute('src');
+    playingBumperClip = false;
+    delete app.dataset.bumperStyle;
+    if (music) window.tv.mpvStop().catch(() => { /* already gone */ });
+  };
+
+  const finish = () => {
+    if (done) return;
+    done = true;
+    teardown();
+    onDone();
+  };
+
+  bumperCleanup = finish;
+  /**
+   * `hold` is for the review harness ONLY, and it skips the ending rather than
+   * the card: every cue still fires on its real beat, so what is photographed is
+   * the card as it plays. Without it the shot raced the teardown and once
+   * photographed the ready screen while passing every check it had — a frame of
+   * the wrong thing, reporting success.
+   */
+  if (!options.hold) endTimer = setTimeout(finish, Math.round(duration * 1000));
+}
 
 async function showBumper(onDone, leadOverride) {
   const upcoming = peek(shows, state, 3);

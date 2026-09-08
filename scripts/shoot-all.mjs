@@ -39,6 +39,7 @@ const SHOTS = [
    * the same frame twice under two different names.
    */
   'vhs-red',
+  'lofi-card',
   'cewr-standby',
   'cewr-card',
   'cewr-signoff',

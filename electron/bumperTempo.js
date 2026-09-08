@@ -42,6 +42,7 @@
  */
 
 const { spawn } = require('child_process');
+const { gridFrom, BEATS_PER_BAR, FALLBACK_BPM } = require('../src/shared/beatGrid.js');
 
 /** 22kHz mono is far more than onsets need, and an eighth of the data. */
 const SAMPLE_RATE = 22050;
@@ -58,24 +59,7 @@ const RANGES = [[60, 180], [50, 190], [70, 160]];
 /** Tempos disagreeing by more than this across ranges are not believed. */
 const AGREE = 0.02;
 
-/**
- * The fallback when a track has no tempo this can find — ambient, rubato, or
- * simply too short. 90 BPM is a plain, mid-tempo pulse: the card still cuts on
- * a regular beat, it just is not claiming to have heard one.
- */
-const FALLBACK_BPM = 90;
 
-/**
- * FOUR BEATS TO THE BAR, ASSUMED, and stated rather than detected.
- *
- * Telling 3/4 from 4/4 needs downbeat detection, which is a different and much
- * harder problem than tempo — it depends on harmonic change and stress, not on
- * periodicity, and a wrong answer would put every cut on the wrong beat of the
- * bar rather than merely somewhere odd. Almost everything this style will be
- * pointed at is in four. If a waltz turns up, the cuts land on beats rather
- * than bars and nobody can tell.
- */
-const BEATS_PER_BAR = 4;
 
 let deps = { findFfmpeg: null, run: null };
 
@@ -290,37 +274,6 @@ function tempoOf(onsets) {
   return { ...reads[0], confident: true, reason: 'stable' };
 }
 
-/**
- * The beat times a card should cut on, in seconds from the moment playback
- * starts — which is `startAt` into the file, not its beginning.
- *
- * THE HOOK AND THE GRID HAVE TO AGREE. bumperMusic.pickStart chooses where in
- * the track to come in, and that offset is almost never on a beat. Without
- * folding it in here, every cut would be out by the same constant, which is the
- * failure that looks most like "the beat detection does not work".
- */
-function gridFrom(tempo, startAt, seconds) {
-  const period = 60 / (tempo.bpm || FALLBACK_BPM);
-
-  const beats = [];
-  /**
-   * WITHOUT A TRUSTED PHASE THE GRID STARTS AT ZERO.
-   *
-   * An unconfident read has no meaningful phase — there was no peak to take one
-   * from — so aligning to it would be aligning to a number that came from
-   * nowhere, and would push the first cut an arbitrary fraction of a beat late
-   * for no reason. Starting at zero at least makes the first pop land with the
-   * music coming in.
-   */
-  const first = tempo.confident
-    ? (tempo.phase || 0) + Math.ceil(Math.max(0, startAt - (tempo.phase || 0)) / period) * period - startAt
-    : 0;
-
-  for (let t = first; t < seconds; t += period) {
-    if (t >= 0) beats.push(Number(t.toFixed(3)));
-  }
-  return { period, beats, barLength: period * BEATS_PER_BAR };
-}
 
 /**
  * Analyse a file. Cached on path, size and mtime — the same key bumperMusic
@@ -328,19 +281,54 @@ function gridFrom(tempo, startAt, seconds) {
  */
 const cache = new Map();
 
-async function tempoFor(absPath, stat) {
-  const key = `${absPath}|${stat ? stat.size : 0}|${stat ? Number(stat.mtimeMs) : 0}`;
+/**
+ * How much audio to analyse, and how far before the hook to start.
+ *
+ * A 20-second window holds 1723 envelope frames, which still leaves peakIn's
+ * MIN_PERIODS floor room for a 60 BPM read, so all three ranges resolve and the
+ * stability check keeps its meaning. It costs about 55ms and 320KB against
+ * 250ms and 5.7MB for a whole track — and unlike the whole track, that cost
+ * does not grow with the file.
+ *
+ * The two seconds of lead-in exist so the window does not begin exactly on the
+ * hook, where a track often enters on a downbeat that the local-mean
+ * subtraction would then flatten.
+ */
+const WINDOW_SECONDS = 20;
+const LEAD_IN = 2;
+
+async function tempoFor(absPath, stat, hookSeconds = 0) {
+  const from = Math.max(0, (Number(hookSeconds) || 0) - LEAD_IN);
+  /**
+   * THE HOOK IS PART OF THE KEY. The analysis is now of one window rather than
+   * of the file, so two different hooks in the same track are two different
+   * questions — and a cache that answered the first for the second would put
+   * the grid a bar out with nothing to show for it.
+   */
+  const key = `${absPath}|${stat ? stat.size : 0}|${stat ? Number(stat.mtimeMs) : 0}|${from.toFixed(1)}`;
   if (cache.has(key)) return cache.get(key);
 
   const ffmpeg = deps.findFfmpeg ? await deps.findFfmpeg() : null;
   if (!ffmpeg) {
-    const out = { bpm: FALLBACK_BPM, confident: false, reason: 'no ffmpeg' };
-    cache.set(key, out);
-    return out;
+    /**
+     * NOT CACHED, and that is the point.
+     *
+     * init() is called once at startup; if it has not run, findFfmpeg is null
+     * and this branch is reached for reasons that have nothing to do with the
+     * track. Caching it would answer "no ffmpeg" for that file for the rest of
+     * the session even after wiring was fixed — a feature that stays broken
+     * after the bug is gone, which is the hardest kind to believe.
+     */
+    return { bpm: FALLBACK_BPM, confident: false, reason: 'no ffmpeg (is init() wired?)' };
   }
 
   const args = [
-    '-v', 'error', '-i', absPath,
+    '-v', 'error',
+    // BEFORE -i. An input seek jumps rather than decoding everything up to the
+    // point, which is the whole saving on a four-minute track.
+    '-ss', String(from),
+    '-i', absPath,
+    '-t', String(WINDOW_SECONDS),
     '-f', 's16le', '-ar', String(SAMPLE_RATE), '-ac', '1', '-',
   ];
 
@@ -350,7 +338,25 @@ async function tempoFor(absPath, stat) {
     const energy = await envelopeFrom(child.stdout);
     const onsets = onsetEnvelope(energy);
     result = tempoOf(onsets);
-    if (result.confident) result.phase = beatPhase(onsets, result.period || result.lag);
+    if (result.confident) {
+      /**
+       * ABSOLUTE, not relative to the window.
+       *
+       * beatPhase answers "how far into what I analysed", and what was analysed
+       * began at `from`. Storing that relative number and extrapolating from
+       * file zero at play time is the defect this whole rewrite exists to
+       * remove: her hooks run out to 222 seconds, and at that distance the
+       * ~1.9% step between adjacent integer lags is 4.2 seconds — six and a
+       * half beats. The cuts would come out perfectly regular and uniformly
+       * wrong, which is the failure that looks exactly like beat detection not
+       * working, and staring at the BPM would tell you nothing.
+       *
+       * Measured near the hook and kept as a time in the file, the
+       * extrapolation is never more than twenty seconds long.
+       */
+      result.phase = from + beatPhase(onsets, result.period || result.lag);
+      result.windowFrom = from;
+    }
   } catch (error) {
     result = { bpm: FALLBACK_BPM, confident: false, reason: `analysis failed: ${error.message}` };
   }

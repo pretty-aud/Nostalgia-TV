@@ -347,6 +347,46 @@
     </section>
 
     <!--
+      MINIMAL LOFI — her own footage, small type, and cuts on the beat.
+
+      The layout follows a reference frame she supplied: a `//`-wrapped token
+      with a second unwrapped one beside it (//SHIBUYA-KU// TOKYO), a second
+      line set under it, and a bracket pair in the far corner. The irregular
+      spacing there is carried by PUNCTUATION rather than by letters — "3. 45 P
+      . M" — which is what keeps it readable while still looking deliberate.
+
+      Two groups rather than one reused element, because both are on screen at
+      different times and in DIFFERENT PLACES: placement is dynamic, and a
+      single node that moved would have to animate to get there, which is the
+      one thing this card must never do.
+    -->
+    <section class="lofi" id="lofi" aria-live="polite" hidden>
+      <!--
+        muted and playsinline are load-bearing, not boilerplate: the music is
+        the sound, and an unmuted backdrop would talk over it. `disablepictureinpicture`
+        keeps a stray hover from offering controls over a card that has none.
+      -->
+      <video class="lofi__bg" id="lofiBg" muted playsinline
+             disablepictureinpicture preload="auto"></video>
+      <img class="lofi__still" id="lofiStill" alt="" hidden />
+
+      <!-- The corner mark from her reference. Constant, not animated. -->
+      <div class="lofi__corner" aria-hidden="true">[<span class="lofi__corner-dot"></span>]</div>
+
+      <div class="lofi__group" id="lofiFirst" hidden>
+        <p class="lofi__label" id="lofiFirstLabel"></p>
+        <p class="lofi__title" id="lofiFirstTitle" hidden></p>
+      </div>
+
+      <div class="lofi__group" id="lofiSecond" hidden>
+        <p class="lofi__label" id="lofiSecondLabel"></p>
+        <p class="lofi__title" id="lofiSecondTitle" hidden></p>
+      </div>
+
+      <div class="lofi__sign" id="lofiSign" hidden></div>
+    </section>
+
+    <!--
       THE BOX OFFICE — after HBO's on-air package, c. 2003 to 2011.
 
       Its own section for the same reason the schedule card is: it shares

@@ -5769,3 +5769,142 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .app[data-bumper-style="boxoffice"] .bumper { display: none; }
+
+/* ── minimal lofi ─────────────────────────────────────────────────────────
+
+   Her own footage, small type, and text that appears and disappears with no
+   animation at all — "like if I was in an editing software and just put text
+   in the timeline". Every rule here is in service of that: there is not one
+   transition, transform or keyframe in this block, and the two places one
+   could leak in from elsewhere are stated below.
+
+   IT IGNORES THE 35 THEMES, like the two video cards before it, and for a
+   different reason than they do. Their identity is a fixed palette. This one
+   sits over UNKNOWN footage — a bright timelapse one time and a night street
+   the next — so its legibility is designed against picture rather than against
+   a background colour, and a theme that made the type dark grey would make it
+   vanish over half her folder. */
+.lofi {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  z-index: 40;
+}
+.lofi__bg,
+.lofi__still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/**
+ * THE TYPE.
+ *
+ * Roboto Condensed, already bundled for the schedule card, and a close match
+ * for the reference — a plain condensed grotesque, nothing with a voice of its
+ * own. 500 rather than 700: the reference is medium, and bold at this size
+ * turns the slashes into blocks.
+ *
+ * 1.55vh is small on purpose. The reference sets its block at roughly 3% of
+ * frame height for BOTH lines together, and the restraint is the whole look —
+ * type that filled the frame would be a different card with the same words.
+ */
+.lofi__group {
+  position: absolute;
+  font-family: "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
+  font-weight: 500;
+  text-transform: uppercase;
+  color: #fff;
+  line-height: 1.5;
+  white-space: nowrap;
+  /* No plate, no scrim, no gradient — the reference has none. A halo in the
+     card's own black keeps the type legible over a bright frame without
+     putting a shape behind it, the same answer the library rail arrows use. */
+  text-shadow:
+    0 0 4px rgba(0, 0, 0, 0.85),
+    0 0 12px rgba(0, 0, 0, 0.7),
+    0 1px 2px rgba(0, 0, 0, 0.9);
+}
+.lofi__label {
+  margin: 0;
+  font-size: 1.55vh;
+  letter-spacing: 0.12em;
+}
+/* Indented under the label, as "3. 45 P . M" sits under "//SHIBUYA-KU// TOKYO"
+   — not centred, which only looks centred in the reference because that
+   particular pair of strings happens to be about that wide. */
+.lofi__title {
+  margin: 0.35vh 0 0 1.6em;
+  font-size: 1.9vh;
+  letter-spacing: 0.16em;
+}
+
+/* Anchors are set from JS as percentages, because which one a card uses is
+   chosen per card. Only the direction of growth is here. */
+.lofi__group[data-bias="left"] { text-align: left; }
+.lofi__group[data-bias="right"] { text-align: right; }
+.lofi__group[data-bias="right"] .lofi__title { margin-left: 0; margin-right: 1.6em; }
+
+.lofi__corner {
+  position: absolute;
+  top: 4.5vh;
+  right: 5vw;
+  font-family: "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
+  font-size: 2.6vh;
+  font-weight: 400;
+  color: #fff;
+  letter-spacing: 0.5em;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+}
+.lofi__corner-dot {
+  display: inline-block;
+  width: 0.42em;
+  height: 0.42em;
+  background: #fff;
+  vertical-align: middle;
+}
+
+.lofi__sign {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.lofi__sign svg { width: 12vh; height: auto; }
+
+/**
+ * THE TWO PLACES A TRANSITION COULD LEAK IN, closed explicitly.
+ *
+ * `[hidden]` is how every beat of this card fires, and a card whose text faded
+ * would not be the card she asked for. Two rules elsewhere in this stylesheet
+ * could reach these nodes — a broad `p { transition: color }` and the
+ * `.app[data-view] *` fade used between views — and neither would throw or look
+ * broken enough to notice quickly. It would just be slightly, permanently
+ * wrong, which is the hardest kind of wrong to be told about.
+ */
+.lofi,
+.lofi *,
+.lofi *::before,
+.lofi *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Hidden means gone, instantly. `hidden` alone is display:none, but a rule with
+   higher specificity setting `display` on any of these would defeat it — so it
+   is said here where nothing else in the block can win. */
+.lofi [hidden] { display: none !important; }
+
+/* The run length. text-transform: none is the whole point of it being its own
+   node — "x2" glued into the title came out as "X2", because the group
+   upper-cases everything inside it. */
+.lofi__times {
+  text-transform: none;
+  margin-left: 0.8em;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}

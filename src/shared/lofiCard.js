@@ -51,15 +51,21 @@ function codeOf(entry) {
 }
 
 /**
- * A title, upper-cased, with the run length as a suffix when there is one.
+ * A title, upper-cased. The run length is returned SEPARATELY, never glued on.
  *
- * `x2` rather than `X2`: it is the multiplication sign as an editor would type
- * it, and it is the one lowercase thing on the card, which is what makes it
- * read as a quantity rather than as part of the name.
+ * `x2`, not `X2` — the multiplication sign as an editor would type it, and the
+ * one lowercase thing on the card, which is what makes it read as a quantity
+ * rather than as part of the name.
+ *
+ * It has to be its own node to stay that way. The card sets
+ * text-transform: uppercase on the whole group, so a suffix concatenated into
+ * this string comes out as X2 however it was written here — which is exactly
+ * what shipped in the first frame of this card. A value that can be silently
+ * transformed by a rule somewhere else is not a value, and gluing it on made it
+ * impossible for CSS to treat it differently from the words around it.
  */
-function titleOf(name, count) {
-  const base = String(name || '').toUpperCase();
-  return count > 1 ? `${base}  x${count}` : base;
+function titleOf(name) {
+  return String(name || '').toUpperCase();
 }
 
 /**
@@ -115,7 +121,8 @@ function linesFor(upcoming) {
   const first = {
     label: wrap('up next'),
     code: codeOf(next),
-    title: titleOf(next.movieBlock ? 'MOVIE' : next.showName, nextCount),
+    title: titleOf(next.movieBlock ? 'MOVIE' : next.showName),
+    count: nextCount,
   };
 
   /**
@@ -150,6 +157,7 @@ function linesFor(upcoming) {
         label: wrap('then'),
         code: '',
         title: following ? (codeOf(following) || 'CONTINUES') : 'CONTINUES',
+        count: 1,
       },
       deduped,
     };
@@ -160,10 +168,8 @@ function linesFor(upcoming) {
     second: {
       label: wrap('followed by'),
       code: codeOf(after.entry),
-      title: titleOf(
-        after.entry.movieBlock ? 'MOVIE' : after.entry.showName,
-        runLength(items, after.at),
-      ),
+      title: titleOf(after.entry.movieBlock ? 'MOVIE' : after.entry.showName),
+      count: runLength(items, after.at),
     },
     deduped,
   };

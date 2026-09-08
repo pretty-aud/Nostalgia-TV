@@ -33,9 +33,12 @@ describe('the card vocabulary', () => {
     expect(codeOf({ showId: 'a', showName: 'A', episode: {} })).toBe('');
   });
 
-  it('suffixes a run, and only a run', () => {
-    expect(titleOf('Scavengers Reign', 1)).toBe('SCAVENGERS REIGN');
-    expect(titleOf('Scavengers Reign', 3)).toBe('SCAVENGERS REIGN  x3');
+  it('never carries the count itself', () => {
+    expect(titleOf('Scavengers Reign')).toBe('SCAVENGERS REIGN');
+    // The count is NOT part of the title. Glued on it came out as X2, because
+    // the card upper-cases the whole group — it has to be a separate node so
+    // CSS can leave it alone.
+    expect(titleOf('Scavengers Reign')).not.toMatch(/x/);
   });
 });
 
@@ -82,7 +85,8 @@ describe('the two lines', () => {
       ep('a', 'Alpha', 1, 3),
       ep('b', 'Beta', 1, 1),
     ]);
-    expect(lines.first.title).toBe('ALPHA  x3');
+    expect(lines.first.title).toBe('ALPHA');
+    expect(lines.first.count).toBe(3);
     expect(lines.second.title).toBe('BETA');
     expect(lines.deduped).toBe(true);
   });
@@ -94,7 +98,8 @@ describe('the two lines', () => {
       ep('c', 'Gamma', 1, 1),
     ]);
     expect(lines.first.title).toBe('ALPHA');
-    expect(lines.second.title).toBe('BETA  x2');
+    expect(lines.second.title).toBe('BETA');
+    expect(lines.second.count).toBe(2);
   });
 
   /**
@@ -106,7 +111,8 @@ describe('the two lines', () => {
     const lines = linesFor([
       ep('a', 'Alpha', 1, 1), ep('a', 'Alpha', 1, 2), ep('a', 'Alpha', 1, 3),
     ]);
-    expect(lines.first.title).toBe('ALPHA  x3');
+    expect(lines.first.title).toBe('ALPHA');
+    expect(lines.first.count).toBe(3);
     expect(lines.second.label).toBe('//THEN//');
     expect(lines.second.title).not.toMatch(/ALPHA/);
     expect(lines.second.title).toBe('S01 . E02');

@@ -19,6 +19,7 @@ const artwork = require('./artwork.js');
 const ingest = require('./ingest.js');
 const bumperMusic = require('./bumperMusic.js');
 const bumperFootage = require('./bumperFootage.js');
+const bumperTempo = require('./bumperTempo.js');
 const bumperClip = require('./bumperClip.js');
 
 /**
@@ -973,6 +974,26 @@ function registerIpc() {
    * unrecognised kind is refused rather than defaulted, because defaulting
    * would silently open the wrong picker.
    */
+  /**
+   * A backdrop, cut to the card's length and ready to play.
+   *
+   * The folder is checked against allowedRoots rather than trusted, exactly as
+   * the media protocol does. Everything else here reads a folder she chose in a
+   * dialog; this one takes the path from the renderer, so it is the one place a
+   * compromised renderer could ask to transcode something out of her documents.
+   */
+  ipcMain.handle('lofi:nextFootage', async (_event, dir, seconds, lastSource) => {
+    if (typeof dir !== 'string' || !dir || !isInsideAllowedRoot(dir)) return null;
+    try {
+      const picked = await bumperFootage.readyBackdrop(dir, Number(seconds) || 15, lastSource);
+      if (!picked) return null;
+      return { ...picked, mediaUrl: mediaUrlFor(picked.absPath) };
+    } catch (error) {
+      console.error('[lofi] backdrop failed:', error && error.message);
+      return null;
+    }
+  });
+
   ipcMain.handle('lofi:pickFolder', async (_event, kind) => {
     const KINDS = {
       footage: {
@@ -1018,7 +1039,24 @@ function registerIpc() {
 
     try {
       const startSeconds = await bumperMusic.startFor(track, prepare.findFfmpeg());
-      return { absPath: track, startSeconds, title: bumperMusic.trackTitle(track) };
+      /**
+       * THE TEMPO COMES BACK WITH THE TRACK, measured AT the hook.
+       *
+       * Sent for every style rather than only for Minimal Lofi, because the
+       * alternative is a second IPC round trip carrying the same file path — and
+       * because a card that wanted it later would otherwise have to ask after it
+       * was already on screen. The other styles ignore the field.
+       *
+       * It cannot be measured without knowing startSeconds, which is why this
+       * sits here and not in the picker: the grid has to be phase-aligned to
+       * where playback actually begins, and analysing the top of the file would
+       * put every cut out by the same constant.
+       */
+      const stat = await fsp.stat(track).catch(() => null);
+      const tempo = await bumperTempo.tempoFor(track, stat, startSeconds);
+      return {
+        absPath: track, startSeconds, tempo, title: bumperMusic.trackTitle(track),
+      };
     } catch (error) {
       /**
        * Analysis failed — a corrupt file, or no ffmpeg. Still play the track,
@@ -1474,6 +1512,22 @@ if (!app.requestSingleInstanceLock()) {
       findFfmpeg: prepare.findFfmpeg,
     });
     /**
+     * Minimal Lofi's two engines, wired HERE beside the others rather than
+     * lazily at first use.
+     *
+     * bumperTempo shipped with init() having no caller at all, which does not
+     * throw and does not log — findFfmpeg stays null, every analysis returns
+     * the 90 BPM fallback, and the cards cut on a plain pulse that has nothing
+     * to do with the music. Working code, correct tests, and a feature that
+     * silently does none of what it claims.
+     */
+    bumperTempo.init({ findFfmpeg: prepare.findFfmpeg });
+    bumperFootage.init({
+      dir: path.join(app.getPath('userData'), 'lofi-bg'),
+      findFfmpeg: prepare.findFfmpeg,
+      findFfprobe: prepare.findFfprobe,
+    });
+    /**
      * The cut clips are served over media:// to a <video>, so their folder has
      * to be on allowedRoots. Safe for the same reason the baked cue's folder
      * is: this is a directory the APP owns inside userData, not anywhere the
@@ -1481,6 +1535,7 @@ if (!app.requestSingleInstanceLock()) {
      * at someone's documents, not to hide the app's own cache from itself.
      */
     allowedRoots.add(bumperClip.directory());
+    allowedRoots.add(bumperFootage.directory());
 
     protocol.handle('media', serveMedia);
     registerIpc();

@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('tv', {
   nextBumperMusic: (dir, lastPath) => ipcRenderer.invoke('bumperMusic:next', dir, lastPath),
   /** Minimal Lofi's folder pickers. The kind is 'footage' or 'music'. */
   pickLofiFolder: (kind) => ipcRenderer.invoke('lofi:pickFolder', kind),
+  /** A backdrop cut to length, ready to play. `lastSource` avoids a repeat. */
+  nextLofiFootage: (dir, seconds, lastSource) => ipcRenderer.invoke('lofi:nextFootage', dir, seconds, lastSource),
   // The cue a style bakes in, and a still from what is coming next.
   bumperCue: (name) => ipcRenderer.invoke('bumperMusic:cue', name),
   bumperStill: (absPath) => ipcRenderer.invoke('bumperBg:still', absPath),

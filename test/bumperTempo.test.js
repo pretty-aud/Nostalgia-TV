@@ -196,6 +196,32 @@ describe('the grid a card cuts on', () => {
     }
   });
 
+  /**
+   * THE MEASURED BEAT SITS BEFORE THE HOOK, which is the normal case now.
+   *
+   * The window starts two seconds ahead of the hook so the analysis does not
+   * begin on a downbeat, so the beat it finds is usually EARLIER in the file
+   * than where playback starts. The previous form used ceil() on a clamped
+   * difference and handed back a first beat a whole period late for exactly
+   * this input — a card whose every cut is one beat behind the music, with a
+   * tempo number that reads perfectly correct.
+   */
+  it('handles a beat measured before the hook, which is the usual case', () => {
+    const measured = { bpm: 120, confident: true, phase: 19.0 };  // window began at 19
+    const { beats, period } = gridFrom(measured, 21.0, 4);        // hook at 21
+    expect(beats[0]).toBeGreaterThanOrEqual(0);
+    expect(beats[0]).toBeLessThan(period);
+    // 21.0 - 19.0 = 2.0s = exactly four periods, so the first beat is at zero.
+    expect(beats[0]).toBeCloseTo(0, 3);
+  });
+
+  it('places the first beat correctly when the offset is not a whole period', () => {
+    const measured = { bpm: 120, confident: true, phase: 19.1 };
+    const { beats } = gridFrom(measured, 21.0, 4);
+    // 1.9s after the measured beat is 3.8 periods; the next lands 0.1s in.
+    expect(beats[0]).toBeCloseTo(0.1, 2);
+  });
+
   it('never returns a beat before the card begins', () => {
     const { beats } = gridFrom(tempo, 9.13, 12);
     expect(beats.every((b) => b >= 0)).toBe(true);
