@@ -5820,57 +5820,25 @@ input[type="range"]::-webkit-slider-thumb {
   color: #fff;
   line-height: 1.5;
   white-space: nowrap;
-  /* No plate, no scrim, no gradient — the reference has none. A halo in the
-     card's own black keeps the type legible over a bright frame without
-     putting a shape behind it, the same answer the library rail arrows use. */
   /**
-   * A HALO, AND THEN A HINT OF A DROP SHADOW.
+   * KEEPING WHITE TYPE READABLE OVER FOOTAGE NOBODY HAS SEEN YET.
    *
-   * The first three are the halo: legibility over an unknown frame, spread
-   * evenly so it reads as nothing at all. The fourth is the one she asked for —
-   * offset down and right so the type sits slightly OFF the picture rather than
-   * on it.
+   * No plate and no scrim — the reference frame has neither, and a box would
+   * stop this being the card she asked for. So the separation is done twice,
+   * with two mechanisms, because they do different jobs:
    *
-   * 2px at 30% is deliberately near the threshold of noticing. Her words were
-   * "very subtle, I want to barely notice the shadow", so it is sized to be
-   * felt as depth rather than seen as a shadow; anything heavier turns minimal
-   * type into a lower third.
-   */
-  /**
-   * A RAMP, not a shadow.
+   *   text-shadow draws per GLYPH. It can tighten an outline and it can never
+   *   make a pool of shade under a block, which is why several rounds of
+   *   stacking more stops only ever came out as heavier letters.
    *
-   * Five stops at growing blur and falling opacity. Each one alone would read
-   * as an edge; stacked, the steps are closer together than the eye resolves,
-   * so what registers is a pool of shade under the type that fades out with no
-   * visible boundary anywhere. That is what makes it carry real weight — she
-   * asked for more opacity and more width — while still being something you
-   * feel rather than see.
+   *   filter: drop-shadow draws from the whole group's SILHOUETTE. Chained, the
+   *   second applies to the result of the first, so a tight pool and a wide one
+   *   compound into real darkness under the block with no edge anywhere.
    *
-   * The two tight stops do the legibility work over a bright frame. The three
-   * wide ones are the falloff, and the last is 40px across at 18%: far too soft
-   * to notice as a shape, and enough to sit the whole block off the picture.
-   */
-  /**
-   * TWO JOBS, TWO MECHANISMS.
-   *
-   * text-shadow draws per GLYPH, so it can tighten an outline but it can never
-   * make one pool of shade under a block — five stacked stops was five outlines
-   * of increasing size, which is why it read as strength on the letters rather
-   * than as contrast behind them.
-   *
-   * So the outline stays here, a little thicker than it was, and the large soft
-   * shadow moves to a filter on the group below. That one is drawn from the
-   * whole group's silhouette at once, which is what "one large shadow that sits
-   * under all of the text" actually needs.
-   */
-  /**
-   * LEGIBILITY OVER SUBTLETY, because she could not always read it.
-   *
-   * A blown-out sky is near-white at full brightness, and white type on it has
-   * no contrast at all — no amount of "tasteful" gets round that. The first two
-   * stops are effectively opaque and sit tight to the glyph, which is what
-   * actually separates a letter from the picture; the third and fourth carry it
-   * out far enough that the separation does not look like a sticker.
+   * The values are strong, and that is deliberate. A blown-out sky is near
+   * white at full brightness and white type on it has no contrast at all; she
+   * lost the text on exactly those frames twice. Subtlety loses to legibility
+   * here, and the wide pool is what keeps it from looking like a sticker.
    */
   text-shadow:
     0 0 2px rgba(0, 0, 0, 1),
