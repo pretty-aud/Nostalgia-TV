@@ -46,17 +46,15 @@ const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi
 const STILL_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.avif']);
 
 /**
- * How far into a clip to start, as a fraction of what is SPARE.
+ * NO SEEK. The clip is used from its beginning.
  *
- * Not a fixed offset. With a 16-second source and a 15-second card there is one
- * second of headroom, and any constant seek would run off the end; with a long
- * source there is plenty. Taking a fraction of the spare works at both ends and
- * needs no special case.
- *
- * A third rather than a half so a short clip still opens near its beginning,
- * where stock footage tends to be steadiest.
+ * An earlier version carried a seek rule inherited from the box office, which
+ * cuts a backdrop out of an EPISODE and skips a third of the way in to clear
+ * the opening credits. That reasoning does not transfer: a stock clip has no
+ * credits, no titles and no dead opening — it is a chosen shot, and its
+ * beginning is as good as anywhere. Seeking into it would only mean showing
+ * less of what she picked, for no reason anyone could name.
  */
-const SEEK_FRACTION = 0.34;
 
 /** Below this, retiming stops looking like slow motion and starts looking broken. */
 const MIN_SPEED = 0.55;
@@ -79,13 +77,36 @@ async function listSources(dir) {
   } catch {
     return [];
   }
-  return names
-    .filter((name) => {
-      const ext = path.extname(name).toLowerCase();
-      return VIDEO_EXTENSIONS.has(ext) || STILL_EXTENSIONS.has(ext);
-    })
-    .map((name) => path.join(dir, name))
-    .sort();
+  const usable = names.filter((name) => {
+    const ext = path.extname(name).toLowerCase();
+    return VIDEO_EXTENSIONS.has(ext) || STILL_EXTENSIONS.has(ext);
+  });
+
+  /**
+   * ONE ENTRY PER SHOT, even when a converted copy sits beside its original.
+   *
+   * scripts/transcode-footage.mjs writes an H.264 `.mp4` next to a source the
+   * browser cannot decode and deliberately leaves the original alone, so her
+   * folder holds AdobeStock_287229496.mov (ProRes) AND .mp4 (H.264) — the same
+   * twelve seconds of footage twice. Listed naively that shot is twice as
+   * likely to be dealt as any other, and half the time it is dealt as the copy
+   * that shows nothing at all.
+   *
+   * Grouped by basename, and .mp4 wins. Not because mp4 is special but because
+   * that is the extension the converter writes; a folder with only originals is
+   * unaffected, since each basename then has exactly one file.
+   */
+  const byBase = new Map();
+  for (const name of usable) {
+    const base = path.basename(name, path.extname(name));
+    const ext = path.extname(name).toLowerCase();
+    const held = byBase.get(base);
+    if (!held || (ext === '.mp4' && path.extname(held).toLowerCase() !== '.mp4')) {
+      byBase.set(base, name);
+    }
+  }
+
+  return [...byBase.values()].map((name) => path.join(dir, name)).sort();
 }
 
 function isStill(absPath) {
@@ -102,10 +123,8 @@ function planFor(durationSeconds, wanted) {
   const duration = Number(durationSeconds) || 0;
   if (!Number.isFinite(duration) || duration <= 0) return null;
 
-  if (duration >= wanted) {
-    const spare = duration - wanted;
-    return { seek: Number((spare * SEEK_FRACTION).toFixed(3)), speed: 1, take: wanted };
-  }
+  // Long enough: play it from the top and stop when the card does.
+  if (duration >= wanted) return { seek: 0, speed: 1, take: wanted };
 
   /**
    * SLOW IT, her ruling. speed < 1 means the clip plays slower and therefore
@@ -171,7 +190,6 @@ module.exports = {
   keyFor,
   VIDEO_EXTENSIONS,
   STILL_EXTENSIONS,
-  SEEK_FRACTION,
   MIN_SPEED,
   MAX_WIDTH,
 };

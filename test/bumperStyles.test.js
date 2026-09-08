@@ -26,6 +26,49 @@ import {
 const HTML = readFileSync(new URL('../src/renderer/index.html', import.meta.url), 'utf8');
 const JS = readFileSync(new URL('../src/renderer/index.js', import.meta.url), 'utf8');
 
+/**
+ * EVERY VIDEO STYLE HAS A DRIVER, and this is the test that would have caught
+ * the worst bug in this feature before it ran.
+ *
+ * The transition dispatched with an if-chain whose second branch was
+ * isFixedLength(style.id) -> showAdultSwimBumper. isFixedLength is just
+ * kind === 'video', so ANY new video style that was not literally called
+ * boxoffice fell into it and drew the schedule card. Minimal Lofi appeared in
+ * both menus, showed its own settings, passed every existing test, and played
+ * somebody else's card. Nothing threw. The only symptom was a card that looked
+ * wrong, which is indistinguishable from a card that is wrong.
+ *
+ * Read from the SOURCE rather than imported, because CARD_DRIVERS lives in the
+ * renderer and the renderer reaches for window on load.
+ */
+describe('every style that draws its own card has one', () => {
+  const JS = readFileSync(new URL('../src/renderer/index.js', import.meta.url), 'utf8');
+  const map = /const CARD_DRIVERS = \{([\s\S]*?)\r?\n\};/.exec(JS);
+
+  it('has a driver map at all', () => {
+    expect(map, 'CARD_DRIVERS went missing — the if-chain is probably back').toBeTruthy();
+  });
+
+  it('names a driver for every video style', () => {
+    const keys = [...map[1].matchAll(/^\s*([a-z][a-zA-Z0-9]*):/gm)].map((m) => m[1]);
+    const video = BUILTIN_STYLES.filter((s) => s.kind === 'video').map((s) => s.id);
+    const missing = video.filter((id) => !keys.includes(id));
+    expect(missing, 'these styles would silently draw another style card').toEqual([]);
+  });
+
+  it('dispatches through the map, not through isFixedLength', () => {
+    /**
+     * COMMENTS STRIPPED FIRST. The bug is documented at the map's definition,
+     * quoting the if-chain verbatim so the next person knows what the map is
+     * for — and the first version of this test matched that explanation and
+     * reported the bug as still present. A source-text check that cannot tell
+     * code from prose is a check that punishes writing any down.
+     */
+    const code = JS.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toMatch(/else if \(isFixedLength\([^)]*\)\)\s*show/);
+  });
+});
+
 describe('the style list is the only list', () => {
   /**
    * THE ONE THAT MATTERS. If someone "helpfully" writes the options into the

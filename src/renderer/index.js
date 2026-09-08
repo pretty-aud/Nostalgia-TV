@@ -1682,9 +1682,13 @@ if (window.tv.isDebug) {
         }
       }
 
+      // The same map the real transition uses. Written as its own if-chain, it
+      // was the second place a new style would silently review the wrong card —
+      // and the review harness getting it wrong is worse than the channel
+      // getting it wrong, because it is what you would check with.
       await new Promise((resolve) => {
-        if (style === 'boxoffice') showBoxOffice(resolve, null);
-        else if (isFixedLength(style)) showAdultSwimBumper(resolve, null);
+        const driver = CARD_DRIVERS[style];
+        if (driver) driver(resolve, null);
         else showBumper(resolve, null);
       });
       return report;
@@ -1750,6 +1754,35 @@ if (window.__tvCalls) {
     settings: () => state.settings,
   };
 }
+
+/**
+ * WHICH STYLE DRAWS WITH WHICH FUNCTION — one map, named by style id.
+ *
+ * It was an if-chain, and the chain had a hole big enough to ship a broken
+ * feature through:
+ *
+ *     if (style.id === 'boxoffice')  showBoxOffice(...)
+ *     else if (isFixedLength(style.id)) showAdultSwimBumper(...)
+ *
+ * isFixedLength is `kind === 'video'`. So ANY new video style that is not
+ * literally called 'boxoffice' falls into the second branch and plays the
+ * schedule card. Minimal Lofi would have appeared in both menus, shown its own
+ * settings fields, passed every existing test — and drawn somebody else's card.
+ * Nothing would have thrown, and the only symptom is a card that looks wrong,
+ * which is indistinguishable from a card that IS wrong.
+ *
+ * The same chain was duplicated in __debug.playUpNext, so the harness built for
+ * reviewing these would have reviewed the wrong one too.
+ *
+ * A map cannot have that hole: a style with no entry falls through to the still
+ * card, which is a visible, correct fallback rather than a wrong card wearing
+ * the right name. And bumperStyles.test.js now asserts every video style has a
+ * key here, so the omission is a test failure rather than a viewing.
+ */
+const CARD_DRIVERS = {
+  cewr: (done, lead) => showAdultSwimBumper(done, lead),
+  boxoffice: (done, lead) => showBoxOffice(done, lead),
+};
 
 async function showBumper(onDone, leadOverride) {
   const upcoming = peek(shows, state, 3);
@@ -2514,10 +2547,9 @@ function onEpisodeEnded() {
        * she cannot even see switch it off.
        */
       const style = resolveStyle(activeBumperStyleId(state.settings));
-      if (style.id === 'boxoffice') {
-        showBoxOffice(after, leadOverride);
-      } else if (isFixedLength(style.id)) {
-        showAdultSwimBumper(after, leadOverride);
+      const driver = CARD_DRIVERS[style.id];
+      if (driver) {
+        driver(after, leadOverride);
       } else if (state.settings.bumperEnabled && state.settings.bumperSeconds > 0) {
         showBumper(after, leadOverride);
       } else {
