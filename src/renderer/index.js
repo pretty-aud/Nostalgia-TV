@@ -1414,6 +1414,34 @@ const BOX_OFFICE_CUE = 'box-office.mp3';
  * each is an ordinary state, and none of them is worth a line in the console
  * every time an episode ends.
  */
+/**
+ * START CUTTING THE BACKDROP BEFORE THE CARD IS NEEDED.
+ *
+ * Measured against her real folder: a shot that is not already cached takes
+ * 1.3 to 3.0 seconds to transcode, and the card asks for it before it draws
+ * anything. Awaited inline that is up to three seconds of the outgoing
+ * programme sitting on its last frame — which is exactly the stall she ruled
+ * out at the start of this feature.
+ *
+ * Called at the top of the interstitial chain, so the cut runs while the sting
+ * and the promo play. The card then awaits a promise that has usually already
+ * settled. Same shape as prepareBoxOfficeBackdrop, and for the same reason.
+ */
+let lofiPrepared = null;
+
+function prepareLofiBackdrop(seconds) {
+  if (!window.tv.nextLofiFootage || !state.settings.lofiFootageDir) {
+    lofiPrepared = null;
+    return;
+  }
+  lofiPrepared = window.tv
+    .nextLofiFootage(state.settings.lofiFootageDir, seconds, lastLofiClip)
+    .catch((error) => {
+      console.error('[lofi] backdrop failed:', error && error.message);
+      return null;
+    });
+}
+
 function prepareBoxOfficeBackdrop() {
   // The SCHEDULE's style, falling back to the global one. Reading the global
   // directly here would cut the backdrop for a schedule that had chosen the
@@ -1719,6 +1747,40 @@ if (window.tv.isDebug) {
      * so the child kept its initial value while the card's own animated.
      */
     inspect() {
+      /**
+       * WHICH CARD IS UP. This read el('boxoffice') unconditionally, so
+       * inspecting any other style reported that card's torn-down state —
+       * every field null — which reads exactly like a card that is failing.
+       */
+      if (app.dataset.bumperStyle === 'lofi') {
+        const video = el('lofiBg');
+        const still = el('lofiStill');
+        const group = (id) => {
+          const node = el(id);
+          const box = node.getBoundingClientRect();
+          return {
+            up: !node.hidden,
+            side: node.dataset.bias,
+            at: `${Math.round(box.x)},${Math.round(box.y)}`,
+          };
+        };
+        return {
+          style: 'lofi',
+          // The question the whole feature turns on: is HER footage on screen?
+          backdrop: video.hidden ? (still.hidden ? 'NONE' : 'still') : 'video',
+          clipPlaying: !video.hidden && !video.paused && video.currentTime > 0,
+          clipTime: Number(video.currentTime.toFixed(2)),
+          clipSize: `${video.videoWidth}x${video.videoHeight}`,
+          clipSrc: String(video.getAttribute('src') || '').split('/').pop().slice(0, 46),
+          first: group('lofiFirst'),
+          second: group('lofiSecond'),
+          firstText: `${el('lofiFirstLabel').textContent} / ${el('lofiFirstTitle').textContent}`,
+          secondText: `${el('lofiSecondLabel').textContent} / ${el('lofiSecondTitle').textContent}`,
+          signUp: !el('lofiSign').hidden,
+          viewport: `${window.innerWidth}x${window.innerHeight}`,
+        };
+      }
+
       const card = el('boxoffice');
       const clip = el('boxofficeClip');
       const still = el('boxofficeStill');
@@ -1926,17 +1988,15 @@ async function showMinimalLofi(onDone, leadOverride, options = {}) {
     ? gridFrom(tempo, music.startSeconds || 0, duration).beats
     : [];
 
-  let backdrop = null;
-  if (window.tv.nextLofiFootage && state.settings.lofiFootageDir) {
-    try {
-      backdrop = await window.tv.nextLofiFootage(
-        state.settings.lofiFootageDir, duration, lastLofiClip,
-      );
-      if (backdrop) lastLofiClip = backdrop.source;
-    } catch (error) {
-      console.error('[lofi] no footage:', error && error.message);
-    }
-  }
+  /**
+   * The prepared cut, or one started now if nothing prepared it — the debug
+   * entry point and the review harness both raise this card directly, without
+   * the interstitial chain that would have warmed it.
+   */
+  if (!lofiPrepared) prepareLofiBackdrop(duration);
+  const backdrop = await lofiPrepared;
+  lofiPrepared = null;
+  if (backdrop) lastLofiClip = backdrop.source;
 
   // Placement is chosen per card and must be reproducible, so the seed comes
   // from what is playing rather than from a clock or a random number.
@@ -2806,6 +2866,12 @@ function onEpisodeEnded() {
    * waits for anything.
    */
   prepareBoxOfficeBackdrop();
+  /**
+   * The nominal 15s, not the card's real bar-aligned length: the tempo is not
+   * known yet, and a clip cut a second or two long is trimmed by the card
+   * ending, while one cut short would run out and freeze on its last frame.
+   */
+  prepareLofiBackdrop(secondsFor('lofi', BUILTIN_STYLES));
 
   // Broadcast order: sting, promo, continuity card, then the next programme —
   // or, when the lead has run out, the movie presentation and the movie.

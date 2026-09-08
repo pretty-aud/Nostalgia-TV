@@ -39,6 +39,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const say = (line) => console.log(line);
 
 let seq = 0;
+/** One PNG of the renderer's own pixels, base64, over the same socket. */
+function capture(ws) {
+  const id = ++seq;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('capture timeout')), 30000);
+    const onMessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id !== id) return;
+      clearTimeout(timer);
+      ws.removeEventListener('message', onMessage);
+      if (message.error) { reject(new Error(message.error.message)); return; }
+      resolve(message.result && message.result.data);
+    };
+    ws.addEventListener('message', onMessage);
+    ws.send(JSON.stringify({ id, method: 'Page.captureScreenshot', params: { format: 'png' } }));
+  });
+}
+
 function evaluate(ws, expression) {
   const id = ++seq;
   return new Promise((resolve, reject) => {
@@ -114,6 +132,18 @@ async function main() {
       bumperClipsEnabled: false,
       promosEnabled: false,
       moviesEnabled: false,
+
+      /**
+       * The schedule card's music folder, and Minimal Lofi's two.
+       *
+       * Seeded from the environment so a review run uses REAL files. Without
+       * them the lofi card comes up on black with a 90 BPM fallback pulse,
+       * which looks like a working card and is a picture of nothing being
+       * tested — the folders are the whole feature.
+       */
+      bumperMusicDir: process.env.NTV_MUSIC_DIR || '',
+      lofiMusicDir: process.env.NTV_LOFI_MUSIC || process.env.NTV_MUSIC_DIR || '',
+      lofiFootageDir: process.env.NTV_LOFI_FOOTAGE || '',
     },
   }));
 
@@ -155,7 +185,23 @@ async function main() {
       window.__debugRun.then((r) => { window.__debugReport = r; window.__debugDone = true; });
       true`);
 
-    await until(ws, 'the card', "document.getElementById('boxoffice') && !document.getElementById('boxoffice').hidden ? 'up' : ''", 120000);
+    /**
+     * WHICHEVER CARD THIS STYLE DRAWS, not the box office.
+     *
+     * This waited on `#boxoffice` by id, so a run of any other style sat here
+     * for two minutes and then reported "timed out waiting for the card" — while
+     * the card was playing perfectly on the second monitor the whole time. The
+     * script that exists to review these cards could only review one of them.
+     *
+     * `data-bumper-style` is set by every driver as it opens, which makes this
+     * the one condition that cannot go stale when a style is added.
+     */
+    await until(
+      ws,
+      `the ${style} card`,
+      `document.getElementById('app').dataset.bumperStyle === ${JSON.stringify(style)} ? 'up' : ''`,
+      120000,
+    );
 
     /**
      * Sampled WHILE it plays, not after. Whether the clip is decoding and the
@@ -174,11 +220,27 @@ async function main() {
        * was decoding and the band was open while she was watching a card that
        * did neither — so the only honest evidence is the glass itself.
        */
+      /**
+       * FROM THE RENDERER, not from the screen.
+       *
+       * This shelled out to grab-window.ps1 with the Electron PID. That process
+       * owns two windows — the video plane and the transparent overlay — and on
+       * a run it photographed neither: the file that came back was a picture of
+       * an unrelated application that happened to be in front. Useless as
+       * evidence, and not a thing a review script should be taking at all.
+       *
+       * Page.captureScreenshot asks the renderer for its own pixels, so the
+       * frame is the card by construction and can never wander onto her
+       * desktop. It is also COMPLETE for these cards: everything they draw —
+       * the text, the backdrop <video>, the mark — lives in the overlay. mpv is
+       * carrying audio only here, so there is nothing on the video plane for a
+       * renderer capture to miss.
+       */
       if (shots && i === 2) {
-        spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass',
-          '-File', path.join(root, 'scripts', 'grab-window.ps1'),
-          String(child.pid), path.join(work, `card${round}.png`)],
-        { windowsHide: true, timeout: 30000 });
+        const png = await capture(ws).catch(() => null);
+        if (png) {
+          await fsp.writeFile(path.join(work, `card${round}.png`), Buffer.from(png, 'base64'));
+        }
       }
     }
 

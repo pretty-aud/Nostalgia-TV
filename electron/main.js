@@ -983,7 +983,23 @@ function registerIpc() {
    * compromised renderer could ask to transcode something out of her documents.
    */
   ipcMain.handle('lofi:nextFootage', async (_event, dir, seconds, lastSource) => {
-    if (typeof dir !== 'string' || !dir || !isInsideAllowedRoot(dir)) return null;
+    if (typeof dir !== 'string' || !dir) return null;
+    /**
+     * `has` FIRST, and this is not belt and braces — it is the whole check.
+     *
+     * A folder is not "inside" itself: path.relative(dir, dir) is '', which
+     * isInsideAllowedRoot reads as outside. So a bare containment test rejects
+     * the exact folder she chose in the dialog, every time, and returns null —
+     * which the card handles gracefully by playing on black. Music, text and
+     * timing all correct, and no footage, with nothing logged.
+     *
+     * The music handler four screens up carries this same guard and says why.
+     * Copying the shape and not the reason is how the bug got written twice.
+     */
+    if (!allowedRoots.has(dir) && !isInsideAllowedRoot(dir)) {
+      console.error('[lofi] footage folder is not allowlisted:', dir);
+      return null;
+    }
     try {
       const picked = await bumperFootage.readyBackdrop(dir, Number(seconds) || 15, lastSource);
       if (!picked) return null;
