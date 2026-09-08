@@ -2894,6 +2894,35 @@ function onEpisodeEnded() {
    * finished by the time the card goes up, the card uses the still and nobody
    * waits for anything.
    */
+  runTransition();
+}
+
+/**
+ * THE SEAM BETWEEN TWO PROGRAMMES, in one place.
+ *
+ * Sting, promo, continuity card, then the next thing — or the presentation and
+ * the feature when a film is due. Every way into the channel uses this now:
+ * the end of a channel episode, and a film handed back from the library.
+ *
+ * It used to live only inside onEpisodeEnded, and rollIntoChannel had its own
+ * hand-written copy — `playBumperClip(() => playPromoClip(() => playNext()))`
+ * — which is three of the four steps. That is why the up-next card vanished
+ * after a library film: not a condition failing, a step that was never written.
+ *
+ * The copy also had a second hole nobody had hit yet. playNext() has no
+ * movieIsDue branch — only this function does — so a film the channel had
+ * already scheduled would be silently dropped on the way back from the
+ * library, and the clock would simply wait for the next one.
+ */
+function runTransition() {
+  /**
+   * START CUTTING THE BACKDROPS NOW, before anything else in the chain.
+   *
+   * This is the head start that makes a transcode affordable: the sting and
+   * the promo run for several seconds before the card is raised, which is the
+   * window her instruction described — build these while the clips before it
+   * play, never make the card wait.
+   */
   prepareBoxOfficeBackdrop();
   /**
    * The nominal 15s, not the card's real bar-aligned length: the tempo is not
@@ -2902,9 +2931,6 @@ function onEpisodeEnded() {
    */
   prepareLofiBackdrop(secondsFor('lofi', BUILTIN_STYLES));
 
-  // Broadcast order: sting, promo, continuity card, then the next programme —
-  // or, when the lead has run out, the movie presentation and the movie.
-  // Each step passes through instantly when it has nothing to play.
   playBumperClip(() => {
     playPromoClip(() => {
       const movieNow = movieIsDue(state);
@@ -8652,16 +8678,17 @@ function browseEpisodeEnded() {
  * programme. The same chain the channel plays between its own episodes, so
  * the join sounds like the channel rather than like an app changing mode.
  *
- * The up-next CARD is deliberately not shown. That card is the channel
- * announcing what it is about to play, and after a film she asked for the
- * hand-back to be seamless rather than narrated — the same reason the
- * player's up-next line stays hidden all through library mode.
+ * THE CARD IS SHOWN NOW. It was deliberately left out — she had asked for the
+ * hand-back after a film to be seamless rather than narrated — and she has
+ * since watched it and reported the missing card as a fault. Her later call
+ * wins, and it is recorded here so the reversal does not look like drift.
  */
 function rollIntoChannel() {
   app.dataset.browsing = 'false';
   delete app.dataset.library;
   browseItem = null;
-  playBumperClip(() => playPromoClip(() => playNext()));
+  // The channel's own seam, not a copy of three of its four steps.
+  runTransition();
 }
 
 /** Where library mode writes its position, in place of state.resume. */

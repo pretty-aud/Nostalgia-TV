@@ -110,10 +110,33 @@ function nextRestartDelay(recentExits, now) {
  * once per spawn, and this project deliberately has no native build step.
  * Polled, because the child appears a beat after the process does.
  */
-const USER32 =
-  '[DllImport("user32.dll", CharSet=System.Runtime.InteropServices.CharSet.Auto)] '
-  + 'public static extern System.IntPtr FindWindowEx(System.IntPtr parent, System.IntPtr after, string cls, string title); '
-  + '[DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr h, System.IntPtr after, int x, int y, int w, int hh, uint flags);';
+/**
+ * ONE Add-Type BLOCK, and it has to be one.
+ *
+ * This was `-MemberDefinition` with the signatures as a string, which is the
+ * shorter form and cannot work here: GetClientRect takes a RECT, and a member
+ * definition cannot reference a struct declared by a SEPARATE Add-Type — it
+ * fails to compile with "Unable to find type [NTV.U]". Caught by running the
+ * PowerShell on its own before shipping it, which matters more than usual: if
+ * this script throws, the raise never happens and the picture is black. A
+ * geometry fix that breaks the video entirely is a far worse bug than the one
+ * it fixes.
+ */
+const USER32_SOURCE = `
+namespace NTV {
+  using System;
+  using System.Runtime.InteropServices;
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  public static class U {
+    [DllImport("user32.dll", CharSet=CharSet.Auto)]
+    public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hh, uint flags);
+    [DllImport("user32.dll")]
+    public static extern bool GetClientRect(IntPtr h, out RECT r);
+  }
+}`;
 
 /**
  * ASYNCHRONOUS, and that is the whole point of it.
@@ -133,11 +156,42 @@ const USER32 =
  */
 function raiseOnce(parentHwnd) {
   const script = [
-    `Add-Type -MemberDefinition '${USER32}' -Name U -Namespace NTV`,
+    `Add-Type -TypeDefinition @'${USER32_SOURCE}
+'@ -ErrorAction SilentlyContinue`,
     `$mpv = [NTV.U]::FindWindowEx([System.IntPtr]${parentHwnd}, [System.IntPtr]::Zero, 'mpv', [NullString]::Value)`,
     'if ($mpv -eq [System.IntPtr]::Zero) { Write-Output "NOTFOUND"; exit }',
-    // HWND_TOP; SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-    '[NTV.U]::SetWindowPos($mpv, [System.IntPtr]::Zero, 0, 0, 0, 0, 0x13) | Out-Null',
+    /**
+     * SIZE IT, not just raise it.
+     *
+     * This passed SWP_NOMOVE | SWP_NOSIZE — z-order only — and nothing else in
+     * the app ever set the child's geometry. mpv sizes its --wid child once at
+     * creation from GetClientRect(parent), and afterwards only from its own
+     * parent_evt_hook: a SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE) that is
+     * asynchronous, coalescible and cross-process. Its other route,
+     * parent_win_hook, needs the parent inside mpv's own process and never
+     * applies here, because mpv.exe is a separate process.
+     *
+     * So ONE lossy hook was the only thing keeping the picture the size of the
+     * plane. Miss an event — the window growing to full screen while mpv is
+     * rebuilding a swapchain between files — and the child keeps the old rect,
+     * anchored at the parent's origin: a picture in the top of the frame with
+     * the plane's own black filling the rest. mpv then reads that stale rect
+     * back as its own size and never corrects it, which is why only another
+     * real resize fixes it and why she had to rescale the window repeatedly.
+     *
+     * The app owns the geometry now, on the same PowerShell round trip the
+     * raise already cost.
+     */
+    `$r = New-Object NTV.RECT; [NTV.U]::GetClientRect([System.IntPtr]${parentHwnd}, [ref] $r) | Out-Null`,
+    '$w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top',
+    'if ($w -gt 0 -and $h -gt 0) {',
+    // HWND_TOP, at the parent's origin, filling its client area; SWP_NOACTIVATE.
+    '  [NTV.U]::SetWindowPos($mpv, [System.IntPtr]::Zero, 0, 0, $w, $h, 0x10) | Out-Null',
+    '} else {',
+    // No client rect to read — minimised, or mid-transition. Raise only, rather
+    // than resizing the picture to nothing.
+    '  [NTV.U]::SetWindowPos($mpv, [System.IntPtr]::Zero, 0, 0, 0, 0, 0x13) | Out-Null',
+    '}',
     'Write-Output "RAISED"',
   ].join('\n');
   return new Promise((resolve) => {

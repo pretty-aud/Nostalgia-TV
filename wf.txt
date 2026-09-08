@@ -1,0 +1,81 @@
+======================================================================
+CONFIDENCE: likely
+Nothing in this codebase ever sets the size or position of mpv's child window — the app hands mpv a HWND once and then delegates that child's geometry 100% to mpv itself. Meanwhile the app tears mpv's video output down and rebuilds it THREE TIMES at every episode transition (episode video → audio-only card music → `mpv:stop` → next episode), and mpv, with `--auto-window-resize=yes` still at its default, re-lays-out its own embedded window on each of those VO reconfigurations from its own idea of a size rather than from the plane's current client rect. In full screen that self-chosen rect is much smaller than the plane, and because a child window is anchored at its parent's origin the picture lands at the top with the plane's own black (`backgroundColor: '#08070c'`, `main.js:768`) filling the rest. Only a real parent-window geometry change makes mpv re-read the plane's client rect, which is exactly why dragging the window's scale repeatedly is her workaround. There is no resize on file-open at all: the only thing armed on `start-file` is the z-order raise, and that raise deliberately passes SWP_NOSIZE | SWP_NOMOVE.
+
+FIX: Three changes, in order of confidence. Ship 1 and 2 together; 3 is optional and removes the state that creates the bug.
+
+**1. Stop mpv re-laying-out its embedded window (electron/mpvPlayer.js:71-84).** Add to `mpvArgsFor`:
+
+```js
+    '--force-window=yes',
+    '--idle=yes',
+    '--keep-open=yes',
+    /**
+     * EMBEDDED: THE PLANE OWNS THE GEOMETRY, NOT MPV.
+     *
+     * Both default to yes, and both make mpv resize its own --wid child when a
+     * VO is reconfigured. This app reconfigures the VO three times per
+     * transition (episode -> the card's audio-only music -> stop -> the next
+     * episode, src/renderer/index.js:1337/1381), and nothing here corrects the
+     * result: the raise below is z-order only. The picture ends up in the top
+     * of the plane with black beneath it until a window resize makes mpv
+     * re-read the parent's client rect.
+     */
+    '--auto-window-resize=no',
+    '--no-keepaspect-window',
+```
+
+Update `test/mpvPlayer.test.js` (which asserts the arg contract, lines 9-40) with a matching case — losing either flag must fail a test.
+
+**2. Make the existing raise assert GEOMETRY as well as z-order (electron/mpvPlayer.js:113-158).** The routine alread
+
+======================================================================
+CONFIDENCE: likely
+`transparent: true` on the overlay makes Electron strip WS_THICKFRAME and WS_CAPTION off that window's style, and the overlay is the window Windows is asked to snap. The drag DOES reach the OS as a genuine caption drag — I measured WM_NCHITTEST returning HTCAPTION over `.windrag` — so the theory written into main.js ("Chromium moves the child itself, Windows never sees a gesture") is false. What Windows sees is a real caption drag on a window that is, by its style bits, neither sizable nor captioned, and it completes it as a plain move instead of offering snap. `maximizable: true` did land (WS_MAXIMIZEBOX is present on the shipped overlay) but WS_MAXIMIZEBOX alone is necessary, not sufficient — which is exactly why she still sees nothing. planeManager.js:76's `thickFrame: true` is INERT: Electron forces thick_frame off for any transparent window, so the option that was supposed to supply the missing bits does nothing.
+
+FIX: SMALLEST CHANGE THAT CAN RESTORE BOTH: stop asking Windows to snap the overlay, and hand the caption drag to the video plane, which already has the full style set (0x14c70000). No BrowserWindow option can fix this — measured: any window that is actually see-through loses WS_THICKFRAME and WS_CAPTION, and titleBarStyle/titleBarOverlay do not change that.
+
+1. src/renderer/styles.css:3048 — `.windrag { -webkit-app-region: drag; }` becomes `no-drag`, so Chromium stops claiming the gesture for the overlay.
+
+2. src/renderer/index.js — begin the drag ourselves:
+```js
+document.querySelector('.windrag').addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  window.electronAPI.beginWindowDrag({ x: e.screenX, y: e.screenY });
+});
+```
+
+3. electron/preload.js (beside the existing window: channels at lines 71-73):
+`beginWindowDrag: (pt) => ipcRenderer.invoke('window:beginDrag', pt),`
+
+4. electron/main.js (beside the handlers at 1389-1418):
+```js
+ipcMain.handle('window:beginDrag', (_e, pt) => {
+  if (!videoWindow || videoWindow.isDestroyed()) return;
+  const { x, y } = screen.dipToScreenPoint(pt);   // this display measured scaleFactor 1.5
+  const hwnd = vide
+
+----------------------------------------------------------------------
+VERIFY - holds up: True
+  - The CODE claim is fully verified, but the SYMPTOM claim is not verifiable from this repo and the diagnosis rests on it. "which is exactly the sequence she described" cites nothing — there is no bug report, no OUTSTANDING.md, and no session note in the tree (docs/ contains only MPV_PLAYER_PLAN.md; the shuffle_tv_app mem
+  - The key name is "movie-skip", which reads more naturally as "a movie got skipped" than "the card got skipped after a movie". The diagnosis never considers that reading, and the two readings demand OPPOSITE fixes (see betterCause). If the report is "the film the channel promised never played", this whole answer is aimed
+  - The proposed test's second `it` is advertised as failing on the current tree but one of its two assertions is a no-op: `src.match(/CARD_DRIVERS\[style\.id\]/g)` is ALREADY length 1 today (only index.js:2922). Only the `playBumperClip(() =>` count (currently 2: index.js:2908 and 8664) actually flips. Calling it a failin
+  - "the card dispatch exists in exactly one place" is not true even after the fix: `__debug.playUpNext` keeps its own copy at src/renderer/index.js:1736 (`const driver = CARD_DRIVERS[style];`). The regex only misses it because the debug copy indexes by `style` rather than `style.id`. The comment the diagnosis quotes at 18
+  BETTER: "Not a competing cause for the card-skip — that mechanism is airtight — but a cause the diagnosis never considered for the OTHER reading of \"movie-skip\": a film the channel had promised never plays.\n\n`rollIntoChannel` (index.js:8664) and `backToChannel` (index.js:7645) both call `playNext()` directly, and `playNext` (2506-2555) has no `movieIsDue`/`startMovie` branch at all — only `onEpisodeEnded` (2910-2912) does. So any hand-back from the l
+
+----------------------------------------------------------------------
+VERIFY - holds up: False
+  - THE CENTRAL CLAIM IS REFUTED BY MPV'S SOURCE. The diagnosis says mpv "re-lays-out its own embedded window on each of those VO reconfigurations from its own idea of a size." In video/out/w32_common.c (checked at tag v0.40.0 and at master, both agree) `reinit_window_state()` — the function that applies the window geometr
+  - THE EVIDENCE ARRAY CONTAINS NOTHING THAT SUPPORTS THE MECHANISM. All eleven items describe what the APP does not do (no resize on file-open, raise is SWP_NOSIZE, no --auto-window-resize=no, three mpvOpen/mpvStop calls). Not one shows mpv actually shrinking its child, and not one is a measurement of the child's rect at 
+  - FIX 1 IS AN INERT GUARD, AND ITS TEST WOULD LOCK IN A FALSE GREEN. Because `reinit_window_state` early-returns for a parented VO, `--auto-window-resize=no` and `--no-keepaspect-window` are unreachable under `--wid` (mpvPlayer.js:73 makes --wid unconditional). The proposed `expect(args).toContain('--auto-window-resize=n
+  - THE REPO ALREADY HOLDS COUNTER-EVIDENCE THE DIAGNOSIS DIDN'T USE. scripts/mpv-embed-proof.cjs:305 does `loadfile TRACKS` — a 320x180 file — into a plane set to 800x450, and then :371-374 samples the screen at 0.5 of the plane's CONTENT width (x=400) and expects to find the subtitle box there; the comment at :363-364 sa
+  BETTER: THE CHILD'S SIZE IS MAINTAINED BY ONE LOSSY CROSS-PROCESS WINEVENT HOOK, AND NOTHING SELF-CORRECTS IT. mpv sizes its --wid child at creation from `GetClientRect(w32->parent)`, and afterwards only from `resize_child_win()`, which copies the PARENT's client rect onto the child. That has exactly two triggers, both on the parent's geometry: `parent_win_hook` — `SetWindowsHookExW(WH_CALLWNDPROC, parent_win_hook, NULL, tid)`, which mpv installs only wh
+
+----------------------------------------------------------------------
+VERIFY - holds up: True
+  - EVERY file:line quote checks out. Verified verbatim: planeManager.js:54-111 (overlay constructor, exact option list), planeManager.js:42-46 + main.js:763-801 (videoOptions), index.html:20 (.windrag is the only drag handle), styles.css:3036-3049 (fixed/top:0/left:var(--sidebar-w)/right:140px/height:30px/z-index:15/-webk
+  - I REPRODUCED THE TWO CENTRAL MEASUREMENTS INDEPENDENTLY, with my own probe against the real createPlanes and the real index.html. Styles (GetWindowLong GWL_STYLE): video 0x14c70000, overlay 0x14010000, opaque twin of the overlay 0x14c50000, transparent window with NO parent 0x14010000 — byte-identical to the diagnosis.
+  - HIT TEST CONFIRMED, and it is the claim I most expected to break. Sampling in RAW screen coordinates taken from GetWindowRect (my first attempt used screen.dipToScreenPoint and double-scaled, giving a false HTCLIENT — worth knowing, because it is the trap the next session will fall into): the overlay returns HTCAPTION 
+  - MISQUOTE. The diagnosis says planeManager.js:81-107 quotes "its own measurement `overlay 0x14010000` — a value that already shows WS_THICKFRAME and WS_CAPTION absent. The number that disproved the fix was written into the comment that shipped it." It does not. planeManager.js:95 quotes `overlay 0x14000000` as the BEFOR
+  BETTER: Not a different cause — a more precise statement of the same one, and the precision is what unlocks the simpler fix. The diagnosis says transparency "makes Electron strip WS_THICKFRAME and WS_CAPTION off that window's style", which reads as an ongoing enforcement. It is not. Electron forces thick_frame off for a transparent window and then, for a frameless window, SetWindowLongs a computed frame_style ONCE at Init with `frame_style &= ~(WS_THICKF
