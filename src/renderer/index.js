@@ -1706,8 +1706,30 @@ if (window.tv.isDebug) {
      * `wait` decides whether to hold for the moving backdrop. On by default,
      * because a card that quietly used the still is the thing being debugged.
      */
-    async playUpNext({ style = 'boxoffice', background = 'video', wait = true } = {}) {
+    async playUpNext({
+      style = 'boxoffice', background = 'video', wait = true, advanceFirst = false,
+    } = {}) {
       state = applySettings(shows, state, { bumperStyle: style, bumperBackground: background }, {});
+
+      /**
+       * MOVE THE QUEUE ON, so a run of cards is a run of DIFFERENT programmes.
+       *
+       * This entry point draws the card without playing anything, which is the
+       * point of it — but it also meant the queue never moved, so twenty cards
+       * in a row all announced the same show. Fine for judging type on one
+       * frame; useless for judging a feature whose whole job is naming what is
+       * coming, and it hid every title-length case behind one short name.
+       *
+       * The real advance() rather than a hand-rolled shift: it refills the deck
+       * and moves the cursors exactly as the channel does, so the sequence of
+       * cards is a sequence the channel could actually produce. It writes to
+       * the scratch profile the harness already throws away.
+       */
+      if (advanceFirst) {
+        const moved = advance(shows, state, {});
+        state = moved.state;
+        renderSidebar();
+      }
 
       const lead = peek(shows, state, 1)[0];
       const absPath = lead && lead.episode && lead.episode.absPath;

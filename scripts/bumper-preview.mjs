@@ -180,7 +180,13 @@ async function main() {
 
   for (let round = 1; round <= times; round += 1) {
     // Kick the card off, then watch it while it runs rather than only after.
-    await evaluate(ws, `window.__debugRun = window.__debug.playUpNext({ style: ${JSON.stringify(style)} });
+    /**
+     * ADVANCE BETWEEN CARDS, so a run reviews the feature rather than one frame
+     * twenty times. Not before the FIRST card: the queue head at boot is what
+     * the channel would actually announce next, and skipping it would mean the
+     * run never shows the state she is really in.
+     */
+    await evaluate(ws, `window.__debugRun = window.__debug.playUpNext({ style: ${JSON.stringify(style)}, advanceFirst: ${round > 1} });
       window.__debugDone = false;
       window.__debugRun.then((r) => { window.__debugReport = r; window.__debugDone = true; });
       true`);

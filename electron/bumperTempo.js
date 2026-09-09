@@ -253,13 +253,32 @@ function tempoOf(onsets) {
     return { bpm: FALLBACK_BPM, confident: false, reason: 'too short to analyse' };
   }
 
-  const bpms = reads.map((r) => r.bpm);
-  const spread = (Math.max(...bpms) - Math.min(...bpms)) / bpms[0];
-  if (spread > AGREE) {
+  /**
+   * A MAJORITY, NOT A UNANIMOUS VOTE.
+   *
+   * The rule was that all three ranges had to agree within AGREE, and on her
+   * 33-track folder that rejected 12. The readings show why: seven of them had
+   * two ranges agreeing EXACTLY — 68/68, 62/62, 64/64, 66/66, 67/67 — and were
+   * thrown out by the third, which in almost every case was the widest range
+   * reaching for a number nobody else found. A tempo two independent searches
+   * land on is not an artifact; one dissenting search is the outlier.
+   *
+   * What this deliberately does NOT do is loosen AGREE or narrow the ranges.
+   * The tolerance is 2% because a 50% disagreement is a different answer, not
+   * noise. And the ranges being far apart is the whole mechanism — it is what
+   * caught the original bug, where the estimator simply ran to whichever wall
+   * it was given. Making them more similar to pass more tracks would disarm
+   * the check while appearing to improve it.
+   *
+   * The agreeing pair's own reading is returned, not the outlier's.
+   */
+  const agreed = pickMajority(reads);
+  if (!agreed) {
+    const bpms = reads.map((r) => r.bpm);
     return {
       bpm: FALLBACK_BPM,
       confident: false,
-      reason: `unstable across ranges (${bpms.map((b) => b.toFixed(0)).join('/')})`,
+      reason: `no two ranges agree (${bpms.map((b) => b.toFixed(0)).join('/')})`,
     };
   }
 
@@ -271,7 +290,38 @@ function tempoOf(onsets) {
    * invisible because nothing referenced a missing field; it just quietly
    * stopped being better.
    */
-  return { ...reads[0], confident: true, reason: 'stable' };
+  return { ...agreed.read, confident: true, reason: agreed.reason };
+}
+
+/**
+ * The largest set of range-readings that agree with each other within AGREE.
+ *
+ * Returns the FIRST reading of that set — the ranges are ordered with the
+ * shipped one first, so when it is part of the majority its own answer is the
+ * one used, fractional period and all.
+ *
+ * Two is enough out of three. One reading alone is not a majority and never
+ * qualifies, which is what keeps a single boundary-hugging estimate from being
+ * believed — the failure this whole check exists for.
+ */
+function pickMajority(reads) {
+  let best = null;
+  for (const candidate of reads) {
+    const cluster = reads.filter(
+      (r) => Math.abs(r.bpm - candidate.bpm) / candidate.bpm <= AGREE,
+    );
+    if (cluster.length < 2) continue;
+    if (!best || cluster.length > best.cluster.length) {
+      best = { cluster, read: cluster[0] };
+    }
+  }
+  if (!best) return null;
+  return {
+    read: best.read,
+    reason: best.cluster.length === reads.length
+      ? 'stable'
+      : `${best.cluster.length} of ${reads.length} ranges agree`,
+  };
 }
 
 

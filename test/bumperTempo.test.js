@@ -130,6 +130,44 @@ describe('finding the tempo', () => {
     }
   });
 
+  /**
+   * A MAJORITY, NOT A UNANIMOUS VOTE — and the reason is arithmetic.
+   *
+   * The rule was that all three search ranges had to agree. On her 33-track
+   * folder that rejected 12, and the readings showed seven of them with two
+   * ranges agreeing EXACTLY (68/68, 62/62, 64/64...) thrown out by a third that
+   * had reached for a number nobody else found. Two independent searches
+   * landing on one tempo is evidence; one dissenter is the outlier.
+   *
+   * Measured before and after on the real folder: 21 confident became 31, with
+   * ZERO existing answers changed and none lost. It only ever adds.
+   */
+  it('believes a tempo two of three ranges agree on', () => {
+    // A slow pulse is the shape that split the vote: the widest range reaches
+    // past it for a faster reading while the other two agree.
+    const t = tempoOf(onsetEnvelope(pulses(40, 64, { bed: 0.16, noise: 0.06 })));
+    expect(t.confident, t.reason).toBe(true);
+    expect(Math.abs(t.bpm - 64), `read ${t.bpm.toFixed(1)}`).toBeLessThan(4);
+  });
+
+  /**
+   * ONE RANGE IS NEVER A MAJORITY. This is the property the whole check exists
+   * for — a single boundary-hugging estimate must never be believed — and
+   * relaxing unanimity is exactly the change that could have destroyed it.
+   */
+  it('still refuses when no two ranges agree', () => {
+    const flat = new Array(Math.round(40 * FPS)).fill(0.1);
+    const t = tempoOf(onsetEnvelope(flat));
+    expect(t.confident).toBe(false);
+    expect(t.bpm).toBe(FALLBACK_BPM);
+  });
+
+  it('says how many ranges agreed, so a marginal read is legible', () => {
+    const t = tempoOf(onsetEnvelope(pulses(40, 100)));
+    expect(t.confident).toBe(true);
+    expect(t.reason).toMatch(/stable|ranges agree/);
+  });
+
   it('declines on a clip too short to hold a bar', () => {
     const t = tempoOf(onsetEnvelope(pulses(1.2, 90)));
     expect(t.confident).toBe(false);
