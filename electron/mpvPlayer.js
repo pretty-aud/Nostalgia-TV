@@ -154,7 +154,34 @@ namespace NTV {
  * with an `inFlight` flag — but a synchronous call inside a microtask still
  * blocks the thread it runs on. It read as non-blocking and was not.
  */
-function raiseOnce(parentHwnd) {
+/**
+ * THE SIZE IS HANDED IN, NOT MEASURED HERE.
+ *
+ * This used to read it with GetClientRect from inside this PowerShell, and
+ * PowerShell is only SYSTEM-DPI-aware: on a mixed-DPI desktop Windows
+ * virtualises what it returns for a window on a monitor whose scaling differs
+ * from the system's. Measured on her two screens, one window moved between
+ * them:
+ *
+ *   3440x1440 @100%   content 1200x700   physical 1200x700   PS 1200x700   ok
+ *   2561x1440 @150%   content 1810x1055  physical 2715x1583  PS 1809x1054  WRONG
+ *
+ * Two thirds of the real size in each dimension. Treated as physical, it sized
+ * mpv's video window to 1809x1054 instead of 2715x1583 — the picture rendered
+ * at 44% of the pixels and scaled up. Nothing failed and nothing logged; it
+ * just went soft, and she reported the app as "compressing videos in playback".
+ * It was, and this was why.
+ *
+ * Electron knows the truth — content bounds in DIPs times the scale factor of
+ * the display the window is actually on — so the caller computes it and the
+ * script is told. GetClientRect remains the fallback when no size is supplied:
+ * correct on an unscaled display, and no worse than before anywhere else.
+ */
+function raiseOnce(parentHwnd, size) {
+  const w = Math.round(Number(size && size.width) || 0);
+  const h = Math.round(Number(size && size.height) || 0);
+  const given = w > 0 && h > 0;
+
   const script = [
     `Add-Type -TypeDefinition @'${USER32_SOURCE}
 '@ -ErrorAction SilentlyContinue`,
@@ -182,8 +209,12 @@ function raiseOnce(parentHwnd) {
      * The app owns the geometry now, on the same PowerShell round trip the
      * raise already cost.
      */
-    `$r = New-Object NTV.RECT; [NTV.U]::GetClientRect([System.IntPtr]${parentHwnd}, [ref] $r) | Out-Null`,
-    '$w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top',
+    ...(given
+      ? [`$w = ${w}; $h = ${h}`]
+      : [
+        `$r = New-Object NTV.RECT; [NTV.U]::GetClientRect([System.IntPtr]${parentHwnd}, [ref] $r) | Out-Null`,
+        '$w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top',
+      ]),
     'if ($w -gt 0 -and $h -gt 0) {',
     // HWND_TOP, at the parent's origin, filling its client area; SWP_NOACTIVATE.
     '  [NTV.U]::SetWindowPos($mpv, [System.IntPtr]::Zero, 0, 0, $w, $h, 0x10) | Out-Null',
@@ -213,13 +244,13 @@ function raiseOnce(parentHwnd) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function raiseMpvChild(parentHwnd, { attempts = 25, intervalMs = 200 } = {}) {
+async function raiseMpvChild(parentHwnd, { attempts = 25, intervalMs = 200, clientSize } = {}) {
   for (let i = 0; i < attempts; i += 1) {
     // AWAITED. raiseOnce returns a promise now, and a promise is always
     // truthy — without this the first attempt would always "succeed" and the
     // spawn-time retry loop, which exists because the child appears a beat
     // after the process does, would never run.
-    if (await raiseOnce(parentHwnd)) return true;
+    if (await raiseOnce(parentHwnd, clientSize && clientSize())) return true;
     await sleep(intervalMs);
   }
   return false;
@@ -239,7 +270,7 @@ async function raiseMpvChild(parentHwnd, { attempts = 25, intervalMs = 200 } = {
  * resize drag emits dozens, and they must not queue up behind each other.
  * Trailing-edge, one in flight at a time.
  */
-function makeRaiser(parentHwnd, { minIntervalMs = 400 } = {}) {
+function makeRaiser(parentHwnd, { minIntervalMs = 400, clientSize } = {}) {
   let inFlight = false;
   let pendingTimer = null;
   let requestedWhileBusy = false;
@@ -267,7 +298,10 @@ function makeRaiser(parentHwnd, { minIntervalMs = 400 } = {}) {
     // Deliberately not awaited: the caller is an event handler, and a raise
     // that lands a beat late is invisible where a blocked handler is not.
     Promise.resolve()
-      .then(() => raiseOnce(parentHwnd))
+      // Asked EVERY time, never captured once: the window is moved between
+      // monitors of different scaling, and a size read at startup would be
+      // wrong from the moment it crossed.
+      .then(() => raiseOnce(parentHwnd, clientSize && clientSize()))
       .catch(() => false)
       .finally(() => {
         inFlight = false;
@@ -289,7 +323,7 @@ let pipeCounter = 0;
  * re-register observers then. When the policy gives up, 'down' fires once
  * and the player stays dead until close().
  */
-async function startMpvPlayer({ hwnd, logFile, exePath }) {
+async function startMpvPlayer({ hwnd, logFile, exePath, clientSize }) {
   const exe = exePath || findMpv();
   if (!exe) throw new Error('mpv is not vendored; run: node scripts/vendor-mpv.mjs');
 
@@ -321,7 +355,7 @@ async function startMpvPlayer({ hwnd, logFile, exePath }) {
     // The proven raise. Failure here is loud, not silent: an unraised mpv is
     // the invisible-video bug, and "it says it is playing" is exactly the
     // symptom that costs a day.
-    const raised = await raiseMpvChild(hwnd);
+    const raised = await raiseMpvChild(hwnd, { clientSize });
     if (!raised) emit('raise-failed', {});
 
     // A child that died DURING its own spawn no longer matches `current` in
@@ -372,7 +406,7 @@ async function startMpvPlayer({ hwnd, logFile, exePath }) {
    * A new file is a new surface: mpv re-creates its swapchain on load, and
    * Chromium takes the opportunity to re-assert. Re-raise on every one.
    */
-  const raise = makeRaiser(hwnd);
+  const raise = makeRaiser(hwnd, { clientSize });
   const armFileRaise = () => {
     if (current) current.client.on('start-file', raise);
   };
