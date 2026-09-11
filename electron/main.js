@@ -860,28 +860,6 @@ async function createWindow() {
   const player = await startMpvPlayer({
     hwnd: video.getNativeWindowHandle().readBigUInt64LE(0).toString(),
     logFile: path.join(app.getPath('userData'), 'mpv.log'),
-    /**
-     * The plane's client area in REAL pixels, for sizing mpv's child.
-     *
-     * Electron is the only party here that knows this. getContentBounds is in
-     * device-independent pixels, and the scale factor is the DISPLAY THE WINDOW
-     * IS ON — not the system's — which is what makes this right on a desktop
-     * where one monitor is 100% and the other 150%.
-     *
-     * A FUNCTION, asked on every raise rather than measured once. She has two
-     * screens at different scaling and the window moves between them; a value
-     * captured at startup would be wrong from the moment it crossed, and wrong
-     * in the direction that costs resolution.
-     */
-    clientSize: () => {
-      if (!video || video.isDestroyed()) return null;
-      const bounds = video.getContentBounds();
-      const scale = screen.getDisplayMatching(video.getBounds()).scaleFactor || 1;
-      return {
-        width: Math.round(bounds.width * scale),
-        height: Math.round(bounds.height * scale),
-      };
-    },
   });
   mpvPlayerHandle = player;
   watchMpvActivity(player);
